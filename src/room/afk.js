@@ -89,7 +89,7 @@ function createAfkTracker(room) {
       if (idle >= config.afkWarnMs && !st.warned) {
         st.warned = true;
         room.sendAnnouncement(
-          `⚠️ ${p.name}, mexa-se (10s) ou será tratado como AFK.`,
+          `⚠️ ${p.name}, mexa-se — faltam 5s para AFK.`,
           p.id,
           0xf1c40f,
           "bold",

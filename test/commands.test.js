@@ -94,6 +94,24 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("!afk tem delay de 10s contra spam", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk };
+    const cmd = createCommandHandler(room, ctx);
+    const spec = room._players[2];
+
+    await cmd.handle(spec, "!afk");
+    assert.equal(afk.isVoluntary(3), true);
+    await cmd.handle(spec, "!back");
+    assert.equal(afk.isVoluntary(3), false);
+
+    await cmd.handle(spec, "!afk");
+    assert.equal(afk.isVoluntary(3), false);
+    assert.ok(room.announcements.some((a) => /espere \d+s para usar !afk/i.test(a.msg)));
+    afk.stop();
+  });
+
   it("!afk é permitido quando é o único jogador no treino", async () => {
     const room = mockRoom();
     room._players.splice(1); // só o RedCap

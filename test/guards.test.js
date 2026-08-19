@@ -184,28 +184,28 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("10s parado no time → spec; menos que isso não pune", () => {
+  it("15s parado avisa; 20s manda para o spec", () => {
     const { room, players } = afkSetup(4);
     const afk = createAfkTracker(room);
     const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
-    config.afkWarnMs = 5000;
-    config.afkActionMs = 10000;
+    config.afkWarnMs = 15000;
+    config.afkActionMs = 20000;
 
     afk.touch(1);
     const at = Date.now();
 
-    afk.tick(at + 4000);
+    afk.tick(at + 14000);
     assert.equal(players.find((p) => p.id === 1).team, 1);
-    assert.ok(!room.announcements.some((a) => /10s/i.test(a.msg)));
+    assert.ok(!room.announcements.some((a) => /faltam 5s/i.test(a.msg)));
 
-    afk.tick(at + 6000);
-    assert.ok(room.announcements.some((a) => /10s/i.test(a.msg)));
-    assert.equal(players.find((p) => p.id === 1).team, 1);
-
-    afk.tick(at + 9000);
+    afk.tick(at + 16000);
+    assert.ok(room.announcements.some((a) => /faltam 5s/i.test(a.msg)));
     assert.equal(players.find((p) => p.id === 1).team, 1);
 
-    afk.tick(at + 11000);
+    afk.tick(at + 19000);
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+
+    afk.tick(at + 21000);
     assert.equal(players.find((p) => p.id === 1).team, 0);
 
     config.afkWarnMs = prev.warn;

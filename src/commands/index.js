@@ -40,6 +40,8 @@ function helpText(isAdmin) {
 }
 
 function createCommandHandler(room, ctx) {
+  /** @type {Map<number, number>} */
+  const lastAfkCommandAt = new Map();
   function applyTitleLook(player, title) {
     if (!player || !title) return;
     try {
@@ -108,6 +110,20 @@ function createCommandHandler(room, ctx) {
         );
         return true;
       }
+      const cooldown = config.afkCommandCooldownMs || 10000;
+      const elapsed = Date.now() - (lastAfkCommandAt.get(player.id) || 0);
+      if (elapsed < cooldown) {
+        const left = Math.ceil((cooldown - elapsed) / 1000);
+        room.sendAnnouncement(
+          `Espere ${left}s para usar !afk de novo.`,
+          player.id,
+          0xf1c40f,
+          "normal",
+          1
+        );
+        return true;
+      }
+      lastAfkCommandAt.set(player.id, Date.now());
       ctx.afk?.setVoluntary(player, true);
       return true;
     }
