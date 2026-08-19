@@ -292,9 +292,9 @@ describe("streak e winner stays", () => {
     assert.equal(streak.get(), 1);
     assert.equal(players.find((row) => row.id === 1).team, TEAM.RED);
     assert.equal(players.find((row) => row.id === 2).team, TEAM.RED);
-    assert.equal(players.find((row) => row.id === 3).team, TEAM.BLUE);
+    assert.equal(players.find((row) => row.id === 5).team, TEAM.BLUE);
+    assert.equal(players.find((row) => row.id === 3).team, TEAM.SPEC);
     assert.equal(players.find((row) => row.id === 4).team, TEAM.SPEC);
-    assert.equal(players.find((row) => row.id === 5).team, TEAM.SPEC);
   });
 
   it("empate não zera times nem streak (gol de ouro)", () => {
@@ -315,10 +315,13 @@ describe("streak e winner stays", () => {
     assert.equal(players[1].team, TEAM.BLUE);
   });
 
-  it("shouldUseWinnerStays só com 8+ e partida válida", () => {
+  it("shouldUseWinnerStays no 3v3/2v2 mesmo sem stats; 4v4 só se válida", () => {
     assert.equal(shouldUseWinnerStays(8, true, TEAM.RED), true);
-    assert.equal(shouldUseWinnerStays(7, true, TEAM.RED), false);
+    assert.equal(shouldUseWinnerStays(7, false, TEAM.RED), true);
+    assert.equal(shouldUseWinnerStays(5, false, TEAM.BLUE), true);
+    assert.equal(shouldUseWinnerStays(3, false, TEAM.RED), true);
     assert.equal(shouldUseWinnerStays(8, false, TEAM.RED), false);
+    assert.equal(shouldUseWinnerStays(7, false, 0), false);
   });
 });
 

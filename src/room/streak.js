@@ -48,6 +48,11 @@ function createStreakTracker() {
  */
 function applyWinnerStays(room, winner, streakTracker, { isExcluded } = {}) {
   const players = room.getPlayerList().filter((p) => p.id !== 0);
+  const eligible = (p) =>
+    p && p.id !== 0 && !(typeof isExcluded === "function" && isExcluded(p));
+
+  // Quem já estava no spec (1º da fila) vira capitão — não o 1º perdedor na ordem da sala.
+  const waitingSpecs = players.filter((p) => p.team === TEAM.SPEC && eligible(p));
   const red = players.filter((p) => p.team === TEAM.RED);
   const blue = players.filter((p) => p.team === TEAM.BLUE);
 
@@ -79,21 +84,21 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded } = {}) {
     );
   }
 
-  // Capitao adversário: 1º elegível do spec → azul
-  const specs = room
+  const specsNow = room
     .getPlayerList()
-    .filter((p) => p.team === TEAM.SPEC && p.id !== 0 && !(typeof isExcluded === "function" && isExcluded(p)));
-  if (specs.length) {
-    room.setPlayerTeam(specs[0].id, TEAM.BLUE);
-  }
+    .filter((p) => p.team === TEAM.SPEC && eligible(p));
+  const captain = waitingSpecs[0] || specsNow[0];
+  if (captain) room.setPlayerTeam(captain.id, TEAM.BLUE);
 
   return { mode: "choose", streak: nextStreak };
 }
 
 function shouldUseWinnerStays(playerCount, valid, winner) {
-  if (!valid) return false;
-  if (playerCount < config.teamSize * 2) return false;
-  return winner === TEAM.RED || winner === TEAM.BLUE;
+  if (winner !== TEAM.RED && winner !== TEAM.BLUE) return false;
+  if (playerCount < 2) return false;
+  // 4v4 oficial: só depois de partida válida. 1v1/2v2/3v3 (warmup) rotaciona mesmo sem stats.
+  if (playerCount >= config.teamSize * 2) return !!valid;
+  return true;
 }
 
 module.exports = {

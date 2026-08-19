@@ -118,6 +118,13 @@ function rageQuitMessages(name, reason) {
   };
 }
 
+/** 7 pessoas → 3v3; 5 → 2v2; 3 → 1v1; 8+ → 4v4. */
+function targetTeamSize(eligibleCount, maxSize = 4) {
+  const n = Math.max(0, Number(eligibleCount) || 0);
+  const cap = Math.max(1, Number(maxSize) || 4);
+  return Math.min(cap, Math.max(1, Math.floor(n / 2)));
+}
+
 module.exports = {
   attributeGoal,
   isValidMatchScores,
@@ -131,4 +138,5 @@ module.exports = {
   canJoinMatchStats,
   detectRageQuit,
   rageQuitMessages,
+  targetTeamSize,
 };

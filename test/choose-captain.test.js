@@ -468,3 +468,56 @@ describe("capitão e lista de pick", () => {
     config.chooseTimeSec = prev;
   });
 });
+
+describe("winner stays 3v3/2v2/1v1", () => {
+  it("3v3 + 1 spec: capitão (ex-spec) escolhe 2 entre os 3", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.RED),
+      p(3, TEAM.RED),
+      p(7, TEAM.BLUE),
+      p(4),
+      p(5),
+      p(6),
+    ];
+    const { choose } = setup(players);
+    choose.continueFromField();
+    const cap = choose.currentCaptain();
+    assert.equal(cap.id, 7);
+    assert.equal(choose.handleCaptainChat(cap, "1"), true);
+    assert.equal(choose.handleCaptainChat(cap, "1"), true);
+    assert.equal(choose.list().red.length, 3);
+    assert.equal(choose.list().blue.length, 3);
+    assert.equal(choose.list().spec.length, 1);
+    assert.equal(choose.isActive(), false);
+  });
+
+  it("2v2 + 1 spec: capitão escolhe 1 entre os 2", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.RED),
+      p(5, TEAM.BLUE),
+      p(3),
+      p(4),
+    ];
+    const { choose } = setup(players);
+    choose.continueFromField();
+    const cap = choose.currentCaptain();
+    assert.equal(cap.id, 5);
+    assert.equal(choose.handleCaptainChat(cap, "1"), true);
+    assert.equal(choose.list().red.length, 2);
+    assert.equal(choose.list().blue.length, 2);
+    assert.equal(choose.list().spec.length, 1);
+    assert.equal(choose.isActive(), false);
+  });
+
+  it("1v1 + 1 spec: já está completo, começa sem pick", () => {
+    const players = [p(1, TEAM.RED), p(3, TEAM.BLUE), p(2)];
+    const { choose } = setup(players);
+    choose.continueFromField();
+    assert.equal(choose.isActive(), false);
+    assert.equal(choose.list().red.length, 1);
+    assert.equal(choose.list().blue.length, 1);
+    assert.equal(choose.list().spec.length, 1);
+  });
+});

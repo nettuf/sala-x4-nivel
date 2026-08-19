@@ -13,7 +13,7 @@ const { applyJoinGuards } = require("./joinGuards");
 const { createUniformManager } = require("./uniforms");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays } = require("./streak");
 const { createCommandHandler } = require("../commands");
-const { detectRageQuit, isChooseToken, rageQuitMessages } = require("../gameLogic");
+const { detectRageQuit, isChooseToken, rageQuitMessages, targetTeamSize } = require("../gameLogic");
 const { rememberIdentity, withIdentity } = require("./playerAuth");
 const { guardRoomApi } = require("./safeApi");
 
@@ -148,11 +148,7 @@ function createRoom(HBInit) {
       }
       // Admin fechou o 4v4 numa reposição pausada: só despausa, não reinicia.
       if (room.getScores()) return;
-      room.sendAnnouncement("4v4 pronto — iniciando!", null, 0x2ecc71, "bold", 2);
-      applyStadium(room, config.teamSize * 2);
-      stadiumKind = "x4";
-      uniforms.reapply();
-      match.start({ competitive: true });
+      startFromCurrentField();
     },
   });
   ctx.choose = choose;
@@ -218,6 +214,12 @@ function createRoom(HBInit) {
     // Reposição/choose pausado só atualiza a lista do capitão.
     if (match.isCompetitive()) {
       if (choose.isActive()) choose.onPlayerJoin();
+      return;
+    }
+
+    // Winner stays 1v1/2v2/3v3/4v4: não deixa o warmup desmontar os vencedores.
+    if (choose.isActive() && !choose.isReplacement()) {
+      choose.onPlayerJoin();
       return;
     }
 
@@ -313,18 +315,32 @@ function createRoom(HBInit) {
   }
 
   function startCompetitiveFromCurrentField() {
+    startFromCurrentField();
+  }
+
+  function startFromCurrentField() {
     if (room.getScores() || match.isRunning()) return;
-    const players = room.getPlayerList().filter((p) => p.id !== 0);
-    const red = players.filter((p) => p.team === TEAM.RED);
-    const blue = players.filter((p) => p.team === TEAM.BLUE);
-    if (red.length !== config.teamSize || blue.length !== config.teamSize) {
+    const eligible = room
+      .getPlayerList()
+      .filter((p) => p.id !== 0 && !afk.isAfk(p.id));
+    const size = targetTeamSize(eligible.length, config.teamSize);
+    const red = eligible.filter((p) => p.team === TEAM.RED);
+    const blue = eligible.filter((p) => p.team === TEAM.BLUE);
+    if (red.length < size || blue.length < size) {
       refreshLobby();
       return;
     }
-    applyStadium(room, players.length);
-    stadiumKind = "x4";
-    uniforms.reapply();
-    match.start({ competitive: true });
+    if (size >= config.teamSize) {
+      room.sendAnnouncement("4v4 pronto — iniciando!", null, 0x2ecc71, "bold", 2);
+      applyStadium(room, config.teamSize * 2);
+      stadiumKind = "x4";
+      uniforms.reapply();
+      match.start({ competitive: true });
+      return;
+    }
+    room.sendAnnouncement(`${size}v${size} pronto — iniciando!`, null, 0x2ecc71, "bold", 2);
+    setLobbyStadium(eligible.length);
+    match.start({ competitive: false });
   }
 
   function recoverCompetitiveLineup() {
@@ -856,15 +872,15 @@ function createRoom(HBInit) {
             redCount: eligible.filter((p) => p.team === TEAM.RED).length,
             blueCount: eligible.filter((p) => p.team === TEAM.BLUE).length,
             specCount: specs.length,
-            teamSize: config.teamSize,
+            teamSize: targetTeamSize(eligible.length, config.teamSize),
           });
           if (fill.action === "start") {
-            startCompetitiveFromCurrentField();
+            startFromCurrentField();
             return;
           }
           if (fill.action === "fill-all") {
             applyExactFill(room, specs, fill);
-            startCompetitiveFromCurrentField();
+            startFromCurrentField();
             return;
           }
           if (fill.action === "keep") {

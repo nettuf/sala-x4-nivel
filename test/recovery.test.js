@@ -145,4 +145,25 @@ describe("pós-vitória: preencher sem sobra ou pickar", () => {
       "keep"
     );
   });
+
+  it("3v3 + 1 spec após vitória: 3 red 1 blue 3 spec → capitão escolhe 2", () => {
+    assert.equal(
+      planExactFill({ redCount: 3, blueCount: 1, specCount: 3, teamSize: 3 }).action,
+      "choose"
+    );
+  });
+
+  it("2v2 + 1 spec após vitória: 2 red 1 blue 2 spec → capitão escolhe 1", () => {
+    assert.equal(
+      planExactFill({ redCount: 2, blueCount: 1, specCount: 2, teamSize: 2 }).action,
+      "choose"
+    );
+  });
+
+  it("1v1 + 1 spec após vitória: já está 1v1 → inicia", () => {
+    assert.equal(
+      planExactFill({ redCount: 1, blueCount: 1, specCount: 1, teamSize: 1 }).action,
+      "start"
+    );
+  });
 });

@@ -318,6 +318,11 @@ describe("uniformes: emoji do kit", () => {
     assert.equal(findKit("jalin").angle, 857);
     assert.equal(findKit("jalin").text, 0xe2ff26);
     assert.deepEqual(findKit("jalin").colors, [0xe2ff26, 0x770c69, 0x23cf29]);
+    assert.equal(findKit("vrum").name, "Amigos do Vrum");
+    assert.equal(findKit("vrum").angle, 60);
+    assert.equal(findKit("vrum").text, 0x5005ff);
+    assert.deepEqual(findKit("vrum").colors, [0x000000]);
+    assert.equal(findKit("vrum").emoji, undefined);
   });
 
   it("kit com emoji marca o time inteiro e deixa o resto livre", () => {

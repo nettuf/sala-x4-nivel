@@ -37,6 +37,7 @@ const KITS = [
   { id: "zrx", name: "Amigos do zrx", angle: 0, text: 0xf58300, colors: [0x292929] },
   { id: "tigre", name: "Amigos do Rei Tigre", angle: 59, text: 0xfff5f5, colors: [0xf1ff30, 0x000000, 0xf1ff30], emoji: "👑" },
   { id: "jalin", name: "Amigos do Jalin", angle: 857, text: 0xe2ff26, colors: [0xe2ff26, 0x770c69, 0x23cf29], emoji: "🐒" },
+  { id: "vrum", name: "Amigos do Vrum", angle: 60, text: 0x5005ff, colors: [0x000000] },
 ];
 
 function defaultKit(team) {

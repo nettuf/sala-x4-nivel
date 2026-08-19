@@ -1,6 +1,6 @@
 const config = require("../config");
 const { kickReason } = require("../utils");
-const { pickFromSpecList, isChooseToken, rememberedChooseMode } = require("../gameLogic");
+const { pickFromSpecList, isChooseToken, rememberedChooseMode, targetTeamSize } = require("../gameLogic");
 
 const TEAM = { SPEC: 0, RED: 1, BLUE: 2 };
 
@@ -22,10 +22,22 @@ function createChooseController(room, {
   let replacement = null;
   const pendingTeams = new Map();
   const lastMode = { [TEAM.RED]: "", [TEAM.BLUE]: "" };
-  const teamSize = config.teamSize;
 
   function excluded(p) {
     return typeof isExcluded === "function" ? !!isExcluded(p) : false;
+  }
+
+  function currentTeamSize() {
+    if (replacement) return config.teamSize;
+    const players = room.getPlayerList().filter((p) => p.id !== 0 && !excluded(p));
+    const teamOf = (p) => (pendingTeams.has(p.id) ? pendingTeams.get(p.id) : p.team);
+    const held = Math.max(
+      players.filter((p) => teamOf(p) === TEAM.RED).length,
+      players.filter((p) => teamOf(p) === TEAM.BLUE).length,
+      1
+    );
+    const byCount = targetTeamSize(players.length, config.teamSize);
+    return Math.min(config.teamSize, Math.max(byCount, held));
   }
 
   function streakSuffix() {
@@ -106,8 +118,8 @@ function createChooseController(room, {
   function pickingTeam() {
     if (replacement) return replacement.targetTeam;
     const { red, blue } = list();
-    const redHole = red.length < teamSize;
-    const blueHole = blue.length < teamSize;
+    const redHole = red.length < currentTeamSize();
+    const blueHole = blue.length < currentTeamSize();
     if (redHole && !blueHole) return TEAM.RED;
     if (blueHole && !redHole) return TEAM.BLUE;
     if (redHole && blueHole) return red.length <= blue.length ? TEAM.RED : TEAM.BLUE;
@@ -137,14 +149,14 @@ function createChooseController(room, {
   function teamHasHole(team) {
     const { red, blue } = list();
     const count = team === TEAM.RED ? red.length : blue.length;
-    return count < teamSize;
+    return count < currentTeamSize();
   }
 
   function holesByTeam() {
     const { red, blue } = list();
     return {
-      red: Math.max(0, teamSize - red.length),
-      blue: Math.max(0, teamSize - blue.length),
+      red: Math.max(0, currentTeamSize() - red.length),
+      blue: Math.max(0, currentTeamSize() - blue.length),
     };
   }
 
@@ -270,14 +282,14 @@ function createChooseController(room, {
 
   function bothFull() {
     const { red, blue } = list();
-    return red.length >= teamSize && blue.length >= teamSize;
+    return red.length >= currentTeamSize() && blue.length >= currentTeamSize();
   }
 
   function replacementTeamFull() {
     if (!replacement) return false;
     const { red, blue } = list();
     const count = replacement.targetTeam === TEAM.RED ? red.length : blue.length;
-    return count >= teamSize;
+    return count >= currentTeamSize();
   }
 
   /** 4v4 fechado (pick ou admin): encerra choose/reposição e não kicka capitão. */
@@ -318,7 +330,7 @@ function createChooseController(room, {
     active = true;
     if (tryFillExactHoles()) return;
     room.sendAnnouncement(
-      `🎮 Choose ativado — ${config.chooseTimeSec}s por pick · até 4v4${streakSuffix()}`,
+      `🎮 Choose ativado — ${config.chooseTimeSec}s por pick · até ${currentTeamSize()}v${currentTeamSize()}${streakSuffix()}`,
       null,
       0x9b59b6,
       "bold",
@@ -359,16 +371,16 @@ function createChooseController(room, {
       setTeam(specReady[0].id, TEAM.BLUE);
       ({ red, blue, specReady } = list());
     }
-    while (red.length < teamSize && blue.length < teamSize && specReady.length >= 2) {
+    while (red.length < currentTeamSize() && blue.length < currentTeamSize() && specReady.length >= 2) {
       setTeam(specReady[0].id, TEAM.RED);
       setTeam(specReady[1].id, TEAM.BLUE);
       ({ red, blue, specReady } = list());
     }
-    while (red.length < teamSize && specReady.length) {
+    while (red.length < currentTeamSize() && specReady.length) {
       setTeam(specReady[0].id, TEAM.RED);
       ({ red, specReady } = list());
     }
-    while (blue.length < teamSize && specReady.length) {
+    while (blue.length < currentTeamSize() && specReady.length) {
       setTeam(specReady[0].id, TEAM.BLUE);
       ({ blue, specReady } = list());
     }
@@ -388,12 +400,12 @@ function createChooseController(room, {
 
     const { red, blue } = list();
     // Vencedores já no campo: não resetar o time cheio só porque o outro ainda está vazio.
-    if (red.length >= teamSize && !blue.length) {
+    if (red.length >= currentTeamSize() && !blue.length) {
       if (!promoteSpecTo(TEAM.BLUE)) {
         abortChoose("Sem jogadores elegíveis para o outro time — voltando ao lobby.");
         return;
       }
-    } else if (blue.length >= teamSize && !red.length) {
+    } else if (blue.length >= currentTeamSize() && !red.length) {
       if (!promoteSpecTo(TEAM.RED)) {
         abortChoose("Sem jogadores elegíveis para o outro time — voltando ao lobby.");
         return;
@@ -467,7 +479,7 @@ function createChooseController(room, {
     const eligible = room
       .getPlayerList()
       .filter((p) => p.id !== 0 && !excluded(p));
-    if (eligible.length < teamSize * 2) {
+    if (eligible.length < currentTeamSize() * 2) {
       deactivate();
       return;
     }
@@ -479,7 +491,7 @@ function createChooseController(room, {
     }
 
     const { red, blue } = list();
-    if (red.length >= teamSize || blue.length >= teamSize) {
+    if (red.length >= currentTeamSize() || blue.length >= currentTeamSize()) {
       continueFromField();
       return;
     }
@@ -503,7 +515,7 @@ function createChooseController(room, {
    */
   function applyCaptainPick(player, chosen, team, token) {
     const { red, blue } = list();
-    if ((team === TEAM.RED && red.length >= teamSize) || (team === TEAM.BLUE && blue.length >= teamSize)) {
+    if ((team === TEAM.RED && red.length >= currentTeamSize()) || (team === TEAM.BLUE && blue.length >= currentTeamSize())) {
       if (bothFull()) {
         deactivate();
         afterTeamChange(onReadyToStart);
@@ -553,7 +565,7 @@ function createChooseController(room, {
     const { red, blue } = list();
     const cap = currentCaptain();
     if (!cap || player.id !== cap.id) return false;
-    if (red.length >= teamSize && blue.length >= teamSize) return false;
+    if (red.length >= currentTeamSize() && blue.length >= currentTeamSize()) return false;
 
     const token = String(message || "").trim().split(/\s+/)[0];
     if (!isChooseToken(token)) {
@@ -594,13 +606,13 @@ function createChooseController(room, {
     }
 
     const players = room.getPlayerList().filter((p) => p.id !== 0);
-    if (players.length < teamSize * 2) {
+    const size = currentTeamSize();
+    let { red, blue, spec, specReady } = list();
+    if (players.length < size * 2 || red.length > size || blue.length > size) {
       deactivate();
       room.sendAnnouncement("Choose cancelado — poucos jogadores.", null, 0xe67e22, "normal", 1);
       return;
     }
-
-    let { red, blue, spec, specReady } = list();
 
     // Sem streak: se ficou 2 a mais de um lado, o último escolhido volta pro spec (FC/Wazarr).
     const streakNow = typeof getStreak === "function" ? getStreak() : 0;
@@ -628,8 +640,8 @@ function createChooseController(room, {
         );
         ({ red, blue, spec, specReady } = list());
       } else if (
-        (red.length >= teamSize && !blue.length) ||
-        (blue.length >= teamSize && !red.length)
+        (red.length >= currentTeamSize() && !blue.length) ||
+        (blue.length >= currentTeamSize() && !red.length)
       ) {
         promptCaptain();
         return;

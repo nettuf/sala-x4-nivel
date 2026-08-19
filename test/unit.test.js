@@ -21,6 +21,7 @@ const {
   canJoinMatchStats,
   detectRageQuit,
   rageQuitMessages,
+  targetTeamSize,
 } = require("../src/gameLogic");
 const {
   listUnlocked,
@@ -99,6 +100,16 @@ describe("gameLogic", () => {
     assert.equal(pickFromSpecList(spec, "9"), null);
     assert.equal(isChooseToken("top"), true);
     assert.equal(isChooseToken("!help"), false);
+  });
+
+  it("targetTeamSize: 7→3v3, 5→2v2, 3→1v1, 8+→4v4", () => {
+    assert.equal(targetTeamSize(7, 4), 3);
+    assert.equal(targetTeamSize(6, 4), 3);
+    assert.equal(targetTeamSize(5, 4), 2);
+    assert.equal(targetTeamSize(4, 4), 2);
+    assert.equal(targetTeamSize(3, 4), 1);
+    assert.equal(targetTeamSize(8, 4), 4);
+    assert.equal(targetTeamSize(12, 4), 4);
   });
 
   it("rememberedChooseMode só grava top/random/bottom", () => {
@@ -187,9 +198,39 @@ describe("streak / winner stays", () => {
     assert.equal(streak.get(), 1);
     assert.equal(players.find((p) => p.id === 3).team, TEAM.RED);
     assert.equal(players.find((p) => p.id === 4).team, TEAM.RED);
-    // 1º do spec (ordem da sala = ex-vermelho) vira capitão azul
-    assert.equal(players.find((p) => p.id === 1).team, TEAM.BLUE);
+    // Quem já estava no spec vira capitão azul, não o 1º perdedor na ordem da sala
+    assert.equal(players.find((p) => p.id === 5).team, TEAM.BLUE);
+    assert.equal(players.find((p) => p.id === 1).team, TEAM.SPEC);
     assert.equal(players.find((p) => p.id === 2).team, TEAM.SPEC);
+  });
+
+  it("7 pessoas 3v3: quem já estava no spec vira capitão, mesmo se entrou primeiro", () => {
+    const players = [
+      { id: 7, name: "S1", team: TEAM.SPEC },
+      { id: 1, name: "R1", team: TEAM.RED },
+      { id: 2, name: "R2", team: TEAM.RED },
+      { id: 3, name: "R3", team: TEAM.RED },
+      { id: 4, name: "B1", team: TEAM.BLUE },
+      { id: 5, name: "B2", team: TEAM.BLUE },
+      { id: 6, name: "B3", team: TEAM.BLUE },
+    ];
+    const room = {
+      getPlayerList: () => players,
+      setPlayerTeam: (id, team) => {
+        const p = players.find((x) => x.id === id);
+        if (p) p.team = team;
+      },
+      sendAnnouncement: () => {},
+    };
+    const streak = createStreakTracker();
+    applyWinnerStays(room, TEAM.RED, streak);
+    assert.equal(players.find((p) => p.id === 1).team, TEAM.RED);
+    assert.equal(players.find((p) => p.id === 2).team, TEAM.RED);
+    assert.equal(players.find((p) => p.id === 3).team, TEAM.RED);
+    assert.equal(players.find((p) => p.id === 7).team, TEAM.BLUE);
+    assert.equal(players.find((p) => p.id === 4).team, TEAM.SPEC);
+    assert.equal(players.find((p) => p.id === 5).team, TEAM.SPEC);
+    assert.equal(players.find((p) => p.id === 6).team, TEAM.SPEC);
   });
 });
 

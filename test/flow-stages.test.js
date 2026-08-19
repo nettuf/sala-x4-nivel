@@ -5,7 +5,7 @@ const { reloadMaps, stadiumForPlayerCount } = require("../src/room/maps");
 const { createChooseController, TEAM } = require("../src/room/choose");
 const { createMatchController } = require("../src/room/match");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays } = require("../src/room/streak");
-const { attributeGoal, detectRageQuit, rageQuitMessages } = require("../src/gameLogic");
+const { attributeGoal, detectRageQuit, rageQuitMessages, targetTeamSize } = require("../src/gameLogic");
 const { planCompetitiveRecovery, planExactFill, applyExactFill } = require("../src/room/recovery");
 const { pickMatchMvps } = require("../src/titles");
 const config = require("../src/config");
@@ -88,9 +88,15 @@ function createMockRoomHost() {
     },
     onReadyToStart() {
       readyStarts += 1;
+      const eligible = players.filter((p) => p.id !== 0 && !voluntaryAfk.has(p.id));
+      const size = targetTeamSize(eligible.length, config.teamSize);
       const { applyStadium } = require("../src/room/maps");
-      applyStadium(room, config.teamSize * 2);
-      match.start({ competitive: true });
+      if (size >= config.teamSize) {
+        applyStadium(room, config.teamSize * 2);
+        match.start({ competitive: true });
+        return;
+      }
+      match.start({ competitive: false });
     },
   });
 
@@ -102,6 +108,11 @@ function createMockRoomHost() {
 
     if (match.isCompetitive()) {
       if (choose.isActive()) choose.onPlayerJoin();
+      return;
+    }
+
+    if (choose.isActive() && !choose.isReplacement()) {
+      choose.onPlayerJoin();
       return;
     }
 
@@ -389,15 +400,19 @@ function createMockRoomHost() {
           redCount: eligible.filter((p) => p.team === TEAM.RED).length,
           blueCount: eligible.filter((p) => p.team === TEAM.BLUE).length,
           specCount: specs.length,
-          teamSize: config.teamSize,
+          teamSize: targetTeamSize(eligible.length, config.teamSize),
         });
         if (fill.action === "start") {
-          match.start({ competitive: true });
+          match.start({
+            competitive: targetTeamSize(eligible.length, config.teamSize) >= config.teamSize,
+          });
           return result;
         }
         if (fill.action === "fill-all") {
           applyExactFill(room, specs, fill);
-          match.start({ competitive: true });
+          match.start({
+            competitive: targetTeamSize(eligible.length, config.teamSize) >= config.teamSize,
+          });
           return result;
         }
         if (fill.action === "keep") {
@@ -878,6 +893,33 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.spec, 0);
     assert.equal(s.matchRunning, true);
     assert.equal(s.gameStarted, started);
+    assert.equal(host.match.isCompetitive(), false);
+    host.cleanup();
+  });
+
+  it("7 pessoas 3v3: vermelho ganha, spec vira capitão e escolhe 2 dos 3", async () => {
+    const host = createMockRoomHost();
+    host.growTo(7);
+    const specId = host.players.find((p) => p.team === TEAM.SPEC).id;
+    const redIds = host.players.filter((p) => p.team === TEAM.RED).map((p) => p.id);
+    await host.endValidMatch({ red: config.scoreLimit, blue: 0 });
+    const s = host.snapshot();
+    assert.equal(s.chooseActive, true);
+    assert.equal(s.red, 3);
+    assert.equal(s.blue, 1);
+    assert.equal(s.spec, 3);
+    assert.equal(host.currentCaptain().id, specId);
+    for (const id of redIds) {
+      assert.equal(host.players.find((p) => p.id === id).team, TEAM.RED);
+    }
+    assert.equal(host.captainPick("1"), true);
+    assert.equal(host.captainPick("1"), true);
+    const after = host.snapshot();
+    assert.equal(after.red, 3);
+    assert.equal(after.blue, 3);
+    assert.equal(after.spec, 1);
+    assert.equal(after.chooseActive, false);
+    assert.equal(after.matchRunning, true);
     assert.equal(host.match.isCompetitive(), false);
     host.cleanup();
   });
