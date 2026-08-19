@@ -1,7 +1,8 @@
 /**
- * Cargos/emblemas desbloqueáveis por stats.
- * req: { games?, goals?, assists?, mvps? } — todos os campos presentes precisam ser atingidos.
+ * Cargos/emblemas desbloqueáveis por stats + cargos de staff.
+ * Só um cargo ativo por vez. req: { games?, goals?, assists?, mvps? }.
  */
+const config = require("./config");
 
 const TITLES = [
   {
@@ -98,7 +99,7 @@ const TITLES = [
   {
     id: "lenda",
     name: "Lenda",
-    emblem: "👑",
+    emblem: "🐉",
     color: 0xe67e22,
     req: { games: 1600, goals: 1200, assists: 800, mvps: 500 },
   },
@@ -121,35 +122,96 @@ function meetsReq(stats, req = {}) {
   return true;
 }
 
-function getTitleById(id) {
-  return TITLES.find((t) => t.id === id) || null;
+const STAFF_TITLES = Object.entries(config.adminLevels)
+  .map(([lvl, meta]) => ({
+    id: meta.id,
+    name: meta.title,
+    emblem: meta.emblem,
+    color: meta.color,
+    kind: "staff",
+    level: Number(lvl),
+  }))
+  .sort((a, b) => a.level - b.level);
+
+function getStaffTitleByLevel(level) {
+  return STAFF_TITLES.find((t) => t.level === Number(level)) || null;
 }
 
-function listUnlocked(stats) {
+function isStaffTitle(titleOrId) {
+  const id = typeof titleOrId === "string" ? titleOrId : titleOrId?.id;
+  return STAFF_TITLES.some((t) => t.id === id);
+}
+
+function getTitleById(id) {
+  if (!id) return null;
+  return TITLES.find((t) => t.id === id) || STAFF_TITLES.find((t) => t.id === id) || null;
+}
+
+function listUnlockedPlayer(stats) {
   return TITLES.filter((t) => meetsReq(stats, t.req));
 }
 
-function isUnlocked(stats, titleId) {
+function listUnlockedStaff(adminLevel = 0) {
+  const level = Number(adminLevel) || 0;
+  return STAFF_TITLES.filter((t) => level >= t.level);
+}
+
+function listUnlocked(stats, adminLevel = 0) {
+  return [...listUnlockedStaff(adminLevel), ...listUnlockedPlayer(stats)];
+}
+
+function isUnlocked(stats, titleId, adminLevel = 0) {
   const t = getTitleById(titleId);
   if (!t) return false;
+  if (t.kind === "staff") return (Number(adminLevel) || 0) >= t.level;
   return meetsReq(stats, t.req);
 }
 
-function resolveTitle(stats, selectedId) {
-  if (selectedId && isUnlocked(stats, selectedId)) {
-    return getTitleById(selectedId);
-  }
-  // fallback: melhor cargo desbloqueado (último da lista que passa)
-  const unlocked = listUnlocked(stats);
+function bestPlayerTitle(stats) {
+  const unlocked = listUnlockedPlayer(stats);
   return unlocked[unlocked.length - 1] || TITLES[0];
 }
 
-function formatChatPrefix(title, adminMeta) {
-  return `${adminMeta?.emblem || ""}${title?.emblem || ""}`;
+function resolveTitle(stats, selectedId, adminLevel = 0) {
+  if (selectedId && isUnlocked(stats, selectedId, adminLevel)) {
+    return getTitleById(selectedId);
+  }
+  if (adminLevel) {
+    return getStaffTitleByLevel(adminLevel) || bestPlayerTitle(stats);
+  }
+  return bestPlayerTitle(stats);
 }
 
-function chatColor(title, adminMeta) {
-  if (adminMeta?.color) return adminMeta.color;
+function playerTitleIndex(id) {
+  return TITLES.findIndex((t) => t.id === id);
+}
+
+function newlyUnlockedPlayerTitles(prevStats, nextStats) {
+  const prevIds = new Set(listUnlockedPlayer(prevStats).map((t) => t.id));
+  return listUnlockedPlayer(nextStats).filter((t) => !prevIds.has(t.id));
+}
+
+/**
+ * Se desbloqueou um cargo de jogador superior ao selecionado, equipa o novo.
+ * Cargos de staff escolhidos (ou fallback de admin) não são trocados.
+ */
+function applyUnlockUpgrade(selectedId, prevStats, nextStats) {
+  const newly = newlyUnlockedPlayerTitles(prevStats, nextStats);
+  if (!newly.length) return selectedId || null;
+  if (selectedId && isStaffTitle(selectedId)) return selectedId;
+  if (!selectedId) return null;
+  const bestNew = newly[newly.length - 1];
+  const selIdx = playerTitleIndex(selectedId);
+  const newIdx = playerTitleIndex(bestNew.id);
+  if (selIdx >= 0 && newIdx > selIdx) return bestNew.id;
+  return selectedId;
+}
+
+function formatChatPrefix(title) {
+  return title?.emblem || "";
+}
+
+function chatColor(title) {
   return title?.color ?? 0xecf0f1;
 }
 
@@ -167,7 +229,8 @@ function pickMatchMvps(players) {
   return scored.filter((p) => p.score === max);
 }
 
-function reqLabel(req) {
+function reqLabel(req, title) {
+  if (title?.kind === "staff") return `adm nv.${title.level}`;
   if (!req || !Object.keys(req).length) return "livre";
   const map = { games: "J", goals: "G", assists: "A", mvps: "MVP" };
   return Object.entries(req)
@@ -177,12 +240,19 @@ function reqLabel(req) {
 
 module.exports = {
   TITLES,
+  STAFF_TITLES,
   statsBag,
   meetsReq,
   getTitleById,
+  getStaffTitleByLevel,
+  isStaffTitle,
+  listUnlockedPlayer,
+  listUnlockedStaff,
   listUnlocked,
   isUnlocked,
   resolveTitle,
+  newlyUnlockedPlayerTitles,
+  applyUnlockUpgrade,
   formatChatPrefix,
   chatColor,
   pickMatchMvps,

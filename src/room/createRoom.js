@@ -550,6 +550,25 @@ function createRoom(HBInit) {
     const result = await match.finish();
     const count = room.getPlayerList().filter((p) => p.id !== 0).length;
 
+    if (result?.titleUnlocks?.length) {
+      for (const u of result.titleUnlocks) {
+        for (const t of u.titles) {
+          const extra = u.equippedChanged ? " — cargo atualizado" : "";
+          room.sendAnnouncement(
+            `${t.emblem} ${u.nick} desbloqueou ${t.name}!${extra}`,
+            null,
+            t.color,
+            "bold",
+            2
+          );
+        }
+      }
+      for (const p of room.getPlayerList()) {
+        if (!p.id) continue;
+        await commands.loadTitleForPlayer(p);
+      }
+    }
+
     if (result && shouldUseWinnerStays(count, result.valid, result.winner)) {
       const { mode } = applyWinnerStays(room, result.winner, streak, {
         isExcluded: (p) => afk.isVoluntary(p.id),

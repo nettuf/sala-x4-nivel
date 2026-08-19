@@ -156,18 +156,18 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
-  it("chat de Chefe usa emoji de staff + cargo, sem escrever Chefe/Novato", () => {
+  it("chat de Chefe usa só o cargo ativo", () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
     const ctx = {
       admins: new Map([[1, { level: 4, title: "Chefe" }]]),
       mutes: new Map(),
       afk,
-      titles: new Map([[1, { emblem: "🌱", name: "Novato", color: 0xbdc3c7 }]]),
+      titles: new Map([[1, { emblem: "👑", name: "Chefe", color: 0xe74c3c, id: "chefe" }]]),
     };
     const cmd = createCommandHandler(room, ctx);
     const { line } = cmd.formatPlayerChat(room._players[0], "s");
-    assert.equal(line, "👑🌱RedCap: s");
+    assert.equal(line, "👑RedCap: s");
     afk.stop();
   });
 

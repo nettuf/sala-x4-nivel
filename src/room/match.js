@@ -317,6 +317,8 @@ function createMatchController(room) {
     redPoss = 0;
     bluePoss = 0;
 
+    let titleUnlocks = [];
+
     if (valid) {
       room.sendAnnouncement(
         `⭐ Posse: 🔴 ${poss.red.toFixed(1)}% : ${poss.blue.toFixed(1)}% 🔵`,
@@ -330,14 +332,19 @@ function createMatchController(room) {
         room.sendAnnouncement(`⭐ MVP: ${names}`, null, 0xf1c40f, "bold", 2);
       }
 
-      saveMatch({
-        scoreRed,
-        scoreBlue,
-        winner,
-        valid: true,
-        players,
-        goals,
-      }).catch((e) => console.error("[match] save", e.message));
+      try {
+        const saved = await saveMatch({
+          scoreRed,
+          scoreBlue,
+          winner,
+          valid: true,
+          players,
+          goals,
+        });
+        titleUnlocks = saved?.titleUnlocks || [];
+      } catch (e) {
+        console.error("[match] save", e.message);
+      }
 
       setTimeout(() => {
         sendReplayAndSummary(snapshot).catch(() => {});
@@ -346,7 +353,7 @@ function createMatchController(room) {
       console.log("[match] partida inválida — sem stats/replay");
     }
 
-    return { valid, winner, scoreRed, scoreBlue };
+    return { valid, winner, scoreRed, scoreBlue, titleUnlocks };
   }
 
   function markVictory() {

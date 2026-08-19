@@ -27,6 +27,7 @@ const {
   resolveTitle,
   pickMatchMvps,
   formatChatPrefix,
+  applyUnlockUpgrade,
 } = require("../src/titles");
 const { stadiumForPlayerCount, reloadMaps } = require("../src/room/maps");
 const { buildSummary } = require("../src/discord/replay");
@@ -213,12 +214,30 @@ describe("titles / cargos", () => {
     assert.equal(mvps[0].auth, "a");
   });
 
-  it("formatChatPrefix é só emoji de staff + cargo, sem nomes", () => {
-    const prefix = formatChatPrefix(
-      { emblem: "⚽", name: "Artilheiro" },
-      { title: "Chefe", emblem: "👑" }
-    );
-    assert.equal(prefix, "👑⚽");
+  it("formatChatPrefix é um único emoji, sem nomes", () => {
+    assert.equal(formatChatPrefix({ emblem: "👑", name: "Chefe" }), "👑");
+    assert.equal(formatChatPrefix({ emblem: "🐉", name: "Lenda" }), "🐉");
+  });
+
+  it("admin sem seleção usa cargo de staff", () => {
+    const t = resolveTitle({ games: 0 }, null, 4);
+    assert.equal(t.id, "chefe");
+    assert.equal(t.emblem, "👑");
+  });
+
+  it("chefe pode escolher Lenda se desbloqueada", () => {
+    const stats = { games: 1600, goals: 1200, assists: 800, mvps: 500 };
+    const t = resolveTitle(stats, "lenda", 4);
+    assert.equal(t.id, "lenda");
+    assert.equal(t.emblem, "🐉");
+  });
+
+  it("desbloquear cargo superior atualiza seleção de jogador, não de staff", () => {
+    const prev = { games: 599, goals: 500, assists: 400, mvps: 160 };
+    const next = { games: 600, goals: 500, assists: 400, mvps: 160 };
+    assert.equal(applyUnlockUpgrade("completo", prev, next), "craque");
+    assert.equal(applyUnlockUpgrade("chefe", prev, next), "chefe");
+    assert.equal(applyUnlockUpgrade(null, prev, next), null);
   });
 });
 

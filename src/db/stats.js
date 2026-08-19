@@ -1,5 +1,5 @@
 const { getSupabase } = require("./supabase");
-const { pickMatchMvps } = require("../titles");
+const { pickMatchMvps, applyUnlockUpgrade, newlyUnlockedPlayerTitles } = require("../titles");
 
 async function ensurePlayer(auth, nick) {
   const sb = getSupabase();
@@ -67,14 +67,24 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
     if (ge) console.error("[stats] match_goals", ge.message);
   }
 
+  const titleUnlocks = [];
   if (valid && players?.length) {
     for (const p of players) {
       if (!p.auth) continue;
-      await bumpPlayerStats({ ...p, mvp: mvpAuths.has(p.auth) });
+      const bump = await bumpPlayerStats({ ...p, mvp: mvpAuths.has(p.auth) });
+      if (bump?.unlockedTitles?.length) {
+        titleUnlocks.push({
+          auth: p.auth,
+          nick: p.nick,
+          titles: bump.unlockedTitles,
+          selectedTitle: bump.selectedTitle,
+          equippedChanged: bump.equippedChanged,
+        });
+      }
     }
   }
 
-  return { match, mvpAuths: [...mvpAuths] };
+  return { match, mvpAuths: [...mvpAuths], titleUnlocks };
 }
 
 async function bumpPlayerStats(p) {
@@ -95,6 +105,14 @@ async function bumpPlayerStats(p) {
     selected_title: null,
   };
 
+  const prev = {
+    games: row.games,
+    goals: row.goals,
+    assists: row.assists,
+    mvps: row.mvps || 0,
+    selected_title: row.selected_title || null,
+  };
+
   row.games += 1;
   if (p.result === "win") row.wins += 1;
   else if (p.result === "draw") row.draws += 1;
@@ -105,8 +123,18 @@ async function bumpPlayerStats(p) {
   if (p.mvp) row.mvps = (row.mvps || 0) + 1;
   row.updated_at = new Date().toISOString();
 
+  const nextSelected = applyUnlockUpgrade(prev.selected_title, prev, row);
+  const unlockedTitles = newlyUnlockedPlayerTitles(prev, row);
+  row.selected_title = nextSelected;
+
   const { error } = await sb.from("player_stats").upsert(row);
   if (error) console.error("[stats] bump", error.message);
+
+  return {
+    unlockedTitles,
+    selectedTitle: row.selected_title,
+    equippedChanged: nextSelected !== (prev.selected_title || null),
+  };
 }
 
 async function getPlayerStats(auth) {

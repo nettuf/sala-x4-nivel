@@ -5,12 +5,14 @@ const { createMute, unmute, findActiveMute } = require("../db/mutes");
 const { getPlayerStats, setSelectedTitle } = require("../db/stats");
 const {
   TITLES,
+  STAFF_TITLES,
   listUnlocked,
   isUnlocked,
   resolveTitle,
   getTitleById,
   reqLabel,
   chatColor,
+  formatChatPrefix,
 } = require("../titles");
 
 function helpText(isAdmin) {
@@ -44,22 +46,23 @@ function createCommandHandler(room, ctx) {
   const lastAfkCommandAt = new Map();
 
   async function loadTitleForPlayer(player) {
-    if (!player?.auth) return resolveTitle({}, null);
+    const adminLevel = ctx.admins.get(player.id)?.level || 0;
+    if (!player?.auth) {
+      const title = resolveTitle({}, null, adminLevel);
+      ctx.titles.set(player.id, title);
+      return title;
+    }
     const stats = (await getPlayerStats(player.auth)) || {};
-    const title = resolveTitle(stats, stats.selected_title);
+    const title = resolveTitle(stats, stats.selected_title, adminLevel);
     ctx.titles.set(player.id, title);
     return title;
   }
 
   function formatPlayerChat(player, message) {
     const title = ctx.titles.get(player.id);
-    const admin = ctx.admins.get(player.id);
-    const adminMeta = admin ? config.adminLevels[admin.level] : null;
-    const staff = adminMeta?.emblem || "";
-    const emblem = title?.emblem || "";
     return {
-      line: `${staff}${emblem}${player.name}: ${message}`,
-      color: chatColor(title, adminMeta),
+      line: `${formatChatPrefix(title)}${player.name}: ${message}`,
+      color: chatColor(title),
     };
   }
 
@@ -252,7 +255,8 @@ function createCommandHandler(room, ctx) {
         room.sendAnnouncement("Sem partidas registradas ainda.", player.id, 0xbdc3c7, "normal", 1);
         return true;
       }
-      const title = resolveTitle(s, s.selected_title);
+      const adminLevel = ctx.admins.get(player.id)?.level || 0;
+      const title = resolveTitle(s, s.selected_title, adminLevel);
       room.sendAnnouncement(
         `${title.emblem} ${player.name}: ${s.games}J ${s.wins}V ${s.draws}E ${s.losses}D | ${s.goals}G ${s.assists}A ${s.mvps || 0}MVP ${s.own_goals}GC`,
         player.id,
@@ -269,14 +273,16 @@ function createCommandHandler(room, ctx) {
         return true;
       }
       const stats = (await getPlayerStats(player.auth)) || {};
-      const unlocked = listUnlocked(stats);
-      const selected = stats.selected_title || resolveTitle(stats, null).id;
+      const adminLevel = ctx.admins.get(player.id)?.level || 0;
+      const unlocked = listUnlocked(stats, adminLevel);
+      const activeId = resolveTitle(stats, stats.selected_title, adminLevel).id;
       const lines = unlocked.map((t, i) => {
-        const mark = t.id === selected ? "✓" : "·";
-        return `${mark} ${i + 1}. ${t.emblem}${t.name} (${t.id}) [${reqLabel(t.req)}]`;
+        const mark = t.id === activeId ? "✓" : "·";
+        return `${mark} ${i + 1}. ${t.emblem}${t.name} (${t.id}) [${reqLabel(t.req, t)}]`;
       });
+      const total = TITLES.length + STAFF_TITLES.filter((t) => adminLevel >= t.level).length;
       room.sendAnnouncement(
-        `Seus cargos (${unlocked.length}/${TITLES.length}):\n${lines.join("\n")}\nUse !cargo <id|n>`,
+        `Seus cargos (${unlocked.length}/${total}):\n${lines.join("\n")}\nUse !cargo <id|n> — só um ativo`,
         player.id,
         0xecf0f1,
         "small",
@@ -296,7 +302,8 @@ function createCommandHandler(room, ctx) {
         return true;
       }
       const stats = (await getPlayerStats(player.auth)) || {};
-      const unlocked = listUnlocked(stats);
+      const adminLevel = ctx.admins.get(player.id)?.level || 0;
+      const unlocked = listUnlocked(stats, adminLevel);
       let title = null;
       if (/^\d+$/.test(raw)) {
         title = unlocked[Number(raw) - 1] || null;
@@ -307,9 +314,9 @@ function createCommandHandler(room, ctx) {
         room.sendAnnouncement("Cargo inválido.", player.id, 0xe74c3c, "normal", 1);
         return true;
       }
-      if (!isUnlocked(stats, title.id)) {
+      if (!isUnlocked(stats, title.id, adminLevel)) {
         room.sendAnnouncement(
-          `Bloqueado. Precisa: ${reqLabel(title.req)}`,
+          `Bloqueado. Precisa: ${reqLabel(title.req, title)}`,
           player.id,
           0xe67e22,
           "bold",
