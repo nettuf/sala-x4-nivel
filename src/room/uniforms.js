@@ -28,6 +28,15 @@ const KITS = [
   { id: "san", name: "Santos", angle: 90, text: 0x000000, colors: [0xffffff] },
   { id: "roxo", name: "Roxo", angle: 90, text: 0xffffff, colors: [0x8e44ad] },
   { id: "verde", name: "Verde neon", angle: 90, text: 0x1c1c1c, colors: [0x2ecc71] },
+  { id: "baleio", name: "Amigos do Baleio", angle: 60, text: 0xffffff, colors: [0x0080ff, 0x004077, 0xc720ab], emoji: "🐋" },
+  { id: "rato", name: "Amigos do Rato", angle: 12, text: 0xff6929, colors: [0x707715, 0xff6929], emoji: "🐀" },
+  { id: "rasta", name: "Amigos do Rastão", angle: 60, text: 0xffffff, colors: [0xff0aff] },
+  { id: "dnzin", name: "Amigos do Dnzinmuller", angle: 60, text: 0x000000, colors: [0xffffff, 0xffffff, 0x9e0000] },
+  { id: "gordo", name: "Gordões FC", angle: 22, text: 0xffffff, colors: [0xff4de7, 0x000000, 0xff4de7], emoji: "🍔" },
+  { id: "copas", name: "Copudo FC", angle: 0, text: 0xffa649, colors: [0xfa0006] },
+  { id: "zrx", name: "Amigos do zrx", angle: 0, text: 0xf58300, colors: [0x292929] },
+  { id: "tigre", name: "Amigos do Rei Tigre", angle: 59, text: 0xfff5f5, colors: [0xf1ff30, 0x000000, 0xf1ff30], emoji: "👑" },
+  { id: "jalin", name: "Amigos do Jalin", angle: 857, text: 0xe2ff26, colors: [0xe2ff26, 0x770c69, 0x23cf29], emoji: "🐒" },
 ];
 
 function defaultKit(team) {
@@ -38,6 +47,26 @@ function findKit(id) {
   const key = String(id || "").trim().toLowerCase();
   if (!key) return null;
   return KITS.find((k) => k.id === key) || null;
+}
+
+function isRandomKitArg(raw) {
+  const key = String(raw || "").trim().toLowerCase();
+  return ["random", "rand", "sortear", "aleatorio", "aleatório"].includes(key);
+}
+
+/**
+ * Sorteia um kit, evitando os ids informados quando ainda houver opções.
+ * @param {string[]|string|null} exceptIds
+ * @param {() => number} [rng]
+ */
+function pickRandomKit(exceptIds = [], rng = Math.random) {
+  const except = new Set(
+    (Array.isArray(exceptIds) ? exceptIds : [exceptIds]).filter(Boolean).map(String)
+  );
+  const pool = KITS.filter((k) => !except.has(k.id));
+  const source = pool.length ? pool : KITS;
+  const idx = Math.min(source.length - 1, Math.floor(rng() * source.length));
+  return source[Math.max(0, idx)];
 }
 
 function parseTeamRef(raw) {
@@ -108,9 +137,14 @@ function resolvePermission({ player, isAdmin, requestedTeam, captains }) {
   return { ok: true, team: player.team };
 }
 
-function createUniformManager(room) {
+function createUniformManager(room, opts = {}) {
+  const rng = typeof opts.random === "function" ? opts.random : Math.random;
   /** @type {Record<number, string|null>} */
   const current = { [TEAM.RED]: KIT_PRETO.id, [TEAM.BLUE]: KIT_BRANCO.id };
+  /** Último avatar aplicado por jogador, para não reenviar o mesmo. */
+  const avatars = new Map();
+  /** Próximo kickoff sorteia, a menos que alguém já tenha escolhido no intervalo. */
+  let pendingRandom = true;
 
   function captains() {
     const players = room.getPlayerList().filter((p) => p.id !== 0);
@@ -127,11 +161,38 @@ function createUniformManager(room) {
       return false;
     }
     current[team] = kit.id;
+    syncAvatars();
     return true;
   }
 
   function kitFor(team) {
     return findKit(current[team]) || defaultKit(team);
+  }
+
+  /** Kit com emoji marca o time inteiro; sem emoji o avatar volta a ser do jogador. */
+  function avatarFor(team) {
+    if (team !== TEAM.RED && team !== TEAM.BLUE) return null;
+    return kitFor(team).emoji || null;
+  }
+
+  function syncAvatars() {
+    if (typeof room.setPlayerAvatar !== "function") return;
+    const players = room.getPlayerList().filter((p) => p.id !== 0);
+    const present = new Set();
+    for (const player of players) {
+      present.add(player.id);
+      const wanted = avatarFor(player.team);
+      if (avatars.has(player.id) && avatars.get(player.id) === wanted) continue;
+      try {
+        room.setPlayerAvatar(player.id, wanted);
+        avatars.set(player.id, wanted);
+      } catch (err) {
+        console.warn("[uniformes] setPlayerAvatar", err.message);
+      }
+    }
+    for (const id of [...avatars.keys()]) {
+      if (!present.has(id)) avatars.delete(id);
+    }
   }
 
   function isCustom(team) {
@@ -164,10 +225,64 @@ function createUniformManager(room) {
     const valid = validateChange({ team: perm.team, kitId, current });
     if (!valid.ok) return valid;
 
+    pendingRandom = false;
     if (!apply(perm.team, valid.kit)) {
       return { ok: false, error: "Falha ao aplicar uniforme." };
     }
     return { ok: true, kit: valid.kit, team: perm.team };
+  }
+
+  /**
+   * Sorteia um lado, ou os dois se `team` for omitido.
+   * Os dois times nunca ficam com o mesmo kit.
+   */
+  function randomize(team) {
+    pendingRandom = false;
+    if (team === TEAM.RED || team === TEAM.BLUE) {
+      const other = team === TEAM.RED ? TEAM.BLUE : TEAM.RED;
+      const kit = pickRandomKit([current[other], current[team]], rng);
+      apply(team, kit);
+      return { ok: true, mode: "one", team, kit };
+    }
+    const redKit = pickRandomKit([], rng);
+    const blueKit = pickRandomKit([redKit.id], rng);
+    apply(TEAM.RED, redKit);
+    apply(TEAM.BLUE, blueKit);
+    return { ok: true, mode: "both", red: redKit, blue: blueKit };
+  }
+
+  /**
+   * Admin sem lado: os dois times. Capitão / admin com lado: só aquele time.
+   */
+  function randomizeRequest({ player, isAdmin, teamRef }) {
+    const requestedTeam = teamRef ? parseTeamRef(teamRef) : null;
+    if (teamRef && !requestedTeam) {
+      return { ok: false, error: "Time inválido. Use red ou blue." };
+    }
+
+    if (isAdmin && !requestedTeam) {
+      return randomize();
+    }
+
+    const perm = resolvePermission({
+      player,
+      isAdmin,
+      requestedTeam,
+      captains: captains(),
+    });
+    if (!perm.ok) return perm;
+    return randomize(perm.team);
+  }
+
+  /** Kickoff sorteia só se ninguém trocou no intervalo. */
+  function prepareKickoff() {
+    if (!pendingRandom) return { randomized: false };
+    const result = randomize();
+    return { randomized: true, red: result.red, blue: result.blue };
+  }
+
+  function noteMatchEnd() {
+    pendingRandom = true;
   }
 
   /** Winner stays: quem venceu leva o uniforme customizado para o vermelho. */
@@ -179,12 +294,13 @@ function createUniformManager(room) {
       return;
     }
     if (winner === TEAM.RED) return;
-    reset();
+    reset({ preserveKickoffRandom: true });
   }
 
-  function reset() {
+  function reset({ preserveKickoffRandom = false } = {}) {
     apply(TEAM.RED, KIT_PRETO);
     apply(TEAM.BLUE, KIT_BRANCO);
+    if (!preserveKickoffRandom) pendingRandom = false;
   }
 
   function describe() {
@@ -201,18 +317,24 @@ function createUniformManager(room) {
     return KITS.map((k) => k.id).join(", ");
   }
 
-  reset();
+  reset({ preserveKickoffRandom: true });
 
   return {
     change,
     reset,
+    randomize,
+    randomizeRequest,
+    prepareKickoff,
+    noteMatchEnd,
     reapply,
+    syncAvatars,
     onWinnerStays,
     describe,
     kickoffVs,
     listText,
     captains,
     current: () => ({ ...current }),
+    pendingKickoffRandom: () => pendingRandom,
   };
 }
 
@@ -221,6 +343,8 @@ module.exports = {
   KIT_PRETO,
   KIT_BRANCO,
   findKit,
+  isRandomKitArg,
+  pickRandomKit,
   parseTeamRef,
   formatKickoffVs,
   validateChange,

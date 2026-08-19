@@ -69,6 +69,7 @@ const config = {
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL || "",
   discordReplayWebhookUrl: process.env.DISCORD_REPLAY_WEBHOOK_URL || "",
   tokenApiPort: Number(process.env.TOKEN_API_PORT || 3847),
+  tokenApiHost: process.env.TOKEN_API_HOST || "0.0.0.0",
   tokenApiSecret: process.env.TOKEN_API_SECRET || "",
   pm2ProcessName: process.env.PM2_PROCESS_NAME || "sala-x4",
   discordInviteUrl: process.env.DISCORD_INVITE_URL || "https://discord.gg/ZTu7zwgvhm",

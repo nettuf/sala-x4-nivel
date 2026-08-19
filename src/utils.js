@@ -1,3 +1,16 @@
+const config = require("./config");
+
+/**
+ * Toda saída involuntária (ban, kick, AFK) aponta o Discord para o jogador
+ * pedir informação/recurso — a sala não tem outro canal de contato.
+ */
+function kickReason(text) {
+  const base = String(text || "").trim();
+  const url = config.discordInviteUrl;
+  if (!url) return base;
+  return base ? `${base} · Dúvidas no Discord: ${url}` : `Dúvidas no Discord: ${url}`;
+}
+
 function connToIp(conn) {
   if (!conn) return null;
   try {
@@ -54,9 +67,11 @@ function findPlayer(room, ref) {
     if (byId) return byId;
   }
   const lower = raw.toLowerCase();
-  return players.find((p) => p.name.toLowerCase() === lower)
-    || players.find((p) => p.name.toLowerCase().includes(lower))
-    || null;
+  const exact = players.find((p) => p.name.toLowerCase() === lower);
+  if (exact) return exact;
+  // Parcial só resolve se for único: evita banir/mutar o jogador errado.
+  const partial = players.filter((p) => p.name.toLowerCase().includes(lower));
+  return partial.length === 1 ? partial[0] : null;
 }
 
-module.exports = { connToIp, parseDurationToMs, formatDuration, findPlayer };
+module.exports = { connToIp, parseDurationToMs, formatDuration, findPlayer, kickReason };

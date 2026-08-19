@@ -4,6 +4,15 @@ const config = require("./config");
 const { startTokenServer } = require("./server/tokenServer");
 const { createRoom } = require("./room/createRoom");
 
+// Um erro solto (Supabase/Discord fora do ar) não pode reiniciar a sala no meio da partida.
+process.on("unhandledRejection", (reason) => {
+  console.error("[sala-x4] unhandledRejection:", reason?.message || reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("[sala-x4] uncaughtException:", err?.stack || err);
+});
+
 async function main() {
   startTokenServer();
 

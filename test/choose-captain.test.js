@@ -32,69 +32,86 @@ function lastSpecs(announcements) {
   return [...announcements].reverse().find((row) => /^Specs:/.test(row.msg));
 }
 
+/** Winner stays: 4 vermelho + 1 azul + specs extras. O azul picka; o vermelho fica. */
+function winnersAndSpecs(extra = 4) {
+  const players = [
+    p(1, TEAM.RED),
+    p(11, TEAM.RED),
+    p(12, TEAM.RED),
+    p(13, TEAM.RED),
+    p(2, TEAM.BLUE),
+  ];
+  for (let i = 0; i < extra; i++) players.push(p(30 + i));
+  return players;
+}
+
 describe("capitão e lista de pick", () => {
   it("capitão é o 1º do time menor; o 2º não picka", () => {
-    const players = Array.from({ length: 8 }, (_, index) => p(index + 1));
+    const players = winnersAndSpecs(4);
     const { choose } = setup(players);
-    choose.tryStartChoose();
+    choose.continueFromField();
     const redCap = choose.list().red[0];
     const blueCap = choose.list().blue[0];
     assert.equal(redCap.id, 1);
     assert.equal(blueCap.id, 2);
-    assert.equal(choose.currentCaptain().id, 1);
-    assert.equal(choose.handleCaptainChat(blueCap, "1"), false);
-    assert.equal(choose.handleCaptainChat(redCap, "1"), true);
+    assert.equal(choose.currentCaptain().id, 2);
+    assert.equal(choose.handleCaptainChat(redCap, "1"), false);
+    assert.equal(choose.handleCaptainChat(blueCap, "1"), true);
     assert.equal(choose.currentCaptain().id, 2);
     assert.equal(choose.handleCaptainChat(redCap, "1"), false);
   });
 
   it("quem entra no spec entra na lista na hora, com número novo", () => {
-    const players = Array.from({ length: 8 }, (_, index) => p(index + 1));
+    const players = winnersAndSpecs(4);
     const { choose, announcements } = setup(players);
-    choose.tryStartChoose();
+    choose.continueFromField();
     const cap = choose.currentCaptain();
-    assert.match(lastSpecs(announcements).msg, /\[6\]/);
+    assert.match(lastSpecs(announcements).msg, /\[4\]/);
     assert.equal(lastSpecs(announcements).to, cap.id);
 
     players.push(p(99));
     choose.onPlayerJoin();
-    assert.match(lastSpecs(announcements).msg, /P99\[7\]/);
+    assert.match(lastSpecs(announcements).msg, /P99\[5\]/);
     assert.equal(lastSpecs(announcements).to, cap.id);
-    assert.equal(choose.handleCaptainChat(cap, "7"), true);
-    assert.equal(players.find((row) => row.id === 99).team, TEAM.RED);
+    assert.equal(choose.handleCaptainChat(cap, "5"), true);
+    assert.equal(players.find((row) => row.id === 99).team, TEAM.BLUE);
   });
 
-  it("AFK vai para o fim da fila de pick", () => {
-    const players = Array.from({ length: 8 }, (_, index) => p(index + 1));
+  it("AFK sai da lista de pick e o próximo herda o número", () => {
+    const players = winnersAndSpecs(5);
     const excluded = new Set();
     const { choose, announcements } = setup(players, { excluded });
-    choose.tryStartChoose();
-    const specs = choose.list().spec;
-    excluded.add(specs[0].id);
+    choose.continueFromField();
+    const firstReady = choose.list().specReady[0];
+    excluded.add(firstReady.id);
     choose.onPlayerJoin();
-    const listed = choose.list().spec;
-    assert.equal(listed[0].id, specs[1].id);
-    assert.equal(listed[listed.length - 1].id, specs[0].id);
-    assert.match(lastSpecs(announcements).msg, /P4\[1\]/);
-    assert.match(lastSpecs(announcements).msg, new RegExp(`${specs[0].name}\\[\\d+\\] AFK`));
+
+    assert.equal(choose.list().specReady.some((row) => row.id === firstReady.id), false);
+    assert.equal(choose.list().specReady[0].id, choose.list().spec[0].id);
+
+    const msg = lastSpecs(announcements).msg;
+    assert.ok(!msg.includes(`${firstReady.name}[`), "AFK não pode aparecer na lista");
+    assert.ok(!/AFK/.test(msg));
   });
 
-  it("número de AFK não puxa; AFK fica no spec", () => {
-    const players = Array.from({ length: 8 }, (_, index) => p(index + 1));
+  it("número do AFK não existe mais: pick avisa e remostra a lista", () => {
+    const players = winnersAndSpecs(5);
     const excluded = new Set();
     const { choose, announcements } = setup(players, { excluded });
-    choose.tryStartChoose();
-    const afkId = choose.list().spec[0].id;
+    choose.continueFromField();
+    const readyBefore = choose.list().specReady.length;
+    const afkId = choose.list().specReady[0].id;
     excluded.add(afkId);
     choose.onPlayerJoin();
+
     const cap = choose.currentCaptain();
-    const afkIndex = choose.list().spec.findIndex((row) => row.id === afkId) + 1;
-    assert.equal(choose.handleCaptainChat(cap, String(afkIndex)), true);
+    const outOfRange = String(readyBefore);
+    assert.equal(choose.handleCaptainChat(cap, outOfRange), true);
     assert.equal(players.find((row) => row.id === afkId).team, TEAM.SPEC);
-    assert.ok(announcements.some((row) => /AFK/i.test(row.msg)));
+    assert.ok(announcements.some((row) => /lista mudou/i.test(row.msg)));
   });
 
-  it("único spec AFK não entra sozinho", () => {
+  it("único spec AFK não entra sozinho e a reposição é cancelada (nada de choose travado)", () => {
     const players = [
       p(1, TEAM.RED),
       p(11, TEAM.RED),
@@ -106,8 +123,12 @@ describe("capitão e lista de pick", () => {
     ];
     const excluded = new Set([5]);
     const { choose } = setup(players, { excluded });
-    choose.startReplacement(TEAM.RED);
-    assert.equal(choose.isActive(), true);
+    let result = null;
+    choose.startReplacement(TEAM.RED, (payload) => {
+      result = payload;
+    });
+    assert.equal(choose.isActive(), false);
+    assert.deepEqual(result, { cancelled: true });
     assert.equal(players.find((row) => row.id === 5).team, TEAM.SPEC);
   });
 
@@ -392,9 +413,9 @@ describe("capitão e lista de pick", () => {
       1
     );
     choose.onPlayerLeave();
-    assert.equal(choose.currentCaptain().id, 11);
-    assert.equal(lastSpecs(announcements).to, 11);
-    assert.equal(choose.handleCaptainChat(players.find((row) => row.id === 11), "1"), true);
+    assert.equal(choose.isActive(), false);
+    assert.equal(choose.list().red.length, 4);
+    assert.equal(choose.list().blue.length, 4);
   });
 
   it("vencedores no red e azul vazio → sobe spec sem resetar o red", () => {

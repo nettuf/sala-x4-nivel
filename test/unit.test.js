@@ -86,7 +86,7 @@ describe("gameLogic", () => {
 
   it("isValidMatchScores por placar e por tempo", () => {
     assert.equal(isValidMatchScores({ red: 3, blue: 1, scoreLimit: 3, time: 10, timeLimit: 180 }), true);
-    assert.equal(isValidMatchScores({ red: 1, blue: 1, scoreLimit: 3, time: 160, timeLimit: 180 }), true);
+    assert.equal(isValidMatchScores({ red: 1, blue: 1, scoreLimit: 3, time: 160, timeLimit: 180 }), false);
     assert.equal(isValidMatchScores({ red: 0, blue: 0, scoreLimit: 3, time: 10, timeLimit: 180 }), false);
     assert.equal(isValidMatchScores(null), false);
   });

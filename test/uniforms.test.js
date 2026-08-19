@@ -4,6 +4,8 @@ const assert = require("node:assert/strict");
 const {
   KITS,
   findKit,
+  isRandomKitArg,
+  pickRandomKit,
   parseTeamRef,
   formatKickoffVs,
   validateChange,
@@ -78,8 +80,22 @@ describe("uniformes: catálogo e regras puras", () => {
 
   it("kit inexistente e kit repetido do próprio time são recusados", () => {
     const current = { [TEAM.RED]: "fla", [TEAM.BLUE]: null };
-    assert.match(validateChange({ team: TEAM.RED, kitId: "xxx", current }).error, /inexistente/i);
-    assert.match(validateChange({ team: TEAM.RED, kitId: "fla", current }).error, /já está com/i);
+    assert.equal(validateChange({ team: TEAM.RED, kitId: "zzz", current }).ok, false);
+    assert.match(
+      validateChange({ team: TEAM.RED, kitId: "fla", current }).error,
+      /já está com/i
+    );
+  });
+
+  it("pickRandomKit evita ids excluídos e isRandomKitArg reconhece aliases", () => {
+    assert.equal(isRandomKitArg("random"), true);
+    assert.equal(isRandomKitArg("ALEATORIO"), true);
+    assert.equal(isRandomKitArg("fla"), false);
+    const kit = pickRandomKit(["bra", "fra"], () => 0);
+    assert.notEqual(kit.id, "bra");
+    assert.notEqual(kit.id, "fra");
+    const first = pickRandomKit([], () => 0);
+    assert.equal(first.id, KITS[0].id);
   });
 
   it("padrão pode ser usado pelos dois times", () => {
@@ -228,6 +244,137 @@ describe("uniformes: manager na sala", () => {
   });
 });
 
+describe("uniformes: sorteio no kickoff", () => {
+  function seqRandom(values) {
+    let i = 0;
+    return () => {
+      const v = values[Math.min(i, values.length - 1)];
+      i += 1;
+      return v;
+    };
+  }
+
+  it("prepareKickoff sorteia dois kits distintos e não sorteia de novo", () => {
+    const room = mockRoom(squad());
+    const uni = createUniformManager(room, { random: seqRandom([0, 0.99]) });
+    const first = uni.prepareKickoff();
+    assert.equal(first.randomized, true);
+    assert.equal(uni.current()[TEAM.RED], KITS[0].id);
+    assert.equal(uni.current()[TEAM.BLUE], KITS[KITS.length - 1].id);
+    assert.notEqual(uni.current()[TEAM.RED], uni.current()[TEAM.BLUE]);
+    assert.equal(uni.pendingKickoffRandom(), false);
+
+    const second = uni.prepareKickoff();
+    assert.equal(second.randomized, false);
+    assert.equal(uni.current()[TEAM.RED], KITS[0].id);
+    assert.equal(uni.current()[TEAM.BLUE], KITS[KITS.length - 1].id);
+  });
+
+  it("troca no intervalo cancela o sorteio do kickoff", () => {
+    const players = squad();
+    const room = mockRoom(players);
+    const uni = createUniformManager(room, { random: seqRandom([0.5, 0.2]) });
+    uni.change({ player: players[0], isAdmin: false, kitId: "fla" });
+    const r = uni.prepareKickoff();
+    assert.equal(r.randomized, false);
+    assert.equal(uni.current()[TEAM.RED], "fla");
+    assert.equal(uni.current()[TEAM.BLUE], "branco");
+  });
+
+  it("fim da partida volta a sortear no próximo kickoff", () => {
+    const players = squad();
+    const room = mockRoom(players);
+    const uni = createUniformManager(room, { random: seqRandom([0, 0.99, 0.4, 0.8]) });
+    uni.change({ player: players[0], isAdmin: false, kitId: "fla" });
+    uni.noteMatchEnd();
+    const r = uni.prepareKickoff();
+    assert.equal(r.randomized, true);
+    assert.notEqual(uni.current()[TEAM.RED], "fla");
+    assert.notEqual(uni.current()[TEAM.RED], uni.current()[TEAM.BLUE]);
+  });
+});
+
+describe("uniformes: emoji do kit", () => {
+  function roomWithAvatar(players) {
+    const room = mockRoom(players);
+    room.avatarCalls = [];
+    room.setPlayerAvatar = (id, avatar) => room.avatarCalls.push({ id, avatar });
+    return room;
+  }
+
+  it("kits com emoji fixo: baleio, rato, gordo, tigre e jalin", () => {
+    const comEmoji = KITS.filter((k) => k.emoji).map((k) => k.id).sort();
+    assert.deepEqual(comEmoji, ["baleio", "gordo", "jalin", "rato", "tigre"]);
+    assert.equal(findKit("baleio").emoji, "🐋");
+    assert.equal(findKit("rato").emoji, "🐀");
+    assert.equal(findKit("gordo").emoji, "🍔");
+    assert.equal(findKit("tigre").emoji, "👑");
+    assert.equal(findKit("tigre").name, "Amigos do Rei Tigre");
+    assert.equal(findKit("tigre").angle, 59);
+    assert.equal(findKit("tigre").text, 0xfff5f5);
+    assert.deepEqual(findKit("tigre").colors, [0xf1ff30, 0x000000, 0xf1ff30]);
+    assert.equal(findKit("jalin").emoji, "🐒");
+    assert.equal(findKit("jalin").name, "Amigos do Jalin");
+    assert.equal(findKit("jalin").angle, 857);
+    assert.equal(findKit("jalin").text, 0xe2ff26);
+    assert.deepEqual(findKit("jalin").colors, [0xe2ff26, 0x770c69, 0x23cf29]);
+  });
+
+  it("kit com emoji marca o time inteiro e deixa o resto livre", () => {
+    const players = squad();
+    const room = roomWithAvatar(players);
+    const uni = createUniformManager(room);
+    room.avatarCalls.length = 0;
+
+    uni.change({ player: players[0], isAdmin: false, kitId: "gordo" });
+
+    assert.deepEqual(
+      room.avatarCalls,
+      [
+        { id: 1, avatar: "🍔" },
+        { id: 2, avatar: "🍔" },
+      ],
+      "só o vermelho é marcado; azul e spec seguem com o avatar deles"
+    );
+  });
+
+  it("trocar para kit sem emoji devolve o avatar do jogador", () => {
+    const players = squad();
+    const room = roomWithAvatar(players);
+    const uni = createUniformManager(room);
+
+    uni.change({ player: players[0], isAdmin: false, kitId: "baleio" });
+    room.avatarCalls.length = 0;
+    uni.change({ player: players[0], isAdmin: false, kitId: "fla" });
+
+    const vermelhos = room.avatarCalls.filter((c) => c.id === 1 || c.id === 2);
+    assert.equal(vermelhos.length, 2);
+    assert.ok(vermelhos.every((c) => c.avatar === null));
+  });
+
+  it("quem entra no time depois pega o emoji e não reenvia para os demais", () => {
+    const players = squad();
+    const room = roomWithAvatar(players);
+    const uni = createUniformManager(room);
+    uni.change({ player: players[2], isAdmin: false, kitId: "rato" });
+    room.avatarCalls.length = 0;
+
+    players[4].team = TEAM.BLUE;
+    uni.syncAvatars();
+
+    assert.deepEqual(room.avatarCalls, [{ id: 5, avatar: "🐀" }]);
+  });
+
+  it("host sem setPlayerAvatar não quebra a troca de uniforme", () => {
+    const players = squad();
+    const room = mockRoom(players);
+    const uni = createUniformManager(room);
+    const res = uni.change({ player: players[0], isAdmin: false, kitId: "baleio" });
+    assert.equal(res.ok, true);
+    assert.equal(uni.current()[TEAM.RED], "baleio");
+  });
+});
+
 describe("uniformes: comando !uni", () => {
   function setup() {
     const players = squad();
@@ -296,6 +443,44 @@ describe("uniformes: comando !uni", () => {
     const { room, cmd, players, afk } = setup();
     await cmd.handle(players[0], "!uni");
     assert.ok(room.announcements.some((a) => /Uso: !uni/.test(a.msg)));
+    afk.stop();
+  });
+
+  it("!uni random do capitão sorteia só o próprio time", async () => {
+    const { room, cmd, players, uniforms, afk } = setup();
+    const beforeBlue = uniforms.current()[TEAM.BLUE];
+    await cmd.handle(players[0], "!uni random");
+    assert.notEqual(uniforms.current()[TEAM.RED], "preto");
+    assert.equal(uniforms.current()[TEAM.BLUE], beforeBlue);
+    assert.ok(room.announcements.some((a) => /sorteou/.test(a.msg)));
+    afk.stop();
+  });
+
+  it("!uni random do admin sorteia os dois lados", async () => {
+    const { room, cmd, players, uniforms, ctx, afk } = setup();
+    ctx.admins.set(players[4].id, { level: 4 });
+    await cmd.handle(players[4], "!uni random");
+    assert.notEqual(uniforms.current()[TEAM.RED], uniforms.current()[TEAM.BLUE]);
+    assert.ok(room.announcements.some((a) => /sorteou:/.test(a.msg)));
+    afk.stop();
+  });
+
+  it("admin escolhe um lado com !uni blue random", async () => {
+    const { cmd, players, uniforms, ctx, afk } = setup();
+    ctx.admins.set(players[4].id, { level: 4 });
+    const beforeRed = uniforms.current()[TEAM.RED];
+    await cmd.handle(players[4], "!uni blue random");
+    assert.equal(uniforms.current()[TEAM.RED], beforeRed);
+    assert.notEqual(uniforms.current()[TEAM.BLUE], "branco");
+    afk.stop();
+  });
+
+  it("spec comum não sorteia uniforme", async () => {
+    const { room, cmd, players, uniforms, afk } = setup();
+    await cmd.handle(players[4], "!uni random");
+    assert.equal(uniforms.current()[TEAM.RED], "preto");
+    assert.equal(uniforms.current()[TEAM.BLUE], "branco");
+    assert.ok(room.announcements.some((a) => /admin ou capitão/i.test(a.msg)));
     afk.stop();
   });
 });

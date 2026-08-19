@@ -173,7 +173,8 @@ function createMockRoomHost() {
     const nextKind = stadiumKindForCount(plan.eligibleCount);
     const isTraining = /training|treino|ice bear/i.test(String(stadiumName));
     const loadX3 = nextKind === "x3" && isTraining;
-    if (loadX3) {
+    const loadTraining = nextKind === "training" && !isTraining;
+    if (loadX3 || loadTraining) {
       match.cancelRecordingOnly();
       room.stopGame();
       applyWarmupMoves(room, plan);
@@ -543,6 +544,8 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.count, 1);
     assert.equal(s.red, 1);
     assert.equal(s.blue, 0);
+    assert.equal(s.matchRunning, true);
+    assert.equal(host.match.isCompetitive(), false);
     assert.match(String(s.stadiumName), /training|treino|ice bear/i);
     host.cleanup();
   });
@@ -1048,12 +1051,10 @@ describe("fluxo por estágios da sala", () => {
     host.removePlayer(leaving.id);
     const s = host.snapshot();
     assert.equal(s.count, 8);
-    assert.equal(s.chooseActive, true);
-    assert.equal(s.red, 3);
-    assert.equal(s.blue, 1);
     for (const p of remainingRed) {
       assert.equal(host.players.find((x) => x.id === p.id).team, TEAM.RED);
     }
+    assert.ok(s.red >= 3, "vencedores que ficaram não vão pro spec");
     host.cleanup();
   });
 
@@ -1176,7 +1177,7 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("AFK voluntário vai para o fim da fila de pick", async () => {
+  it("AFK voluntário sai da fila de pick e não aparece na lista", async () => {
     const host = createMockRoomHost();
     await host.enterChoose({ extra: 2 });
     const specs = host.players.filter((p) => p.team === TEAM.SPEC);
@@ -1185,7 +1186,7 @@ describe("fluxo por estágios da sala", () => {
     const listed = host.choose.list().spec.map((p) => p.id);
     assert.equal(listed[listed.length - 1], afkOne.id);
     assert.ok(host.choose.list().specReady.every((p) => p.id !== afkOne.id));
-    assert.match(lastSpecMsg(host).msg, /AFK/);
+    assert.ok(!lastSpecMsg(host).msg.includes(`${afkOne.name}[`));
     host.cleanup();
   });
 
@@ -1294,14 +1295,20 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("empate no 4v4 zera streak e reseta times", async () => {
+  it("empate no 4v4 não zera times (gol de ouro)", async () => {
     const host = createMockRoomHost();
     host.growTo(8);
-    await host.endValidMatch({ red: config.scoreLimit, blue: 0 });
-    assert.equal(host.streak.get(), 1);
+    const redIds = host.players.filter((p) => p.team === TEAM.RED).map((p) => p.id);
+    const blueIds = host.players.filter((p) => p.team === TEAM.BLUE).map((p) => p.id);
     await host.endValidMatch({ red: 2, blue: 2 });
     assert.equal(host.streak.get(), 0);
-    assert.ok(host.announcements.some((a) => /Empate/i.test(a.msg)));
+    for (const id of redIds) {
+      assert.equal(host.players.find((p) => p.id === id).team, TEAM.RED);
+    }
+    for (const id of blueIds) {
+      assert.equal(host.players.find((p) => p.id === id).team, TEAM.BLUE);
+    }
+    assert.ok(!host.announcements.some((a) => /times resetados/i.test(a.msg)));
     host.cleanup();
   });
 
@@ -1598,7 +1605,7 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("choose: spec AFK vai para o fim da fila e o próximo herda o número", async () => {
+  it("choose: spec que fica AFK some da lista e o próximo herda o número", async () => {
     const host = createMockRoomHost();
     await host.enterChoose({ extra: 2 });
     const specs = host.choose.list().spec;
@@ -1610,8 +1617,9 @@ describe("fluxo por estágios da sala", () => {
     const listed = host.choose.list().spec.map((p) => p.id);
     assert.equal(listed[0], second.id);
     assert.equal(listed[listed.length - 1], first.id);
-    assert.match(lastSpecMsg(host).msg, new RegExp(`${escapeReg(second.name)}\\[1\\]`));
-    assert.match(lastSpecMsg(host).msg, new RegExp(`${escapeReg(first.name)}\\[\\d+\\] AFK`));
+    const msg = lastSpecMsg(host).msg;
+    assert.match(msg, new RegExp(`${escapeReg(second.name)}\\[1\\]`));
+    assert.ok(!msg.includes(`${first.name}[`), "AFK não pode aparecer na lista do pick");
     host.cleanup();
   });
 
@@ -1689,7 +1697,7 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(listed[listed.length - 1], afkOne.id);
     assert.equal(host.choose.isActive(), true);
     assert.match(lastSpecMsg(host).msg, new RegExp(`${escapeReg(other.name)}\\[1\\]`));
-    assert.match(lastSpecMsg(host).msg, /AFK/);
+    assert.ok(!lastSpecMsg(host).msg.includes(`${afkOne.name}[`));
 
     host.setVoluntaryAfk(afkOne.id, false);
     assert.ok(host.choose.list().spec.some((p) => p.id === afkOne.id));

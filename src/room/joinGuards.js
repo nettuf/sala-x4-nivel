@@ -1,4 +1,5 @@
 const config = require("../config");
+const { kickReason } = require("../utils");
 
 /**
  * Proteções de entrada usadas pelos bots headless de referência:
@@ -52,7 +53,7 @@ function applyJoinGuards(room, player, opts = {}) {
 
   if (result.action === "ghost-kick") {
     for (const ghost of result.ghosts) {
-      room.kickPlayer(ghost.id, result.reason, false);
+      room.kickPlayer(ghost.id, kickReason(result.reason), false);
       if (ghost.team && ghost.team !== 0) {
         room.setPlayerTeam(player.id, ghost.team);
       }
@@ -61,7 +62,7 @@ function applyJoinGuards(room, player, opts = {}) {
   }
 
   if (result.action === "conn-limit") {
-    room.kickPlayer(player.id, result.reason, false);
+    room.kickPlayer(player.id, kickReason(result.reason), false);
     return "conn-limit";
   }
 

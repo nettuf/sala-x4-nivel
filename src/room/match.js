@@ -14,7 +14,7 @@ const { pickMatchMvps } = require("../titles");
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
  */
-function createMatchController(room) {
+function createMatchController(room, { identify } = {}) {
   /** @type {null | {
    *   recordingStarted: boolean,
    *   touches: object[],
@@ -33,8 +33,18 @@ function createMatchController(room) {
   let redPoss = 0;
   let bluePoss = 0;
 
+  function who(player) {
+    if (!player) return player;
+    if (typeof identify !== "function") return player;
+    try {
+      return identify(player) || player;
+    } catch {
+      return player;
+    }
+  }
+
   function playersOf(team) {
-    return room.getPlayerList().filter((p) => p.team === team);
+    return room.getPlayerList().filter((p) => p.team === team).map((p) => who(p));
   }
 
   function ballPosition() {
@@ -133,8 +143,8 @@ function createMatchController(room) {
       touches: [],
       goals: [],
       lastGoal: null,
-      lineupRed: playersOf(1).map((p) => ({ id: p.id, name: p.name, auth: p.auth })),
-      lineupBlue: playersOf(2).map((p) => ({ id: p.id, name: p.name, auth: p.auth })),
+      lineupRed: playersOf(1).map((p) => ({ id: p.id, name: p.name, auth: p.auth || null })),
+      lineupBlue: playersOf(2).map((p) => ({ id: p.id, name: p.name, auth: p.auth || null })),
     };
     try {
       room.startRecording();
@@ -147,12 +157,13 @@ function createMatchController(room) {
 
   function onBallKick(player) {
     if (!match || !player) return;
+    const p = who(player);
     activePlay = true;
     match.touches.unshift({
-      id: player.id,
-      name: player.name,
-      auth: player.auth,
-      team: player.team,
+      id: p.id,
+      name: p.name,
+      auth: p.auth || null,
+      team: p.team,
     });
     if (match.touches.length > 3) match.touches.length = 3;
   }
@@ -172,8 +183,10 @@ function createMatchController(room) {
     const goal = {
       team,
       time,
+      scorerId: scorer?.id || null,
       scorerAuth: scorer?.auth || null,
       scorerNick: scorer?.name || null,
+      assistId: assist?.id || null,
       assistAuth: assist?.auth || null,
       assistNick: assist?.name || null,
       isOwnGoal,
@@ -231,12 +244,14 @@ function createMatchController(room) {
   }
 
   function addToLineup(player, team) {
-    if (!match?.competitive || !player || !player.auth) return false;
+    if (!match?.competitive || !player) return false;
+    const p = who(player);
+    if (!p.auth) return false;
     if (!canJoinMatchStats(room.getScores())) return false;
     const list = team === 1 ? match.lineupRed : team === 2 ? match.lineupBlue : null;
     if (!list) return false;
-    if (list.some((row) => row.id === player.id || row.auth === player.auth)) return false;
-    list.push({ id: player.id, name: player.name, auth: player.auth });
+    if (list.some((row) => row.id === p.id || (p.auth && row.auth === p.auth))) return false;
+    list.push({ id: p.id, name: p.name, auth: p.auth });
     return true;
   }
 
@@ -255,22 +270,50 @@ function createMatchController(room) {
     });
   }
 
-  function tallyForAuth(auth) {
+  function scoredBy(goal, player) {
+    if (!player) return false;
+    if (player.auth && goal.scorerAuth && goal.scorerAuth === player.auth) return true;
+    if (player.id && goal.scorerId && goal.scorerId === player.id) return true;
+    return false;
+  }
+
+  function assistedBy(goal, player) {
+    if (!player) return false;
+    if (player.auth && goal.assistAuth && goal.assistAuth === player.auth) return true;
+    if (player.id && goal.assistId && goal.assistId === player.id) return true;
+    return false;
+  }
+
+  function tallyForPlayer(player) {
     const g = { goals: 0, assists: 0, own_goals: 0 };
-    if (!match || !auth) return g;
+    if (!match || !player) return g;
     for (const goal of match.goals) {
-      if (goal.isOwnGoal && goal.scorerAuth === auth) g.own_goals += 1;
-      else if (!goal.isOwnGoal && goal.scorerAuth === auth) g.goals += 1;
-      if (goal.assistAuth === auth) g.assists += 1;
+      if (scoredBy(goal, player)) {
+        if (goal.isOwnGoal) g.own_goals += 1;
+        else g.goals += 1;
+      }
+      if (assistedBy(goal, player)) g.assists += 1;
     }
     return g;
   }
 
-  function buildPlayersPayload(scores, winner) {
+  function hydrateLineup(list) {
+    return (list || []).map((p) => {
+      const live = room.getPlayerList().find((x) => x.id === p.id);
+      const identified = who(live || p);
+      return {
+        ...p,
+        auth: identified?.auth || p.auth || null,
+        name: identified?.name || p.name,
+      };
+    });
+  }
+
+  function buildPlayersPayload(scores, winner, lineupRed, lineupBlue) {
     const rows = [];
-    for (const p of match.lineupRed) {
+    for (const p of lineupRed) {
       if (!p.auth) continue;
-      const t = tallyForAuth(p.auth);
+      const t = tallyForPlayer(p);
       rows.push({
         auth: p.auth,
         nick: p.name,
@@ -280,9 +323,9 @@ function createMatchController(room) {
         cleanSheet: Number(scores?.blue ?? 0) === 0,
       });
     }
-    for (const p of match.lineupBlue) {
+    for (const p of lineupBlue) {
       if (!p.auth) continue;
-      const t = tallyForAuth(p.auth);
+      const t = tallyForPlayer(p);
       rows.push({
         auth: p.auth,
         nick: p.name,
@@ -317,8 +360,20 @@ function createMatchController(room) {
     else winner = 0;
 
     const valid = isValidGame(finalScores);
-    const players = buildPlayersPayload(finalScores, winner);
-    const goals = match.goals;
+    const lineupRed = hydrateLineup(match.lineupRed);
+    const lineupBlue = hydrateLineup(match.lineupBlue);
+    const byId = new Map([...lineupRed, ...lineupBlue].map((p) => [p.id, p]));
+    const goals = match.goals.map((g) => {
+      const scorer = g.scorerId ? byId.get(g.scorerId) : null;
+      const assist = g.assistId ? byId.get(g.assistId) : null;
+      return {
+        ...g,
+        scorerAuth: g.scorerAuth || scorer?.auth || null,
+        assistAuth: g.assistAuth || assist?.auth || null,
+      };
+    });
+    match.goals = goals;
+    const players = buildPlayersPayload(finalScores, winner, lineupRed, lineupBlue);
     const mvps = valid ? pickMatchMvps(players) : [];
     const poss = possessionPercents(redPoss, bluePoss);
 
@@ -326,8 +381,8 @@ function createMatchController(room) {
       scoreRed,
       scoreBlue,
       goals: [...goals],
-      redPlayers: match.lineupRed.map((p) => ({ name: p.name })),
-      bluePlayers: match.lineupBlue.map((p) => ({ name: p.name })),
+      redPlayers: lineupRed.map((p) => ({ name: p.name })),
+      bluePlayers: lineupBlue.map((p) => ({ name: p.name })),
       recording,
     };
 
@@ -375,7 +430,7 @@ function createMatchController(room) {
       console.log("[match] partida inválida — sem stats/replay");
     }
 
-    return { valid, winner, scoreRed, scoreBlue, titleUnlocks };
+    return { valid, winner, scoreRed, scoreBlue, titleUnlocks, players };
   }
 
   function markVictory() {

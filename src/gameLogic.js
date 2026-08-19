@@ -27,7 +27,9 @@ function isValidMatchScores(scores, { scoreLimit = 3, timeLimitMin = 4, endByVic
     scores.blue >= (scores.scoreLimit || scoreLimit);
   const timeLimitSec = scores.timeLimit || timeLimitMin * 60;
   const enoughTime = timeLimitSec > 0 && scores.time >= timeLimitSec * (5 / 6);
-  return hitScore || enoughTime || endByVictory;
+  const hasWinner = scores.red !== scores.blue;
+  // Empate não encerra: o gol de ouro resolve. Tempo esgotado só vale com vencedor.
+  return hitScore || (enoughTime && hasWinner) || endByVictory;
 }
 
 function pickFromSpecList(spec, token) {

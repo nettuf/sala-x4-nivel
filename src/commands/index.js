@@ -1,6 +1,7 @@
 const config = require("../config");
-const { findPlayer, parseDurationToMs, formatDuration, connToIp } = require("../utils");
+const { findPlayer, parseDurationToMs, formatDuration, connToIp, kickReason } = require("../utils");
 const { resolvePlayerAuth } = require("../room/playerAuth");
+const { isRandomKitArg, parseTeamRef } = require("../room/uniforms");
 const { createBan, deactivateBan } = require("../db/bans");
 const { createMute, unmute, findActiveMute } = require("../db/mutes");
 const { getPlayerStats, setSelectedTitle, formatStatusCard, emptyPlayerStats } = require("../db/stats");
@@ -28,7 +29,7 @@ function playerHelpLines({
     "!ajuda — lista de comandos",
     "!bb — sair da sala",
     "!discord — convite do Discord",
-    "!status — estatísticas (jogos, gols, CS, MVP, WR, cargo)",
+    "!status / !stats — estatísticas (jogos, gols, CS, MVP, WR, cargo)",
     "!cargos — emblemas desbloqueados",
     "!cargo <id|n> — escolher emblema",
   ];
@@ -43,6 +44,7 @@ function playerHelpLines({
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — troca o uniforme do time");
+    lines.push("!uni random — sorteia o uniforme do time");
   }
   if (canChoose) {
     lines.push("Pick: número | top | random | bottom");
@@ -65,12 +67,10 @@ function adminHelpText() {
     "!mute <#id|nick> <tempo> [motivo]",
     "!unmute <#id|nick|auth>",
     "!uni red|blue <kit> — troca o uniforme de um time",
+    "!uni random — sorteia os dois times",
+    "!uni red|blue random — sorteia um lado",
     "!uni reset — volta os uniformes ao padrão",
   ].join("\n");
-}
-
-function helpText(isAdmin) {
-  return playerHelpText({ isAdmin, canChangeUni: !!isAdmin });
 }
 
 function createCommandHandler(room, ctx) {
@@ -82,6 +82,17 @@ function createCommandHandler(room, ctx) {
   }
 
   const noAuthMsg = "Entre logado no Haxball (não como guest) para stats e cargos.";
+
+  /** Staff não pune staff de nível igual ou maior. */
+  function canModerate(actor, target) {
+    const targetAdmin = ctx.admins.get(target.id);
+    if (!targetAdmin) return true;
+    return (actor?.level || 0) > (targetAdmin.level || 0);
+  }
+
+  function forgetPlayer(playerId) {
+    lastAfkCommandAt.delete(playerId);
+  }
 
   async function loadTitleForPlayer(player) {
     const adminLevel = ctx.admins.get(player.id)?.level || 0;
@@ -117,7 +128,7 @@ function createCommandHandler(room, ctx) {
     if (cmd === "help" || cmd === "comandos" || cmd === "ajuda") {
       const scores = typeof room.getScores === "function" ? room.getScores() : null;
       const inOfficial = !!ctx.match?.isCompetitive?.();
-      const isAfk = !!ctx.afk?.isVoluntary?.(player.id);
+      const isAfk = !!ctx.afk?.isAfk?.(player.id);
       const captains = ctx.uniforms?.captains?.() || {};
       const canChangeUni = !!(
         admin ||
@@ -148,7 +159,6 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "bb") {
-      room.sendAnnouncement(`${player.name} saiu. Até mais!`, null, 0xbdc3c7, "normal", 1);
       try {
         room.kickPlayer(player.id, "Até mais!", false);
       } catch {
@@ -164,8 +174,9 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "afk") {
-      if (ctx.afk?.isVoluntary(player.id)) {
-        ctx.afk.setVoluntary(player, false);
+      // Vale tanto para o !afk quanto para quem o bot tirou por estar parado.
+      if (ctx.afk?.isAfk(player.id)) {
+        ctx.afk.setAfk(player, false);
         return true;
       }
       const scores = typeof room.getScores === "function" ? room.getScores() : null;
@@ -194,14 +205,14 @@ function createCommandHandler(room, ctx) {
         return true;
       }
       lastAfkCommandAt.set(player.id, Date.now());
-      ctx.afk?.setVoluntary(player, true);
+      ctx.afk?.setAfk(player, true);
       return true;
     }
 
     if (cmd === "afks") {
       const list = room
         .getPlayerList()
-        .filter((p) => p.id !== 0 && ctx.afk?.isVoluntary(p.id))
+        .filter((p) => p.id !== 0 && ctx.afk?.isAfk(p.id))
         .map((p) => `#${p.id} ${p.name}`);
       room.sendAnnouncement(
         list.length ? `😴 AFKs (${list.length}): ${list.join(" · ")}` : "Ninguém está AFK.",
@@ -214,11 +225,11 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "back" || cmd === "voltar") {
-      if (!ctx.afk?.isVoluntary(player.id)) {
+      if (!ctx.afk?.isAfk(player.id)) {
         room.sendAnnouncement("Você não está AFK. Use !afk.", player.id, 0xbdc3c7, "normal", 1);
         return true;
       }
-      ctx.afk.setVoluntary(player, false);
+      ctx.afk.setAfk(player, false);
       return true;
     }
 
@@ -254,7 +265,7 @@ function createCommandHandler(room, ctx) {
 
     if (["unis", "uniformes", "kits", "camisas"].includes(cmd)) {
       room.sendAnnouncement(
-        `Uniformes: ${ctx.uniforms?.listText() || "-"}\nAtual: ${ctx.uniforms?.describe() || "-"}\nUse !uni <kit> (capitão ou admin)`,
+        `Uniformes: ${ctx.uniforms?.listText() || "-"}\nAtual: ${ctx.uniforms?.describe() || "-"}\nUse !uni <kit> ou !uni random (capitão ou admin)`,
         player.id,
         0xecf0f1,
         "small",
@@ -268,7 +279,7 @@ function createCommandHandler(room, ctx) {
 
       if (!args.length) {
         room.sendAnnouncement(
-          `Uso: !uni <kit> · admin: !uni red|blue <kit> · !uni reset — veja !unis`,
+          `Uso: !uni <kit> · !uni random · admin: !uni red|blue <kit|random> · !uni reset — veja !unis`,
           player.id,
           0xe74c3c,
           "normal",
@@ -284,6 +295,37 @@ function createCommandHandler(room, ctx) {
         }
         ctx.uniforms.reset();
         room.sendAnnouncement("Uniformes voltaram ao padrão.", null, 0xbdc3c7, "normal", 1);
+        return true;
+      }
+
+      if (args.some((a) => isRandomKitArg(a))) {
+        const teamToken = args.find((a) => parseTeamRef(a));
+        const result = ctx.uniforms.randomizeRequest({
+          player,
+          isAdmin: !!admin,
+          teamRef: teamToken || null,
+        });
+        if (!result.ok) {
+          room.sendAnnouncement(result.error, player.id, 0xe74c3c, "bold", 2);
+          return true;
+        }
+        if (result.mode === "both") {
+          room.sendAnnouncement(
+            `${player.name} sorteou: 🔴 ${result.red.name}  vs  🔵 ${result.blue.name}`,
+            null,
+            0xf1c40f,
+            "bold",
+            1
+          );
+        } else {
+          room.sendAnnouncement(
+            `${player.name} sorteou ${result.kit.name} no time ${result.team === 1 ? "🔴" : "🔵"}`,
+            null,
+            result.team === 1 ? 0xe74c3c : 0x3498db,
+            "bold",
+            1
+          );
+        }
         return true;
       }
 
@@ -420,7 +462,7 @@ function createCommandHandler(room, ctx) {
       ctx.titles.set(player.id, title);
       room.sendAnnouncement(
         `Cargo ativo: ${title.emblem} ${title.name}`,
-        null,
+        player.id,
         title.color,
         "bold",
         2
@@ -450,9 +492,13 @@ function createCommandHandler(room, ctx) {
         durationRaw = "perm";
         ms = null;
       }
+      if (!canModerate(admin, target)) {
+        room.sendAnnouncement("Você não pode banir esse cargo.", player.id, 0xe74c3c, "bold", 2);
+        return true;
+      }
       const reason = reasonParts.join(" ") || "Sem motivo";
       const endsAt = ms == null ? null : new Date(Date.now() + ms).toISOString();
-      await createBan({
+      const saved = await createBan({
         auth: resolveAuth(target),
         conn: target.conn || ctx.conns?.get(target.id) || null,
         ip: connToIp(target.conn || ctx.conns?.get(target.id)),
@@ -461,7 +507,19 @@ function createCommandHandler(room, ctx) {
         bannedBy: resolveAuth(player) || player.name,
         endsAt,
       });
-      room.kickPlayer(target.id, `Ban (${formatDuration(ms)}): ${reason}`, false);
+      if (!saved) {
+        // Banco fora: tira o jogador agora, mas avisa que o ban não vai persistir.
+        room.sendAnnouncement(
+          "Ban não registrado (banco fora) — apliquei só o kick. Repita quando voltar.",
+          player.id,
+          0xe74c3c,
+          "bold",
+          2
+        );
+        room.kickPlayer(target.id, kickReason(`Kick: ${reason}`), false);
+        return true;
+      }
+      room.kickPlayer(target.id, kickReason(`Ban (${formatDuration(ms)}): ${reason}`), false);
       room.sendAnnouncement(
         `${target.name} banido por ${player.name} (${formatDuration(ms)})`,
         null,
@@ -478,10 +536,16 @@ function createCommandHandler(room, ctx) {
         room.sendAnnouncement("Uso: !unban <auth|conn>", player.id, 0xe74c3c, "normal", 1);
         return true;
       }
-      const byAuth = key.length > 20;
-      const n = byAuth
-        ? await deactivateBan({ auth: key })
-        : await deactivateBan({ conn: key });
+      // conn é hex (par); auth do Haxball é base64url. Se não achar, tenta a outra coluna.
+      const looksConn = /^[0-9a-f]+$/i.test(key) && key.length % 2 === 0;
+      let n = looksConn
+        ? await deactivateBan({ conn: key })
+        : await deactivateBan({ auth: key });
+      if (!n) {
+        n = looksConn
+          ? await deactivateBan({ auth: key })
+          : await deactivateBan({ conn: key });
+      }
       room.sendAnnouncement(n ? `Unban ok (${n}).` : "Nenhum ban ativo.", player.id, 0x2ecc71, "normal", 1);
       return true;
     }
@@ -491,6 +555,10 @@ function createCommandHandler(room, ctx) {
       const ms = parseDurationToMs(args[1]);
       if (!target || ms == null) {
         room.sendAnnouncement("Uso: !mute <#id|nick> <tempo> [motivo]", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      if (!canModerate(admin, target)) {
+        room.sendAnnouncement("Você não pode mutar esse cargo.", player.id, 0xe74c3c, "bold", 2);
         return true;
       }
       const reason = args.slice(2).join(" ") || "Sem motivo";
@@ -522,7 +590,20 @@ function createCommandHandler(room, ctx) {
       }
       await unmute(auth);
       if (target) ctx.mutes.delete(target.id);
-      room.sendAnnouncement(`Unmute: ${target?.name || auth}`, null, 0x2ecc71, "normal", 1);
+      else {
+        // Unmute por auth: limpa o cache de quem está na sala com essa auth.
+        for (const [id, cached] of ctx.auths.entries()) {
+          if (cached === auth) ctx.mutes.delete(id);
+        }
+      }
+      // Nunca ecoa auth no chat público.
+      room.sendAnnouncement(
+        target ? `${target.name} não está mais mutado.` : "Unmute aplicado.",
+        target ? null : player.id,
+        0x2ecc71,
+        "normal",
+        1
+      );
       return true;
     }
 
@@ -551,14 +632,6 @@ function createCommandHandler(room, ctx) {
 
   function applyAdminLook(player, adminRow) {
     if (!adminRow) return;
-    const meta = config.adminLevels[adminRow.level] || config.adminLevels[1];
-    room.sendAnnouncement(
-      `${meta.emblem} ${meta.title} ${player.name} entrou.`,
-      null,
-      meta.color,
-      "bold",
-      1
-    );
     if (adminRow.level >= 1) {
       room.setPlayerAdmin(player.id, true);
     }
@@ -568,10 +641,10 @@ function createCommandHandler(room, ctx) {
     handle,
     isMuted,
     peekMute,
+    forgetPlayer,
     applyAdminLook,
     loadTitleForPlayer,
     formatPlayerChat,
-    helpText,
     playerHelpText,
     adminHelpText,
     playerHelpLines,

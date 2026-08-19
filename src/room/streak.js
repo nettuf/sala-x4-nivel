@@ -2,10 +2,10 @@ const { TEAM } = require("./choose");
 const config = require("../config");
 
 /**
- * Streak + winner stays (Wazarr/Fazendão):
+ * Streak + winner stays:
  * - Vermelho ganha → streak++ e azul vai pro spec
  * - Azul ganha → vencedores vão pro vermelho, streak = 1
- * - Empate → zera streak e reseta times
+ * - Empate não existe no 4v4 (gol de ouro); os times nunca zeram.
  */
 
 function createStreakTracker() {
@@ -44,12 +44,16 @@ function createStreakTracker() {
 
 /**
  * Monta o campo pós-partida para choose: vencedores no vermelho + 1º spec no azul.
- * @returns {{ mode: "choose"|"reset", streak: number }}
+ * @returns {{ mode: "choose"|"keep", streak: number }}
  */
 function applyWinnerStays(room, winner, streakTracker, { isExcluded } = {}) {
   const players = room.getPlayerList().filter((p) => p.id !== 0);
   const red = players.filter((p) => p.team === TEAM.RED);
   const blue = players.filter((p) => p.team === TEAM.BLUE);
+
+  if (winner !== TEAM.RED && winner !== TEAM.BLUE) {
+    return { mode: "keep", streak: streakTracker.get() };
+  }
 
   const nextStreak = streakTracker.recordWin(winner);
 
@@ -73,10 +77,6 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded } = {}) {
       "bold",
       2
     );
-  } else {
-    for (const p of players) room.setPlayerTeam(p.id, TEAM.SPEC);
-    room.sendAnnouncement("💤 Empate — times resetados.", null, 0xbdc3c7, "bold", 2);
-    return { mode: "reset", streak: nextStreak };
   }
 
   // Capitao adversário: 1º elegível do spec → azul
@@ -93,8 +93,7 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded } = {}) {
 function shouldUseWinnerStays(playerCount, valid, winner) {
   if (!valid) return false;
   if (playerCount < config.teamSize * 2) return false;
-  // empate também usa apply (reset); winner 0 ok
-  return winner === 0 || winner === 1 || winner === 2;
+  return winner === TEAM.RED || winner === TEAM.BLUE;
 }
 
 module.exports = {

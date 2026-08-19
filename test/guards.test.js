@@ -122,9 +122,62 @@ describe("AFK: ações e pausa", () => {
 
     assert.equal(room.kicks.length, 0);
     assert.equal(players.find((p) => p.id === 1).team, 0);
-    assert.equal(afk.isVoluntary(1), true);
-    assert.ok(room.announcements.some((a) => /spect/i.test(a.msg)));
+    assert.equal(afk.isAfk(1), true);
+    assert.ok(room.announcements.some((a) => /parado/i.test(a.msg)));
 
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("parado em campo vira AFK e vai pro spec; quem mexe o boneco não", () => {
+    const { room, players } = afkSetup(4);
+    const discs = new Map([
+      [1, { x: 0, y: 0 }],
+      [2, { x: 50, y: 0 }],
+    ]);
+    room.getPlayerDiscProperties = (id) => discs.get(id) || null;
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 15000;
+    config.afkActionMs = 20000;
+    const at = Date.now();
+
+    afk.touch(1, at);
+    afk.touch(2, at);
+    afk.sampleMovement(at);
+
+    // P2 corre, P1 fica plantado
+    for (let i = 1; i <= 5; i++) {
+      discs.set(2, { x: 50 + i * 10, y: 0 });
+      afk.sampleMovement(at + i * 1000);
+    }
+
+    afk.tick(at + 21000);
+
+    assert.equal(players.find((p) => p.id === 1).team, 0, "parado devia ir pro spec");
+    assert.equal(afk.isAfk(1), true);
+    assert.equal(players.find((p) => p.id === 2).team, 2, "quem mexeu continua em campo");
+    assert.equal(afk.isAfk(2), false);
+
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("sem disco (jogo parado) não gera atividade falsa", () => {
+    const { room, players } = afkSetup(4);
+    room.getPlayerDiscProperties = () => null;
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 0;
+    config.afkActionMs = 0;
+
+    afk.touch(1);
+    afk.sampleMovement();
+    afk.tick();
+
+    assert.equal(players.find((p) => p.id === 1).team, 0);
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();
@@ -176,7 +229,7 @@ describe("AFK: ações e pausa", () => {
     const { room, players } = afkSetup(config.afkFullThreshold);
     const afk = createAfkTracker(room);
     const p = players[0];
-    afk.setVoluntary(p, true);
+    afk.setAfk(p, true);
     p.team = 1; // alguém tenta puxar pro time
 
     afk.tick();
@@ -190,13 +243,13 @@ describe("AFK: ações e pausa", () => {
     const { room, players } = afkSetup(4);
     const afk = createAfkTracker(room);
     const spec = players.find((p) => p.team === 0);
-    afk.setVoluntary(spec, true);
+    afk.setAfk(spec, true);
     afk.touch(spec.id);
     afk.tick();
-    assert.equal(afk.isVoluntary(spec.id), true);
+    assert.equal(afk.isAfk(spec.id), true);
     assert.equal(spec.team, 0);
-    afk.setVoluntary(spec, false);
-    assert.equal(afk.isVoluntary(spec.id), false);
+    afk.setAfk(spec, false);
+    assert.equal(afk.isAfk(spec.id), false);
     afk.stop();
   });
 
@@ -208,9 +261,9 @@ describe("AFK: ações e pausa", () => {
     const first = players.find((p) => p.id === 20);
     const second = players.find((p) => p.id === 21);
     const third = players.find((p) => p.id === 22);
-    afk.setVoluntary(first, true);
-    afk.setVoluntary(second, true);
-    afk.setVoluntary(third, true);
+    afk.setAfk(first, true);
+    afk.setAfk(second, true);
+    afk.setAfk(third, true);
     assert.equal(room.kicks.length, 0);
     config.maxPlayers = prevMax;
     afk.ensureReserveSlots();
@@ -218,7 +271,7 @@ describe("AFK: ações e pausa", () => {
     assert.ok(room.kicks.some((k) => k.id === 20));
     assert.ok(room.kicks.some((k) => k.id === 21));
     assert.equal(room.kicks.some((k) => k.id === 22), false);
-    assert.equal(afk.isVoluntary(22), true);
+    assert.equal(afk.isAfk(22), true);
     assert.equal(players.length, 24);
     afk.stop();
   });
@@ -226,10 +279,10 @@ describe("AFK: ações e pausa", () => {
   it("sala folgada não kicka AFK voluntário", () => {
     const { room, players } = afkSetup(20);
     const afk = createAfkTracker(room);
-    afk.setVoluntary(players[5], true);
+    afk.setAfk(players[5], true);
     afk.ensureReserveSlots();
     assert.equal(room.kicks.length, 0);
-    assert.equal(afk.isVoluntary(players[5].id), true);
+    assert.equal(afk.isAfk(players[5].id), true);
     afk.stop();
   });
 
@@ -273,7 +326,7 @@ describe("AFK: ações e pausa", () => {
     afk.tick();
 
     assert.equal(players.find((p) => p.id === 1).team, 1);
-    assert.equal(afk.isVoluntary(1), false);
+    assert.equal(afk.isAfk(1), false);
     assert.equal(room.kicks.length, 0);
 
     config.afkWarnMs = prev.warn;
@@ -327,7 +380,7 @@ describe("AFK: ações e pausa", () => {
     afk.tick();
 
     assert.equal(players.find((p) => p.id === 1).team, 0);
-    assert.equal(afk.isVoluntary(1), true);
+    assert.equal(afk.isAfk(1), true);
     assert.equal(room.kicks.length, 0);
 
     config.afkWarnMs = prev.warn;
@@ -352,7 +405,7 @@ describe("AFK: ações e pausa", () => {
     afk.touch(1);
     afk.tick();
     assert.equal(players.find((p) => p.id === 1).team, 0);
-    assert.equal(afk.isVoluntary(1), true);
+    assert.equal(afk.isAfk(1), true);
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();
@@ -375,7 +428,7 @@ describe("AFK: ações e pausa", () => {
     afk.touch(1);
     afk.tick();
     assert.equal(players.find((p) => p.id === 1).team, 0);
-    assert.equal(afk.isVoluntary(1), true);
+    assert.equal(afk.isAfk(1), true);
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();
@@ -391,7 +444,7 @@ describe("AFK: ações e pausa", () => {
     afk.touch(1);
     afk.tick();
     assert.equal(players.find((p) => p.id === 1).team, 1);
-    assert.equal(afk.isVoluntary(1), false);
+    assert.equal(afk.isAfk(1), false);
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();

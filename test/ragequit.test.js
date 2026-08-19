@@ -207,3 +207,79 @@ describe("gol de ouro, posse e late joiner", () => {
     assert.ok(host.announcements.some((msg) => /\[02:05\]/.test(msg)));
   });
 });
+
+describe("stats da partida x4", () => {
+  it("auth só no join ainda grava gol e assistência no payload do !stats", async () => {
+    const auths = new Map([
+      [1, "auth-r"],
+      [2, "auth-r2"],
+      [3, "auth-b"],
+    ]);
+    const players = [
+      { id: 1, name: "R", team: TEAM.RED },
+      { id: 2, name: "R2", team: TEAM.RED },
+      { id: 3, name: "B", team: TEAM.BLUE },
+    ];
+    let scores = {
+      red: 0,
+      blue: 0,
+      time: 40,
+      scoreLimit: 3,
+      timeLimit: 240,
+    };
+    const room = {
+      getPlayerList: () => players.map((p) => ({ ...p })),
+      getScores: () => scores,
+      getBallPosition: () => ({ x: 0, y: 0 }),
+      startRecording: () => {},
+      stopRecording: () => new Uint8Array(),
+      startGame: () => {},
+      sendAnnouncement: () => {},
+    };
+    const match = createMatchController(room, {
+      identify: (player) => ({ ...player, auth: auths.get(player.id) || null }),
+    });
+    match.start({ competitive: true });
+
+    match.onBallKick({ id: 2, name: "R2", team: TEAM.RED });
+    match.onBallKick({ id: 1, name: "R", team: TEAM.RED });
+    scores = { ...scores, red: 1 };
+    match.onTeamGoal(TEAM.RED);
+    match.markVictory();
+    scores = { ...scores, red: 3, blue: 0, time: 90 };
+
+    const result = await match.finish(scores);
+    assert.equal(result.valid, true);
+    const scorer = result.players.find((p) => p.auth === "auth-r");
+    const assist = result.players.find((p) => p.auth === "auth-r2");
+    const rival = result.players.find((p) => p.auth === "auth-b");
+    assert.equal(scorer.goals, 1);
+    assert.equal(scorer.assists, 0);
+    assert.equal(scorer.result, "win");
+    assert.equal(assist.goals, 0);
+    assert.equal(assist.assists, 1);
+    assert.equal(rival.goals, 0);
+    assert.equal(rival.result, "loss");
+  });
+
+  it("sem identify e sem auth no getPlayerList não inventa stats", async () => {
+    const players = [
+      { id: 1, name: "R", team: TEAM.RED },
+      { id: 2, name: "B", team: TEAM.BLUE },
+    ];
+    const scores = { red: 3, blue: 0, time: 90, scoreLimit: 3, timeLimit: 240 };
+    const room = {
+      getPlayerList: () => players,
+      getScores: () => scores,
+      startRecording: () => {},
+      stopRecording: () => new Uint8Array(),
+      startGame: () => {},
+      sendAnnouncement: () => {},
+    };
+    const match = createMatchController(room);
+    match.start({ competitive: true });
+    match.markVictory();
+    const result = await match.finish(scores);
+    assert.equal(result.players.length, 0);
+  });
+});

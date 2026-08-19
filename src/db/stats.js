@@ -188,14 +188,51 @@ async function bumpPlayerStats(p) {
   };
 }
 
+async function aggregateFromMatches(sb, auth) {
+  const { data, error } = await sb
+    .from("match_players")
+    .select("goals, assists, own_goals, result, mvp, team, matches!inner(valid, score_red, score_blue)")
+    .eq("auth", auth)
+    .eq("matches.valid", true);
+  if (error || !Array.isArray(data) || !data.length) return null;
+
+  const acc = emptyPlayerStats();
+  acc.games = data.length;
+  for (const row of data) {
+    acc.goals += Number(row.goals) || 0;
+    acc.assists += Number(row.assists) || 0;
+    acc.own_goals += Number(row.own_goals) || 0;
+    if (row.result === "win") acc.wins += 1;
+    else if (row.result === "draw") acc.draws += 1;
+    else if (row.result === "loss") acc.losses += 1;
+    if (row.mvp) acc.mvps += 1;
+    const match = row.matches;
+    if (match) {
+      const conceded = Number(row.team) === 1 ? match.score_blue : match.score_red;
+      if (Number(conceded) === 0) acc.cs += 1;
+    }
+  }
+  return acc;
+}
+
 async function getPlayerStats(auth) {
   const sb = getSupabase();
   if (!sb || !auth) return emptyPlayerStats();
   const { data, error } = await sb.from("player_stats").select("*").eq("auth", auth).maybeSingle();
   if (error) console.error("[stats] get", error.message);
   const row = { ...emptyPlayerStats(), ...(data || {}) };
-  const counted = await countCleanSheets(sb, auth);
-  if (counted != null) row.cs = counted;
+  // A coluna cs é mantida no fim de cada partida. Só recontamos (query pesada)
+  // quando a migração 004 ainda não rodou nesse banco.
+  if (data && data.cs === undefined) {
+    const counted = await countCleanSheets(sb, auth);
+    if (counted != null) row.cs = counted;
+  }
+  const emptyTotals =
+    !Number(row.games) && !Number(row.goals) && !Number(row.assists) && !Number(row.mvps);
+  if (emptyTotals) {
+    const fromMatches = await aggregateFromMatches(sb, auth);
+    if (fromMatches) return { ...row, ...fromMatches, selected_title: row.selected_title };
+  }
   return row;
 }
 

@@ -1,9 +1,19 @@
 const express = require("express");
-const { exec } = require("child_process");
+const crypto = require("crypto");
+const { execFile } = require("child_process");
 const config = require("../config");
+
+/** Comparação de tamanho fixo: não vaza o segredo pelo tempo de resposta. */
+function secretMatches(given, expected) {
+  const a = Buffer.from(String(given || ""));
+  const b = Buffer.from(String(expected || ""));
+  if (!a.length || a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 function startTokenServer() {
   const app = express();
+  app.disable("x-powered-by");
   app.use(express.json({ limit: "16kb" }));
 
   function auth(req, res, next) {
@@ -14,7 +24,7 @@ function startTokenServer() {
     const header = req.headers.authorization || "";
     const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
     const key = req.headers["x-api-key"] || bearer || req.query.secret;
-    if (key !== secret) {
+    if (!secretMatches(key, secret)) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     next();
@@ -49,9 +59,12 @@ function startTokenServer() {
       return res.status(500).json({ ok: false, error: err.message });
     }
 
-    const name = config.pm2ProcessName;
-    // Reinicia via PM2 se existir; senão o processo atual precisa ser reciclado externamente
-    exec(`pm2 restart ${name} --update-env`, { windowsHide: true }, (err, stdout, stderr) => {
+    const name = String(config.pm2ProcessName || "").trim();
+    if (!/^[\w.-]+$/.test(name)) {
+      return res.status(500).json({ ok: false, error: "PM2_PROCESS_NAME inválido" });
+    }
+    // execFile (sem shell) para o nome do processo nunca virar comando.
+    execFile("pm2", ["restart", name, "--update-env"], { windowsHide: true }, (err, stdout, stderr) => {
       if (err) {
         console.warn("[token-api] pm2 restart falhou (ok se ainda não usa PM2):", err.message);
         console.warn(stderr || "");
@@ -68,8 +81,8 @@ function startTokenServer() {
     });
   });
 
-  const server = app.listen(config.tokenApiPort, "0.0.0.0", () => {
-    console.log(`[token-api] listening :${config.tokenApiPort}`);
+  const server = app.listen(config.tokenApiPort, config.tokenApiHost, () => {
+    console.log(`[token-api] listening ${config.tokenApiHost}:${config.tokenApiPort}`);
   });
 
   return server;

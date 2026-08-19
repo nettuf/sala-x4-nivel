@@ -65,7 +65,7 @@ describe("comandos (mock room)", () => {
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!afk");
     assert.equal(room._players[0].team, 1);
-    assert.equal(afk.isVoluntary(1), false);
+    assert.equal(afk.isAfk(1), false);
     assert.ok(room.announcements.some((a) => /4v4/i.test(a.msg)));
     afk.stop();
   });
@@ -84,7 +84,7 @@ describe("comandos (mock room)", () => {
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!afk");
     assert.equal(room._players[0].team, 0);
-    assert.equal(afk.isVoluntary(1), true);
+    assert.equal(afk.isAfk(1), true);
     afk.stop();
   });
 
@@ -101,7 +101,7 @@ describe("comandos (mock room)", () => {
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!afk");
     assert.equal(room._players[0].team, 0);
-    assert.equal(afk.isVoluntary(1), true);
+    assert.equal(afk.isAfk(1), true);
     afk.stop();
   });
 
@@ -111,9 +111,9 @@ describe("comandos (mock room)", () => {
     const ctx = { admins: new Map(), mutes: new Map(), afk };
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[2], "!afk");
-    assert.equal(afk.isVoluntary(3), true);
+    assert.equal(afk.isAfk(3), true);
     await cmd.handle(room._players[2], "!afk");
-    assert.equal(afk.isVoluntary(3), false);
+    assert.equal(afk.isAfk(3), false);
     afk.stop();
   });
 
@@ -125,12 +125,12 @@ describe("comandos (mock room)", () => {
     const spec = room._players[2];
 
     await cmd.handle(spec, "!afk");
-    assert.equal(afk.isVoluntary(3), true);
+    assert.equal(afk.isAfk(3), true);
     await cmd.handle(spec, "!afk");
-    assert.equal(afk.isVoluntary(3), false);
+    assert.equal(afk.isAfk(3), false);
 
     await cmd.handle(spec, "!afk");
-    assert.equal(afk.isVoluntary(3), false);
+    assert.equal(afk.isAfk(3), false);
     assert.ok(room.announcements.some((a) => /espere \d+s para usar !afk/i.test(a.msg)));
     afk.stop();
   });
@@ -148,7 +148,7 @@ describe("comandos (mock room)", () => {
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!afk");
     assert.equal(room._players[0].team, 0);
-    assert.equal(afk.isVoluntary(1), true);
+    assert.equal(afk.isAfk(1), true);
     afk.stop();
   });
 
@@ -279,6 +279,7 @@ describe("comandos (mock room)", () => {
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[2], "!bb");
     assert.ok(room.kicks.some((k) => k.id === 3 && k.ban === false));
+    assert.equal(room.announcements.some((a) => /saiu/i.test(a.msg)), false);
     afk.stop();
   });
 
@@ -351,6 +352,11 @@ describe("comandos (mock room)", () => {
       room.adminFlags.length = 0;
       cmd.applyAdminLook(player, { level, title: `nv${level}` });
       assert.deepEqual(room.adminFlags, [{ id: 1, value: true }], `nível ${level}`);
+      assert.equal(
+        room.announcements.some((a) => /entrou/.test(a.msg)),
+        false,
+        "não anuncia entrada de staff"
+      );
     }
     afk.stop();
   });

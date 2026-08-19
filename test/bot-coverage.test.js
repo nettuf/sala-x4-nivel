@@ -12,7 +12,6 @@ const {
 const { stadiumKindForCount } = require("../src/room/maps");
 const { createChooseController, TEAM } = require("../src/room/choose");
 const { createMatchController } = require("../src/room/match");
-const { handleInGameLeave } = require("../src/room/leaveFlow");
 const { planWarmup } = require("../src/room/warmupFlow");
 const { planCompetitiveRecovery, planExactFill } = require("../src/room/recovery");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays } = require("../src/room/streak");
@@ -158,16 +157,17 @@ describe("choose: quem picka", () => {
   it("token que não é pick passa adiante", () => {
     const players = [
       p(1, TEAM.RED),
+      p(11, TEAM.RED),
+      p(12, TEAM.RED),
+      p(13, TEAM.RED),
       p(2, TEAM.BLUE),
       p(4),
       p(5),
       p(6),
       p(7),
-      p(8),
-      p(9),
     ];
     const { choose } = chooseRoom(players);
-    choose.tryStartChoose();
+    choose.continueFromField();
     const cap = choose.currentCaptain();
     assert.equal(isChooseToken("oi"), false);
     assert.equal(choose.handleCaptainChat(cap, "oi"), false);
@@ -240,55 +240,6 @@ describe("ragequit: placares", () => {
   });
 });
 
-describe("leaveFlow legado", () => {
-  function leaveHost(players, scores) {
-    const announcements = [];
-    const room = {
-      getPlayerList: () => players,
-      getScores: () => scores,
-      setPlayerTeam(id, team) {
-        players.find((row) => row.id === id).team = team;
-      },
-      sendAnnouncement: (msg) => announcements.push(msg),
-      stopGame: () => {
-        scores = null;
-      },
-    };
-    const match = {
-      isRunning: () => true,
-      markVictory: () => {},
-      cancelRecordingOnly: () => {},
-    };
-    return { room, match, announcements, get scores() { return scores; } };
-  }
-
-  it("diff 2 no fim com 8+ → ragequit", () => {
-    const players = [
-      p(1, TEAM.RED), p(2, TEAM.RED), p(3, TEAM.RED), p(4, TEAM.RED),
-      p(5, TEAM.BLUE), p(6, TEAM.BLUE), p(7, TEAM.BLUE),
-      p(8),
-    ];
-    const host = leaveHost(players, { red: 2, blue: 0, time: 160, timeLimit: 180 });
-    assert.equal(handleInGameLeave(host.room, host.match), "ragequit");
-  });
-
-  it("menos de 8 → warmup-reset", () => {
-    const players = [p(1, TEAM.RED), p(2, TEAM.BLUE), p(3)];
-    const host = leaveHost(players, { red: 0, blue: 0, time: 10, timeLimit: 180 });
-    assert.equal(handleInGameLeave(host.room, host.match), "warmup-reset");
-  });
-
-  it("time vazio com spec → filled", () => {
-    const players = [
-      p(1, TEAM.RED), p(2, TEAM.RED), p(3, TEAM.RED), p(4, TEAM.RED),
-      p(8), p(9), p(10), p(11),
-    ];
-    const host = leaveHost(players, { red: 0, blue: 0, time: 20, timeLimit: 180 });
-    assert.equal(handleInGameLeave(host.room, host.match), "filled");
-    assert.equal(players.find((row) => row.id === 8).team, TEAM.BLUE);
-  });
-});
-
 describe("warmup e recuperação", () => {
   it("7 jogadores: 3v3 e 1 spec", () => {
     const players = [
@@ -346,7 +297,7 @@ describe("streak e winner stays", () => {
     assert.equal(players.find((row) => row.id === 5).team, TEAM.SPEC);
   });
 
-  it("empate reseta times e streak", () => {
+  it("empate não zera times nem streak (gol de ouro)", () => {
     const players = [p(1, TEAM.RED), p(2, TEAM.BLUE)];
     const room = {
       getPlayerList: () => players,
@@ -358,10 +309,10 @@ describe("streak e winner stays", () => {
     const streak = createStreakTracker();
     streak.recordWin(TEAM.RED);
     const r = applyWinnerStays(room, 0, streak);
-    assert.equal(r.mode, "reset");
-    assert.equal(streak.get(), 0);
-    assert.equal(players[0].team, TEAM.SPEC);
-    assert.equal(players[1].team, TEAM.SPEC);
+    assert.equal(r.mode, "keep");
+    assert.equal(streak.get(), 1);
+    assert.equal(players[0].team, TEAM.RED);
+    assert.equal(players[1].team, TEAM.BLUE);
   });
 
   it("shouldUseWinnerStays só com 8+ e partida válida", () => {

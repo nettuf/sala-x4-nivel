@@ -298,7 +298,11 @@ describe("escolha de reposição", () => {
   });
 
   it("mantém os picks corretos quando setPlayerTeam é assíncrono", () => {
-    const players = Array.from({ length: 8 }, (_, index) => p(index + 1));
+    const players = [
+      p(1, TEAM.RED), p(11, TEAM.RED), p(12, TEAM.RED), p(13, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(4), p(5), p(6), p(7),
+    ];
     const pendingChanges = [];
     const deferred = [];
     let ready = 0;
@@ -318,13 +322,11 @@ describe("escolha de reposição", () => {
       deferAfterTeamChange: (callback) => deferred.push(callback),
     });
 
-    choose.tryStartChoose();
-    for (let index = 0; index < 5; index += 1) {
-      const captain = choose.list().red.length <= choose.list().blue.length
-        ? choose.list().red[0]
-        : choose.list().blue[0];
-      assert.equal(choose.handleCaptainChat(captain, "1"), true);
-    }
+    choose.continueFromField();
+    const blueCap = players.find((player) => player.id === 2);
+    assert.equal(choose.handleCaptainChat(blueCap, "1"), true);
+    assert.equal(choose.handleCaptainChat(blueCap, "1"), true);
+    assert.equal(choose.handleCaptainChat(blueCap, "1"), true);
 
     assert.equal(choose.bothFull(), true);
     assert.equal(ready, 0);
@@ -338,7 +340,11 @@ describe("escolha de reposição", () => {
   });
 
   it("lembra top/random/bottom e repete no próximo pick do mesmo capitão", () => {
-    const players = Array.from({ length: 8 }, (_, index) => p(index + 1));
+    const players = [
+      p(1, TEAM.RED), p(11, TEAM.RED), p(12, TEAM.RED), p(13, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(4), p(5), p(6), p(7),
+    ];
     let ready = 0;
     const room = {
       getPlayerList: () => players,
@@ -354,26 +360,23 @@ describe("escolha de reposição", () => {
         ready += 1;
       },
     });
-    choose.tryStartChoose();
-    const redCap = players.find((player) => player.id === 1);
+    choose.continueFromField();
     const blueCap = players.find((player) => player.id === 2);
-    assert.equal(choose.handleCaptainChat(redCap, "top"), true);
-    assert.equal(choose.handleCaptainChat(blueCap, "bottom"), true);
-    // Com os dois modos gravados, o restante do 4v4 se completa sozinho.
+    assert.equal(choose.handleCaptainChat(blueCap, "top"), true);
     assert.equal(choose.bothFull(), true);
     assert.equal(ready, 1);
     assert.deepEqual(
-      choose.list().red.map((player) => player.id).sort((a, b) => a - b),
-      [1, 3, 4, 5]
-    );
-    assert.deepEqual(
       choose.list().blue.map((player) => player.id).sort((a, b) => a - b),
-      [2, 6, 7, 8]
+      [2, 4, 5, 6]
     );
   });
 
   it("sem streak, diff 2 no choose devolve o último escolhido ao spec", () => {
-    const players = Array.from({ length: 9 }, (_, index) => p(index + 1));
+    const players = [
+      p(1, TEAM.RED), p(11, TEAM.RED), p(12, TEAM.RED),
+      p(2, TEAM.BLUE), p(22, TEAM.BLUE), p(23, TEAM.BLUE),
+      p(4), p(5), p(6), p(7),
+    ];
     const room = {
       getPlayerList: () => players,
       getScores: () => null,
@@ -387,25 +390,25 @@ describe("escolha de reposição", () => {
       onReadyToStart: () => {},
       getStreak: () => 0,
     });
-    choose.tryStartChoose();
+    choose.continueFromField();
     const redCap = players.find((player) => player.id === 1);
-    const blueCap = players.find((player) => player.id === 2);
     choose.handleCaptainChat(redCap, "1");
-    choose.handleCaptainChat(blueCap, "1");
-    choose.handleCaptainChat(redCap, "1");
+    assert.equal(choose.list().red.length, 4);
+    assert.equal(choose.list().blue.length, 3);
+
+    const blueLeft = players.find((player) => player.id === 23);
+    players.splice(players.indexOf(blueLeft), 1);
+    choose.onPlayerLeave();
     assert.equal(choose.list().red.length, 3);
     assert.equal(choose.list().blue.length, 2);
-
-    const bluePicked = players.find((player) => player.id === 4);
-    players.splice(players.indexOf(bluePicked), 1);
-    choose.onPlayerLeave();
-    assert.equal(choose.list().red.length, 2);
-    assert.equal(choose.list().blue.length, 1);
-    assert.equal(players.find((player) => player.id === 5).team, TEAM.SPEC);
   });
 
   it("com streak não desfaz o último pick", () => {
-    const players = Array.from({ length: 9 }, (_, index) => p(index + 1));
+    const players = [
+      p(1, TEAM.RED), p(11, TEAM.RED), p(12, TEAM.RED),
+      p(2, TEAM.BLUE), p(22, TEAM.BLUE), p(23, TEAM.BLUE),
+      p(4), p(5), p(6), p(7),
+    ];
     const room = {
       getPlayerList: () => players,
       getScores: () => null,
@@ -419,17 +422,14 @@ describe("escolha de reposição", () => {
       onReadyToStart: () => {},
       getStreak: () => 2,
     });
-    choose.tryStartChoose();
+    choose.continueFromField();
     const redCap = players.find((player) => player.id === 1);
-    const blueCap = players.find((player) => player.id === 2);
     choose.handleCaptainChat(redCap, "1");
-    choose.handleCaptainChat(blueCap, "1");
-    choose.handleCaptainChat(redCap, "1");
-    const bluePicked = players.find((player) => player.id === 4);
-    players.splice(players.indexOf(bluePicked), 1);
+    const blueLeft = players.find((player) => player.id === 23);
+    players.splice(players.indexOf(blueLeft), 1);
     choose.onPlayerLeave();
-    assert.equal(choose.list().red.length, 3);
-    assert.equal(choose.list().blue.length, 1);
+    assert.equal(choose.list().red.length, 4);
+    assert.equal(choose.list().blue.length, 2);
   });
 
   it("reposição aceita pick com o jogo pausado (getScores != null)", () => {
