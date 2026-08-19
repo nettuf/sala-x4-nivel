@@ -1,0 +1,23 @@
+{
+  "name": "sala-x4",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sala Haxball futsal x4 + Supabase + Discord webhook",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "start:token": "node src/server/tokenServer.js",
+    "test": "node --test test/**/*.test.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:restart": "pm2 restart sala-x4"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "haxball.js": "^5.0.7"
+  }
+}

@@ -1,0 +1,30 @@
+require("dotenv").config();
+
+const config = require("./config");
+const { startTokenServer } = require("./server/tokenServer");
+const { createRoom } = require("./room/createRoom");
+
+async function main() {
+  startTokenServer();
+
+  if (!config.readToken()) {
+    console.warn("[sala-x4] sem token — API /token no ar. Envie o token para subir a sala (reinicie após POST).");
+    return;
+  }
+
+  const HaxballJSImport = require("haxball.js");
+  const HaxballJS = HaxballJSImport.default || HaxballJSImport;
+
+  try {
+    const HBInit = await HaxballJS();
+    createRoom(HBInit);
+    console.log("[sala-x4] room host iniciado:", config.roomName);
+  } catch (err) {
+    console.error("[sala-x4] falha ao abrir sala (token API segue ativa):", err.message || err);
+  }
+}
+
+main().catch((err) => {
+  console.error("[sala-x4] fatal:", err);
+  process.exit(1);
+});
