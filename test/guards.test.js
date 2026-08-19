@@ -183,4 +183,33 @@ describe("AFK: ações e pausa", () => {
     assert.ok(!room.kicks.some((k) => k.id === p.id));
     afk.stop();
   });
+
+  it("10s parado no time → spec; menos que isso não pune", () => {
+    const { room, players } = afkSetup(4);
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 5000;
+    config.afkActionMs = 10000;
+
+    afk.touch(1);
+    const at = Date.now();
+
+    afk.tick(at + 4000);
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+    assert.ok(!room.announcements.some((a) => /10s/i.test(a.msg)));
+
+    afk.tick(at + 6000);
+    assert.ok(room.announcements.some((a) => /10s/i.test(a.msg)));
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+
+    afk.tick(at + 9000);
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+
+    afk.tick(at + 11000);
+    assert.equal(players.find((p) => p.id === 1).team, 0);
+
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
 });

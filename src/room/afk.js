@@ -71,9 +71,8 @@ function createAfkTracker(room) {
     }
   }
 
-  function tick() {
+  function tick(now = Date.now()) {
     if (paused || !counting) return;
-    const now = Date.now();
     const full = playingCount() >= config.afkFullThreshold;
     for (const p of room.getPlayerList()) {
       if (p.id === 0) continue;
@@ -90,7 +89,7 @@ function createAfkTracker(room) {
       if (idle >= config.afkWarnMs && !st.warned) {
         st.warned = true;
         room.sendAnnouncement(
-          `⚠️ ${p.name}, mexa-se ou será tratado como AFK.`,
+          `⚠️ ${p.name}, mexa-se (10s) ou será tratado como AFK.`,
           p.id,
           0xf1c40f,
           "bold",
@@ -120,7 +119,7 @@ function createAfkTracker(room) {
     }
   }
 
-  const interval = setInterval(tick, 5000);
+  const interval = setInterval(tick, 1000);
   // Não impede o processo de encerrar (testes / PM2 restart limpo)
   if (typeof interval.unref === "function") interval.unref();
 
