@@ -47,16 +47,67 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
-  it("!afk move para spec", async () => {
+  it("!afk é bloqueado para jogador dentro da partida", async () => {
     const room = mockRoom();
+    room.getScores = () => ({ red: 0, blue: 0, time: 12, timeLimit: 180 });
     const afk = createAfkTracker(room);
-    const ctx = { admins: new Map(), mutes: new Map(), afk };
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      match: { isCompetitive: () => false },
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!afk");
+    assert.equal(room._players[0].team, 1);
+    assert.equal(afk.isVoluntary(1), false);
+    assert.ok(room.announcements.some((a) => /dentro da partida/i.test(a.msg)));
+    afk.stop();
+  });
+
+  it("!afk funciona no time entre jogos (choose/lobby)", async () => {
+    const room = mockRoom();
+    room.getScores = () => null;
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      match: { isCompetitive: () => false },
+    };
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!afk");
     assert.equal(room._players[0].team, 0);
     assert.equal(afk.isVoluntary(1), true);
-    await cmd.handle(room._players[0], "!back");
-    assert.equal(afk.isVoluntary(1), false);
+    afk.stop();
+  });
+
+  it("!afk funciona no spec", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[2], "!afk");
+    assert.equal(afk.isVoluntary(3), true);
+    await cmd.handle(room._players[2], "!back");
+    assert.equal(afk.isVoluntary(3), false);
+    afk.stop();
+  });
+
+  it("!afk é permitido quando é o único jogador no treino", async () => {
+    const room = mockRoom();
+    room._players.splice(1); // só o RedCap
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      match: { isCompetitive: () => false },
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!afk");
+    assert.equal(room._players[0].team, 0);
+    assert.equal(afk.isVoluntary(1), true);
     afk.stop();
   });
 

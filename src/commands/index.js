@@ -92,6 +92,22 @@ function createCommandHandler(room, ctx) {
         room.sendAnnouncement("Já está AFK. Use !back", player.id, 0xf1c40f, "normal", 1);
         return true;
       }
+      const roomCount = room.getPlayerList().filter((p) => p.id !== 0).length;
+      const scores = typeof room.getScores === "function" ? room.getScores() : null;
+      const soloTraining =
+        roomCount === 1 &&
+        player.team !== 0 &&
+        !ctx.match?.isCompetitive?.();
+      if (player.team !== 0 && scores && !soloTraining) {
+        room.sendAnnouncement(
+          "Não pode usar !afk dentro da partida. Saia do time ou aguarde o jogo terminar.",
+          player.id,
+          0xe74c3c,
+          "bold",
+          2
+        );
+        return true;
+      }
       ctx.afk?.setVoluntary(player, true);
       return true;
     }

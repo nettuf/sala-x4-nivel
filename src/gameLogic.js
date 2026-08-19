@@ -47,6 +47,48 @@ function isChooseToken(token) {
   return /^(top|auto|bottom|bot|random|rand|\d+)$/i.test(String(token || ""));
 }
 
+function rememberedChooseMode(token) {
+  const mode = String(token || "").toLowerCase();
+  if (mode === "top" || mode === "auto") return "top";
+  if (mode === "bottom" || mode === "bot") return "bottom";
+  if (mode === "random" || mode === "rand") return "random";
+  return null;
+}
+
+function formatMatchClock(timeSec = 0) {
+  const total = Math.max(0, Math.floor(Number(timeSec) || 0));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function pointDistance(a, b) {
+  if (!a || !b) return 0;
+  const dx = (a.x || 0) - (b.x || 0);
+  const dy = (a.y || 0) - (b.y || 0);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** km/h a partir de duas posições consecutivas da bola (tick ~1/60s). */
+function ballSpeedKmh(prev, next) {
+  return (pointDistance(prev, next) * 60 * 60 * 60) / 15000;
+}
+
+function possessionPercents(redTicks, blueTicks) {
+  const total = redTicks + blueTicks;
+  if (total <= 0) return { red: 50, blue: 50 };
+  const red = (100 * redTicks) / total;
+  return { red, blue: 100 - red };
+}
+
+function canJoinMatchStats(scores) {
+  if (!scores) return true;
+  const timeLimit = scores.timeLimit || 0;
+  const tooLate = timeLimit > 0 && scores.time > timeLimit * 0.75;
+  const blowout = Math.abs((scores.red || 0) - (scores.blue || 0)) >= 2;
+  return !tooLate && !blowout;
+}
+
 /**
  * Ragequit (Wazarr/Fazendão): após saída, times desiguais, placar com diferença 2
  * a favor do time maior, e tempo ≥ 5/6 do limite.
@@ -71,5 +113,11 @@ module.exports = {
   isValidMatchScores,
   pickFromSpecList,
   isChooseToken,
+  rememberedChooseMode,
+  formatMatchClock,
+  pointDistance,
+  ballSpeedKmh,
+  possessionPercents,
+  canJoinMatchStats,
   detectRageQuit,
 };

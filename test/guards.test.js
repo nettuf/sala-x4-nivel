@@ -114,10 +114,13 @@ describe("AFK: ações e pausa", () => {
     config.afkWarnMs = 0;
     config.afkActionMs = 0;
 
+    afk.touch(1);
+    afk.touch(2);
     afk.tick();
 
     assert.equal(room.kicks.length, 0);
     assert.equal(players.find((p) => p.id === 1).team, 0);
+    assert.equal(afk.isVoluntary(1), true);
     assert.ok(room.announcements.some((a) => /spect/i.test(a.msg)));
 
     config.afkWarnMs = prev.warn;
@@ -126,7 +129,7 @@ describe("AFK: ações e pausa", () => {
   });
 
   it("sala cheia (>= limiar): AFK é kickado", () => {
-    const { room } = afkSetup(config.afkFullThreshold);
+    const { room, players } = afkSetup(config.afkFullThreshold);
     const afk = createAfkTracker(room);
     const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
     config.afkWarnMs = 0;
@@ -136,6 +139,8 @@ describe("AFK: ações e pausa", () => {
 
     assert.ok(room.kicks.length > 0);
     assert.match(room.kicks[0].reason, /AFK/i);
+    // Specs não são avaliados como AFK.
+    assert.ok(players.some((p) => p.id === 3 && p.team === 0));
 
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
@@ -175,7 +180,7 @@ describe("AFK: ações e pausa", () => {
     afk.tick();
 
     assert.equal(p.team, 0);
-    assert.equal(room.kicks.length, 0);
+    assert.ok(!room.kicks.some((k) => k.id === p.id));
     afk.stop();
   });
 });

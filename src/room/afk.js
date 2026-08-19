@@ -9,6 +9,8 @@ function createAfkTracker(room) {
   /** @type {Set<number>} */
   const voluntary = new Set();
   let paused = false;
+  let counting = true;
+  let onStateChange = null;
 
   function touch(playerId) {
     if (voluntary.has(playerId)) return;
@@ -28,6 +30,7 @@ function createAfkTracker(room) {
   }
 
   function setVoluntary(player, on) {
+    const previousTeam = player.team;
     if (on) {
       voluntary.add(player.id);
       if (player.team !== 0) room.setPlayerTeam(player.id, 0);
@@ -37,6 +40,11 @@ function createAfkTracker(room) {
       touch(player.id);
       room.sendAnnouncement(`${player.name} voltou do AFK`, null, 0x2ecc71, "normal", 1);
     }
+    onStateChange?.({
+      type: on ? "voluntary-afk" : "back",
+      player,
+      previousTeam,
+    });
   }
 
   function playingCount() {
@@ -53,8 +61,18 @@ function createAfkTracker(room) {
     }
   }
 
+  /** Após gol, até o kickoff: não incrementa AFK (FC countAFK). */
+  function setCounting(on) {
+    counting = !!on;
+    if (counting) {
+      for (const p of room.getPlayerList()) {
+        if (p.id !== 0) touch(p.id);
+      }
+    }
+  }
+
   function tick() {
-    if (paused) return;
+    if (paused || !counting) return;
     const now = Date.now();
     const full = playingCount() >= config.afkFullThreshold;
     for (const p of room.getPlayerList()) {
@@ -63,6 +81,8 @@ function createAfkTracker(room) {
         if (p.team !== 0) room.setPlayerTeam(p.id, 0);
         continue;
       }
+      // Spec não ocupa uma vaga em jogo e não recebe punição automática.
+      if (p.team === 0) continue;
       if (!state.has(p.id)) touch(p.id);
       const st = state.get(p.id);
       const idle = now - st.lastActive;
@@ -81,18 +101,21 @@ function createAfkTracker(room) {
       if (idle < config.afkActionMs) continue;
 
       if (full) {
+        onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
         room.kickPlayer(p.id, "AFK (sala cheia)", false);
         remove(p.id);
       } else if (p.team !== 0) {
+        const previousTeam = p.team;
+        voluntary.add(p.id);
         room.setPlayerTeam(p.id, 0);
         room.sendAnnouncement(
-          `${p.name} movido para spect por AFK.`,
+          `${p.name} movido para spect por AFK. Use !back para voltar à fila.`,
           null,
           0xe67e22,
           "normal",
           1
         );
-        touch(p.id);
+        onStateChange?.({ type: "auto-afk", player: p, previousTeam });
       }
     }
   }
@@ -106,8 +129,13 @@ function createAfkTracker(room) {
     remove,
     isVoluntary,
     setVoluntary,
+    setOnStateChange(handler) {
+      onStateChange = typeof handler === "function" ? handler : null;
+    },
     setPaused,
+    setCounting,
     isPaused: () => paused,
+    isCounting: () => counting,
     tick,
     stop() {
       clearInterval(interval);

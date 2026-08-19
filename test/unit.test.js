@@ -14,6 +14,11 @@ const {
   isValidMatchScores,
   pickFromSpecList,
   isChooseToken,
+  rememberedChooseMode,
+  formatMatchClock,
+  ballSpeedKmh,
+  possessionPercents,
+  canJoinMatchStats,
   detectRageQuit,
 } = require("../src/gameLogic");
 const {
@@ -90,6 +95,34 @@ describe("gameLogic", () => {
     assert.equal(pickFromSpecList(spec, "9"), null);
     assert.equal(isChooseToken("top"), true);
     assert.equal(isChooseToken("!help"), false);
+  });
+
+  it("rememberedChooseMode só grava top/random/bottom", () => {
+    assert.equal(rememberedChooseMode("auto"), "top");
+    assert.equal(rememberedChooseMode("bot"), "bottom");
+    assert.equal(rememberedChooseMode("rand"), "random");
+    assert.equal(rememberedChooseMode("2"), null);
+  });
+
+  it("formatMatchClock e posse", () => {
+    assert.equal(formatMatchClock(125), "02:05");
+    assert.equal(formatMatchClock(-1), "00:00");
+    assert.deepEqual(possessionPercents(0, 0), { red: 50, blue: 50 });
+    assert.deepEqual(possessionPercents(3, 1), { red: 75, blue: 25 });
+  });
+
+  it("ballSpeedKmh cresce com deslocamento", () => {
+    const slow = ballSpeedKmh({ x: 0, y: 0 }, { x: 1, y: 0 });
+    const fast = ballSpeedKmh({ x: 0, y: 0 }, { x: 4, y: 0 });
+    assert.ok(fast > slow);
+    assert.equal(ballSpeedKmh(null, { x: 1, y: 1 }), 0);
+  });
+
+  it("canJoinMatchStats recusa tarde ou goleada", () => {
+    assert.equal(canJoinMatchStats(null), true);
+    assert.equal(canJoinMatchStats({ time: 10, timeLimit: 180, red: 0, blue: 0 }), true);
+    assert.equal(canJoinMatchStats({ time: 140, timeLimit: 180, red: 0, blue: 0 }), false);
+    assert.equal(canJoinMatchStats({ time: 10, timeLimit: 180, red: 2, blue: 0 }), false);
   });
 
   it("detectRageQuit só no fim com diff 2", () => {

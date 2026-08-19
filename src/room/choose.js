@@ -1,15 +1,24 @@
 const config = require("../config");
-const { pickFromSpecList, isChooseToken } = require("../gameLogic");
+const { pickFromSpecList, isChooseToken, rememberedChooseMode } = require("../gameLogic");
 
 const TEAM = { SPEC: 0, RED: 1, BLUE: 2 };
 
 /**
  * Choose mode x4: capitães (1º de cada time) escolhem specs até 4v4.
- * @param {{ onReadyToStart: Function, isExcluded?: (player: object) => boolean, getStreakLabel?: () => string }} opts
+ * @param {{ onReadyToStart: Function, isExcluded?: (player: object) => boolean, getStreakLabel?: () => string, getStreak?: () => number, deferAfterTeamChange?: (callback: Function) => void }} opts
  */
-function createChooseController(room, { onReadyToStart, isExcluded, getStreakLabel }) {
+function createChooseController(room, {
+  onReadyToStart,
+  isExcluded,
+  getStreakLabel,
+  getStreak,
+  deferAfterTeamChange,
+}) {
   let active = false;
   let timeout = null;
+  let replacement = null;
+  const pendingTeams = new Map();
+  const lastMode = { [TEAM.RED]: "", [TEAM.BLUE]: "" };
   const teamSize = config.teamSize;
 
   function excluded(p) {
@@ -22,12 +31,36 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
     return s ? ` · ${s}` : "";
   }
 
+  function setTeam(playerId, team) {
+    pendingTeams.set(playerId, team);
+    room.setPlayerTeam(playerId, team);
+    const applied = room
+      .getPlayerList()
+      .find((player) => player.id === playerId)?.team;
+    if (applied === team) {
+      pendingTeams.delete(playerId);
+      return;
+    }
+    const timer = setTimeout(() => pendingTeams.delete(playerId), 250);
+    if (typeof timer.unref === "function") timer.unref();
+  }
+
+  function afterTeamChange(callback) {
+    if (typeof deferAfterTeamChange === "function") {
+      deferAfterTeamChange(callback);
+    } else {
+      callback();
+    }
+  }
+
   function list() {
+    const players = room.getPlayerList().map((p) =>
+      pendingTeams.has(p.id) ? { ...p, team: pendingTeams.get(p.id) } : p
+    );
     return {
-      red: room.getPlayerList().filter((p) => p.team === TEAM.RED),
-      blue: room.getPlayerList().filter((p) => p.team === TEAM.BLUE),
-      spec: room
-        .getPlayerList()
+      red: players.filter((p) => p.team === TEAM.RED),
+      blue: players.filter((p) => p.team === TEAM.BLUE),
+      spec: players
         .filter((p) => p.team === TEAM.SPEC && p.id !== 0 && !excluded(p)),
     };
   }
@@ -58,6 +91,10 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
 
   function currentCaptain() {
     const { red, blue } = list();
+    if (replacement) {
+      const team = replacement.targetTeam === TEAM.RED ? red : blue;
+      return team[0] || null;
+    }
     if (!red.length || !blue.length) return null;
     if (red.length <= blue.length) return red[0];
     return blue[0];
@@ -67,6 +104,16 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
     clearCapTimeout();
     const cap = currentCaptain();
     if (!cap || !active) return;
+
+    const remembered = !replacement && lastMode[cap.team];
+    if (remembered && list().spec.length) {
+      const chosen = pickSpec(remembered);
+      if (chosen) {
+        applyCaptainPick(cap, chosen, cap.team, remembered);
+        return;
+      }
+    }
+
     announceSpecList(cap.id);
 
     const chooseTime = config.chooseTimeSec;
@@ -94,6 +141,9 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
   function deactivate() {
     active = false;
     clearCapTimeout();
+    replacement = null;
+    lastMode[TEAM.RED] = "";
+    lastMode[TEAM.BLUE] = "";
   }
 
   function activate() {
@@ -101,6 +151,23 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
     active = true;
     room.sendAnnouncement(
       `🎮 Choose ativado — ${config.chooseTimeSec}s por pick · até 4v4${streakSuffix()}`,
+      null,
+      0x9b59b6,
+      "bold",
+      2
+    );
+    promptCaptain();
+  }
+
+  /**
+   * Há uma vaga e mais de um candidato: o capitão do time desfalcado escolhe.
+   */
+  function startReplacement(targetTeam, onReady) {
+    clearCapTimeout();
+    replacement = { targetTeam, onReady };
+    active = true;
+    room.sendAnnouncement(
+      `🔄 Reposição: capitão ${targetTeam === TEAM.RED ? "vermelho" : "azul"} escolhe um jogador do spec.`,
       null,
       0x9b59b6,
       "bold",
@@ -144,6 +211,18 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
    */
   function onTeamChange() {
     if (!active || room.getScores()) return;
+    if (replacement) {
+      const cap = currentCaptain();
+      const { spec } = list();
+      if (!cap || !spec.length) {
+        const onReady = replacement.onReady;
+        deactivate();
+        onReady?.({ cancelled: true });
+        return;
+      }
+      promptCaptain();
+      return;
+    }
     if (bothFull()) {
       deactivate();
       onReadyToStart();
@@ -173,19 +252,17 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
 
     // Sai do warmup: elegíveis pro spec e monta 2 capitães limpos
     for (const p of players) {
-      if (p.team !== TEAM.SPEC) room.setPlayerTeam(p.id, TEAM.SPEC);
+      if (p.team !== TEAM.SPEC) setTeam(p.id, TEAM.SPEC);
     }
 
-    const ordered = room
-      .getPlayerList()
-      .filter((p) => p.id !== 0 && p.team === TEAM.SPEC && !excluded(p));
+    const ordered = list().spec;
     if (ordered.length < 2) {
       room.sendAnnouncement("Poucos jogadores elegíveis para choose (muitos AFK?).", null, 0xe67e22, "normal", 1);
       return;
     }
 
-    room.setPlayerTeam(ordered[0].id, TEAM.RED);
-    room.setPlayerTeam(ordered[1].id, TEAM.BLUE);
+    setTeam(ordered[0].id, TEAM.RED);
+    setTeam(ordered[1].id, TEAM.BLUE);
 
     if (bothFull()) {
       deactivate();
@@ -203,8 +280,44 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
   /**
    * @returns {boolean} true se consumiu a mensagem (choose)
    */
+  function applyCaptainPick(player, chosen, team, token) {
+    const { red, blue } = list();
+    if ((team === TEAM.RED && red.length >= teamSize) || (team === TEAM.BLUE && blue.length >= teamSize)) {
+      return true;
+    }
+
+    clearCapTimeout();
+    if (!replacement) {
+      lastMode[team] = rememberedChooseMode(token) || lastMode[team];
+    }
+    setTeam(chosen.id, team);
+    room.sendAnnouncement(
+      `${player.name} escolheu ${chosen.name} → ${team === TEAM.RED ? "🔴" : "🔵"}`,
+      null,
+      0x2ecc71,
+      "bold",
+      1
+    );
+
+    if (replacement) {
+      const onReady = replacement.onReady;
+      deactivate();
+      afterTeamChange(() => onReady?.({ chosen }));
+      return true;
+    }
+
+    if (bothFull()) {
+      deactivate();
+      afterTeamChange(onReadyToStart);
+    } else {
+      promptCaptain();
+    }
+    return true;
+  }
+
   function handleCaptainChat(player, message) {
-    if (!active || room.getScores()) return false;
+    // Reposição pode acontecer com o jogo pausado (getScores() != null).
+    if (!active || (room.getScores() && !replacement)) return false;
     const { red, blue } = list();
     const cap = currentCaptain();
     if (!cap || player.id !== cap.id) return false;
@@ -221,32 +334,29 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
       return true;
     }
 
-    const team = red.length <= blue.length ? TEAM.RED : TEAM.BLUE;
-    if ((team === TEAM.RED && red.length >= teamSize) || (team === TEAM.BLUE && blue.length >= teamSize)) {
-      return true;
-    }
-
-    clearCapTimeout();
-    room.setPlayerTeam(chosen.id, team);
-    room.sendAnnouncement(
-      `${player.name} escolheu ${chosen.name} → ${team === TEAM.RED ? "🔴" : "🔵"}`,
-      null,
-      0x2ecc71,
-      "bold",
-      1
-    );
-
-    if (bothFull()) {
-      deactivate();
-      onReadyToStart();
-    } else {
-      promptCaptain();
-    }
-    return true;
+    const team = replacement
+      ? replacement.targetTeam
+      : red.length <= blue.length
+        ? TEAM.RED
+        : TEAM.BLUE;
+    return applyCaptainPick(player, chosen, team, token);
   }
 
   function onPlayerLeave() {
     if (!active) return;
+    if (replacement) {
+      const cap = currentCaptain();
+      const { spec } = list();
+      if (!cap || !spec.length) {
+        const onReady = replacement.onReady;
+        deactivate();
+        onReady?.({ cancelled: true });
+        return;
+      }
+      promptCaptain();
+      return;
+    }
+
     const players = room.getPlayerList().filter((p) => p.id !== 0);
     if (players.length < teamSize * 2) {
       deactivate();
@@ -256,11 +366,21 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
 
     let { red, blue, spec } = list();
 
+    // Sem streak: se ficou 2 a mais de um lado, o último escolhido volta pro spec (FC/Wazarr).
+    const streakNow = typeof getStreak === "function" ? getStreak() : 0;
+    if (!room.getScores() && streakNow === 0 && Math.abs(red.length - blue.length) === 2) {
+      const larger = red.length > blue.length ? red : blue;
+      const extra = larger[larger.length - 1];
+      setTeam(extra.id, TEAM.SPEC);
+      room.sendAnnouncement("🤖 Equilibrando: último escolhido voltou pro spec.", null, 0x3498db, "normal", 1);
+      ({ red, blue, spec } = list());
+    }
+
     // Time vazio → sobe o 1º do spec (mantém picks já feitos)
     if (!red.length || !blue.length) {
       if (spec.length) {
         const empty = !red.length ? TEAM.RED : TEAM.BLUE;
-        room.setPlayerTeam(spec[0].id, empty);
+        setTeam(spec[0].id, empty);
         room.sendAnnouncement(
           `${spec[0].name} virou capitão do time ${empty === TEAM.RED ? "vermelho" : "azul"}.`,
           null,
@@ -281,11 +401,11 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
     if (spec.length > 0 && Math.abs(red.length - blue.length) === spec.length) {
       const target = red.length > blue.length ? TEAM.BLUE : TEAM.RED;
       for (const p of [...spec]) {
-        room.setPlayerTeam(p.id, target);
+        setTeam(p.id, target);
       }
       room.sendAnnouncement("Sem escolhas restantes — bot completou os times.", null, 0x9b59b6, "bold", 2);
       deactivate();
-      onReadyToStart();
+      afterTeamChange(onReadyToStart);
       return;
     }
 
@@ -301,7 +421,14 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
 
   return {
     isActive: () => active,
+    isReplacement: () => !!replacement,
+    confirmTeamChange(player) {
+      if (pendingTeams.get(player.id) === player.team) {
+        pendingTeams.delete(player.id);
+      }
+    },
     tryStartChoose,
+    startReplacement,
     continueFromField,
     deactivate,
     handleCaptainChat,
@@ -311,6 +438,7 @@ function createChooseController(room, { onReadyToStart, isExcluded, getStreakLab
     bothFull,
     list,
     promptCaptain,
+    currentCaptain,
   };
 }
 
