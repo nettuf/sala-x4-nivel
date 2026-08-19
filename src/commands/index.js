@@ -1,5 +1,6 @@
 const config = require("../config");
 const { findPlayer, parseDurationToMs, formatDuration, connToIp } = require("../utils");
+const { resolvePlayerAuth } = require("../room/playerAuth");
 const { createBan, deactivateBan } = require("../db/bans");
 const { createMute, unmute, findActiveMute } = require("../db/mutes");
 const { getPlayerStats, setSelectedTitle } = require("../db/stats");
@@ -15,44 +16,61 @@ const {
   formatChatPrefix,
 } = require("../titles");
 
-function helpText(isAdmin) {
-  const base = [
-    "!help — comandos",
+function playerHelpText() {
+  return [
+    "!ajuda — lista de comandos",
     "!bb — sair da sala",
     "!discord — convite do Discord",
     "!stats — estatísticas",
     "!cargos — emblemas desbloqueados",
     "!cargo <id|n> — escolher emblema",
     "!afk — ficar AFK / voltar",
+    "!afks — ver quem está AFK",
     "!t <msg> — chat do time",
     "!ids — lista id dos jogadores",
     "!streak — sequência de vitórias atual",
     "!unis — uniformes disponíveis",
     "!uni <kit> — capitão/admin troca o uniforme do time",
     "Choose (8+): capitão usa número / top / random / bottom",
-  ];
-  if (!isAdmin) return base.join("\n");
+  ].join("\n");
+}
+
+function adminHelpText() {
   return [
-    ...base,
+    "!ajudaadm — comandos de admin",
     "!ban <#id|nick> [tempo] [motivo] — tempo: 30m, 2h, 1d, perm",
     "!unban <auth|conn>",
     "!mute <#id|nick> <tempo> [motivo]",
     "!unmute <#id|nick|auth>",
+    "!uni red|blue <kit> — troca o uniforme de um time",
+    "!uni reset — volta os uniformes ao padrão",
   ].join("\n");
+}
+
+function helpText(isAdmin) {
+  if (!isAdmin) return playerHelpText();
+  return `${playerHelpText()}\n${adminHelpText()}`;
 }
 
 function createCommandHandler(room, ctx) {
   /** @type {Map<number, number>} */
   const lastAfkCommandAt = new Map();
 
+  function resolveAuth(player) {
+    return resolvePlayerAuth(player, ctx.auths, room.getPlayerList());
+  }
+
+  const noAuthMsg = "Entre logado no Haxball (não como guest) para stats e cargos.";
+
   async function loadTitleForPlayer(player) {
     const adminLevel = ctx.admins.get(player.id)?.level || 0;
-    if (!player?.auth) {
+    const auth = resolveAuth(player);
+    if (!auth) {
       const title = resolveTitle({}, null, adminLevel);
       ctx.titles.set(player.id, title);
       return title;
     }
-    const stats = (await getPlayerStats(player.auth)) || {};
+    const stats = (await getPlayerStats(auth)) || {};
     const title = resolveTitle(stats, stats.selected_title, adminLevel);
     ctx.titles.set(player.id, title);
     return title;
@@ -75,8 +93,18 @@ function createCommandHandler(room, ctx) {
     const args = parts.slice(1);
     const admin = ctx.admins.get(player.id);
 
-    if (cmd === "help" || cmd === "comandos") {
-      room.sendAnnouncement(helpText(!!admin), player.id, 0xecf0f1, "small", 1);
+    if (cmd === "help" || cmd === "comandos" || cmd === "ajuda") {
+      const extra = admin ? "\nAdmin: !ajudaadm" : "";
+      room.sendAnnouncement(playerHelpText() + extra, player.id, 0xecf0f1, "small", 1);
+      return true;
+    }
+
+    if (cmd === "ajudaadm" || cmd === "helpadm" || cmd === "comandosadm") {
+      if (!admin) {
+        room.sendAnnouncement("Sem permissão.", player.id, 0xe74c3c, "bold", 2);
+        return true;
+      }
+      room.sendAnnouncement(adminHelpText(), player.id, 0xecf0f1, "small", 1);
       return true;
     }
 
@@ -101,15 +129,11 @@ function createCommandHandler(room, ctx) {
         ctx.afk.setVoluntary(player, false);
         return true;
       }
-      const roomCount = room.getPlayerList().filter((p) => p.id !== 0).length;
       const scores = typeof room.getScores === "function" ? room.getScores() : null;
-      const soloTraining =
-        roomCount === 1 &&
-        player.team !== 0 &&
-        !ctx.match?.isCompetitive?.();
-      if (player.team !== 0 && scores && !soloTraining) {
+      const inOfficial = !!ctx.match?.isCompetitive?.();
+      if (player.team !== 0 && scores && inOfficial) {
         room.sendAnnouncement(
-          "Não pode usar !afk dentro da partida. Saia do time ou aguarde o jogo terminar.",
+          "Não pode usar !afk no 4v4. Saia do time ou aguarde o jogo terminar.",
           player.id,
           0xe74c3c,
           "bold",
@@ -132,6 +156,21 @@ function createCommandHandler(room, ctx) {
       }
       lastAfkCommandAt.set(player.id, Date.now());
       ctx.afk?.setVoluntary(player, true);
+      return true;
+    }
+
+    if (cmd === "afks") {
+      const list = room
+        .getPlayerList()
+        .filter((p) => p.id !== 0 && ctx.afk?.isVoluntary(p.id))
+        .map((p) => `#${p.id} ${p.name}`);
+      room.sendAnnouncement(
+        list.length ? `😴 AFKs (${list.length}): ${list.join(" · ")}` : "Ninguém está AFK.",
+        player.id,
+        0xbdc3c7,
+        "normal",
+        1
+      );
       return true;
     }
 
@@ -246,11 +285,12 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "stats" || cmd === "stat" || cmd === "elo") {
-      if (!player.auth) {
-        room.sendAnnouncement("Sem auth — stats indisponível.", player.id, 0xe74c3c, "normal", 1);
+      const auth = resolveAuth(player);
+      if (!auth) {
+        room.sendAnnouncement(noAuthMsg, player.id, 0xe74c3c, "normal", 1);
         return true;
       }
-      const s = await getPlayerStats(player.auth);
+      const s = await getPlayerStats(auth);
       if (!s) {
         room.sendAnnouncement("Sem partidas registradas ainda.", player.id, 0xbdc3c7, "normal", 1);
         return true;
@@ -268,11 +308,12 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "cargos" || cmd === "emblemas" || cmd === "titles") {
-      if (!player.auth) {
-        room.sendAnnouncement("Sem auth.", player.id, 0xe74c3c, "normal", 1);
+      const auth = resolveAuth(player);
+      if (!auth) {
+        room.sendAnnouncement(noAuthMsg, player.id, 0xe74c3c, "normal", 1);
         return true;
       }
-      const stats = (await getPlayerStats(player.auth)) || {};
+      const stats = (await getPlayerStats(auth)) || {};
       const adminLevel = ctx.admins.get(player.id)?.level || 0;
       const unlocked = listUnlocked(stats, adminLevel);
       const activeId = resolveTitle(stats, stats.selected_title, adminLevel).id;
@@ -292,8 +333,9 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "cargo" || cmd === "emblema" || cmd === "title") {
-      if (!player.auth) {
-        room.sendAnnouncement("Sem auth.", player.id, 0xe74c3c, "normal", 1);
+      const auth = resolveAuth(player);
+      if (!auth) {
+        room.sendAnnouncement(noAuthMsg, player.id, 0xe74c3c, "normal", 1);
         return true;
       }
       const raw = args[0];
@@ -301,7 +343,7 @@ function createCommandHandler(room, ctx) {
         room.sendAnnouncement("Uso: !cargo <id|número> — veja !cargos", player.id, 0xe74c3c, "normal", 1);
         return true;
       }
-      const stats = (await getPlayerStats(player.auth)) || {};
+      const stats = (await getPlayerStats(auth)) || {};
       const adminLevel = ctx.admins.get(player.id)?.level || 0;
       const unlocked = listUnlocked(stats, adminLevel);
       let title = null;
@@ -324,7 +366,7 @@ function createCommandHandler(room, ctx) {
         );
         return true;
       }
-      const ok = await setSelectedTitle(player.auth, title.id);
+      const ok = await setSelectedTitle(auth, title.id);
       if (!ok) {
         room.sendAnnouncement("Falha ao salvar cargo (Supabase?).", player.id, 0xe74c3c, "normal", 1);
         return true;
@@ -365,12 +407,12 @@ function createCommandHandler(room, ctx) {
       const reason = reasonParts.join(" ") || "Sem motivo";
       const endsAt = ms == null ? null : new Date(Date.now() + ms).toISOString();
       await createBan({
-        auth: target.auth || null,
-        conn: target.conn || null,
-        ip: connToIp(target.conn),
+        auth: resolveAuth(target),
+        conn: target.conn || ctx.conns?.get(target.id) || null,
+        ip: connToIp(target.conn || ctx.conns?.get(target.id)),
         nick: target.name,
         reason,
-        bannedBy: player.auth || player.name,
+        bannedBy: resolveAuth(player) || player.name,
         endsAt,
       });
       room.kickPlayer(target.id, `Ban (${formatDuration(ms)}): ${reason}`, false);
@@ -408,10 +450,10 @@ function createCommandHandler(room, ctx) {
       const reason = args.slice(2).join(" ") || "Sem motivo";
       const endsAt = new Date(Date.now() + ms).toISOString();
       await createMute({
-        auth: target.auth,
+        auth: resolveAuth(target),
         nick: target.name,
         reason,
-        mutedBy: player.auth || player.name,
+        mutedBy: resolveAuth(player) || player.name,
         endsAt,
       });
       ctx.mutes.set(target.id, { endsAt: Date.now() + ms, reason });
@@ -427,7 +469,7 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "unmute") {
       const target = findPlayer(room, args[0]);
-      const auth = target?.auth || args[0];
+      const auth = (target && resolveAuth(target)) || args[0];
       if (!auth) {
         room.sendAnnouncement("Uso: !unmute <#id|nick|auth>", player.id, 0xe74c3c, "normal", 1);
         return true;
@@ -444,8 +486,9 @@ function createCommandHandler(room, ctx) {
   async function isMuted(player) {
     const cached = peekMute(player);
     if (cached) return cached;
-    if (!player.auth) return null;
-    const m = await findActiveMute(player.auth);
+    const auth = resolveAuth(player);
+    if (!auth) return null;
+    const m = await findActiveMute(auth);
     if (!m) return null;
     const endsAt = new Date(m.ends_at).getTime();
     ctx.mutes.set(player.id, { endsAt, reason: m.reason });
@@ -475,7 +518,17 @@ function createCommandHandler(room, ctx) {
     }
   }
 
-  return { handle, isMuted, peekMute, applyAdminLook, loadTitleForPlayer, formatPlayerChat, helpText };
+  return {
+    handle,
+    isMuted,
+    peekMute,
+    applyAdminLook,
+    loadTitleForPlayer,
+    formatPlayerChat,
+    helpText,
+    playerHelpText,
+    adminHelpText,
+  };
 }
 
 module.exports = { createCommandHandler };

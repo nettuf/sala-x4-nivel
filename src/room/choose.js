@@ -13,6 +13,7 @@ function createChooseController(room, {
   getStreakLabel,
   getStreak,
   deferAfterTeamChange,
+  onPickFromSpec,
 }) {
   let active = false;
   let timeout = null;
@@ -53,15 +54,24 @@ function createChooseController(room, {
     }
   }
 
+  function specQueue(players) {
+    const specs = players.filter((p) => p.team === TEAM.SPEC && p.id !== 0);
+    const ready = specs.filter((p) => !excluded(p));
+    const afkSpecs = specs.filter((p) => excluded(p));
+    return { ready, afk: afkSpecs, all: [...ready, ...afkSpecs] };
+  }
+
   function list() {
     const players = room.getPlayerList().map((p) =>
       pendingTeams.has(p.id) ? { ...p, team: pendingTeams.get(p.id) } : p
     );
+    const queue = specQueue(players);
     return {
       red: players.filter((p) => p.team === TEAM.RED),
       blue: players.filter((p) => p.team === TEAM.BLUE),
-      spec: players
-        .filter((p) => p.team === TEAM.SPEC && p.id !== 0 && !excluded(p)),
+      spec: queue.all,
+      specReady: queue.ready,
+      specAfk: queue.afk,
     };
   }
 
@@ -73,12 +83,17 @@ function createChooseController(room, {
   }
 
   function announceSpecList(captainId) {
-    const { spec } = list();
+    const { spec, specReady } = list();
     if (!spec.length) {
       room.sendAnnouncement("Sem jogadores no spec.", captainId, 0xe74c3c, "bold", 2);
       return;
     }
-    const line = spec.map((p, i) => `${p.name}[${i + 1}]`).join(", ");
+    const line = spec
+      .map((p, i) => {
+        const mark = excluded(p) ? " AFK" : "";
+        return `${p.name}[${i + 1}]${mark}`;
+      })
+      .join(", ");
     room.sendAnnouncement(`Specs: ${line}`, captainId, 0x3498db, "bold", 1);
     room.sendAnnouncement(
       `Escolha em ${config.chooseTimeSec}s: número | top | random | bottom${streakSuffix()}`,
@@ -87,6 +102,9 @@ function createChooseController(room, {
       "normal",
       1
     );
+    if (specReady.length && spec.length > specReady.length) {
+      room.sendAnnouncement("AFKs no fim da fila.", captainId, 0xbdc3c7, "small", 1);
+    }
   }
 
   function currentCaptain() {
@@ -100,18 +118,100 @@ function createChooseController(room, {
     return blue[0];
   }
 
+  function teamForCaptain(cap) {
+    if (replacement) return replacement.targetTeam;
+    return cap.team;
+  }
+
+  function teamHasHole(team) {
+    const { red, blue } = list();
+    const count = team === TEAM.RED ? red.length : blue.length;
+    return count < teamSize;
+  }
+
+  function holesByTeam() {
+    const { red, blue } = list();
+    return {
+      red: Math.max(0, teamSize - red.length),
+      blue: Math.max(0, teamSize - blue.length),
+    };
+  }
+
+  /**
+   * Spec pronto fecha exatamente as vagas (2 ou 3, etc.): puxa na ordem, sem pick.
+   * AFKs ficam de fora. Reposição só auto-puxa quando resta 1 candidato.
+   */
+  function tryFillExactHoles() {
+    if (!active) return false;
+    const { specReady } = list();
+
+    if (replacement) {
+      if (specReady.length === 1 && currentCaptain()) {
+        applyCaptainPick(currentCaptain(), specReady[0], replacement.targetTeam, "");
+        return true;
+      }
+      return false;
+    }
+
+    const holes = holesByTeam();
+    const need = holes.red + holes.blue;
+    // Os dois lados com vaga: draft (capitães escolhem quem vai onde).
+    // Só puxa direto quando um time já está completo e o spec fecha o outro.
+    if (holes.red > 0 && holes.blue > 0) return false;
+    if (need <= 0 || specReady.length !== need) return false;
+
+    let i = 0;
+    for (let n = 0; n < holes.red; n++) {
+      const p = specReady[i++];
+      if (p) setTeam(p.id, TEAM.RED);
+    }
+    for (let n = 0; n < holes.blue; n++) {
+      const p = specReady[i++];
+      if (p) setTeam(p.id, TEAM.BLUE);
+    }
+    room.sendAnnouncement(
+      "Sem escolhas restantes — bot completou os times.",
+      null,
+      0x9b59b6,
+      "bold",
+      2
+    );
+    deactivate();
+    afterTeamChange(onReadyToStart);
+    return true;
+  }
+
   function promptCaptain() {
     clearCapTimeout();
+    if (!active) return;
+    if (tryFillExactHoles()) return;
+
     const cap = currentCaptain();
-    if (!cap || !active) return;
+    if (!cap) return;
+
+    const { specReady, spec } = list();
+    const team = teamForCaptain(cap);
+    if (specReady.length === 1 && teamHasHole(team)) {
+      applyCaptainPick(cap, specReady[0], team, "");
+      return;
+    }
+    if (!specReady.length && spec.length === 1 && teamHasHole(team)) {
+      applyCaptainPick(cap, spec[0], team, "");
+      return;
+    }
 
     const remembered = !replacement && lastMode[cap.team];
-    if (remembered && list().spec.length) {
+    if (remembered && specReady.length) {
       const chosen = pickSpec(remembered);
       if (chosen) {
         applyCaptainPick(cap, chosen, cap.team, remembered);
         return;
       }
+    }
+
+    if (!spec.length) {
+      room.sendAnnouncement("Sem jogadores no spec.", cap.id, 0xe74c3c, "bold", 2);
+      return;
     }
 
     announceSpecList(cap.id);
@@ -149,6 +249,7 @@ function createChooseController(room, {
   function activate() {
     if (active) return;
     active = true;
+    if (tryFillExactHoles()) return;
     room.sendAnnouncement(
       `🎮 Choose ativado — ${config.chooseTimeSec}s por pick · até 4v4${streakSuffix()}`,
       null,
@@ -166,13 +267,15 @@ function createChooseController(room, {
     clearCapTimeout();
     replacement = { targetTeam, onReady };
     active = true;
-    room.sendAnnouncement(
-      `🔄 Reposição: capitão ${targetTeam === TEAM.RED ? "vermelho" : "azul"} escolhe um jogador do spec.`,
-      null,
-      0x9b59b6,
-      "bold",
-      2
-    );
+    if (list().specReady.length !== 1) {
+      room.sendAnnouncement(
+        `🔄 Reposição: capitão ${targetTeam === TEAM.RED ? "vermelho" : "azul"} escolhe um jogador do spec.`,
+        null,
+        0x9b59b6,
+        "bold",
+        2
+      );
+    }
     promptCaptain();
   }
 
@@ -255,7 +358,7 @@ function createChooseController(room, {
       if (p.team !== TEAM.SPEC) setTeam(p.id, TEAM.SPEC);
     }
 
-    const ordered = list().spec;
+    const ordered = list().specReady;
     if (ordered.length < 2) {
       room.sendAnnouncement("Poucos jogadores elegíveis para choose (muitos AFK?).", null, 0xe67e22, "normal", 1);
       return;
@@ -274,7 +377,12 @@ function createChooseController(room, {
   }
 
   function pickSpec(indexOrMode) {
-    return pickFromSpecList(list().spec, indexOrMode);
+    const { spec, specReady } = list();
+    const mode = String(indexOrMode || "").toLowerCase();
+    if (mode === "top" || mode === "auto" || mode === "random" || mode === "rand") {
+      return pickFromSpecList(specReady.length ? specReady : spec, indexOrMode);
+    }
+    return pickFromSpecList(spec, indexOrMode);
   }
 
   /**
@@ -290,9 +398,15 @@ function createChooseController(room, {
     if (!replacement) {
       lastMode[team] = rememberedChooseMode(token) || lastMode[team];
     }
+    if (excluded(chosen) && typeof onPickFromSpec === "function") {
+      onPickFromSpec(chosen);
+    }
     setTeam(chosen.id, team);
+    const arrow = team === TEAM.RED ? "🔴" : "🔵";
     room.sendAnnouncement(
-      `${player.name} escolheu ${chosen.name} → ${team === TEAM.RED ? "🔴" : "🔵"}`,
+      token
+        ? `${player.name} escolheu ${chosen.name} → ${arrow}`
+        : `${chosen.name} entrou automaticamente (única opção) → ${arrow}`,
       null,
       0x2ecc71,
       "bold",
@@ -364,7 +478,7 @@ function createChooseController(room, {
       return;
     }
 
-    let { red, blue, spec } = list();
+    let { red, blue, spec, specReady } = list();
 
     // Sem streak: se ficou 2 a mais de um lado, o último escolhido volta pro spec (FC/Wazarr).
     const streakNow = typeof getStreak === "function" ? getStreak() : 0;
@@ -373,22 +487,24 @@ function createChooseController(room, {
       const extra = larger[larger.length - 1];
       setTeam(extra.id, TEAM.SPEC);
       room.sendAnnouncement("🤖 Equilibrando: último escolhido voltou pro spec.", null, 0x3498db, "normal", 1);
-      ({ red, blue, spec } = list());
+      ({ red, blue, spec, specReady } = list());
     }
 
     // Time vazio → sobe o 1º do spec (mantém picks já feitos)
     if (!red.length || !blue.length) {
-      if (spec.length) {
+      const next = specReady[0] || spec[0];
+      if (next) {
         const empty = !red.length ? TEAM.RED : TEAM.BLUE;
-        setTeam(spec[0].id, empty);
+        if (excluded(next) && typeof onPickFromSpec === "function") onPickFromSpec(next);
+        setTeam(next.id, empty);
         room.sendAnnouncement(
-          `${spec[0].name} virou capitão do time ${empty === TEAM.RED ? "vermelho" : "azul"}.`,
+          `${next.name} virou capitão do time ${empty === TEAM.RED ? "vermelho" : "azul"}.`,
           null,
           0x3498db,
           "bold",
           1
         );
-        ({ red, blue, spec } = list());
+        ({ red, blue, spec, specReady } = list());
       } else {
         active = false;
         clearCapTimeout();
@@ -397,20 +513,10 @@ function createChooseController(room, {
       }
     }
 
-    // Diff == specs → bot completa o time menor e inicia (Wazarr)
-    if (spec.length > 0 && Math.abs(red.length - blue.length) === spec.length) {
-      const target = red.length > blue.length ? TEAM.BLUE : TEAM.RED;
-      for (const p of [...spec]) {
-        setTeam(p.id, target);
-      }
-      room.sendAnnouncement("Sem escolhas restantes — bot completou os times.", null, 0x9b59b6, "bold", 2);
-      deactivate();
-      afterTeamChange(onReadyToStart);
-      return;
-    }
+    if (tryFillExactHoles()) return;
 
-    // Times iguais e quase sem spec → se 4v4 pronto, inicia
-    if (red.length === blue.length && spec.length < 2 && bothFull()) {
+    // Times iguais e quase sem spec pronto → se 4v4 pronto, inicia
+    if (red.length === blue.length && specReady.length < 2 && bothFull()) {
       deactivate();
       onReadyToStart();
       return;

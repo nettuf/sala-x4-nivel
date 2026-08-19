@@ -71,10 +71,9 @@ describe("ragequit no x4 oficial", () => {
   it("após mais de 10s do gol e diferença 1 → saída normal", () => {
     const host = setup();
     host.setScores({ red: 1, blue: 0 });
-    const beforeGoal = Date.now();
     host.match.onTeamGoal(TEAM.RED);
     assert.equal(
-      host.match.rageQuitReason(host.players[1], undefined, beforeGoal + 10_001),
+      host.match.rageQuitReason(host.players[1], undefined, Date.now() + 10_001),
       null
     );
   });

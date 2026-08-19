@@ -4,16 +4,17 @@ const { upsertPlayer, getAdmin } = require("../db/players");
 const { findActiveBan } = require("../db/bans");
 const { notifyJoin } = require("../discord/webhook");
 const { applyStadium } = require("./maps");
-const { createAfkTracker } = require("./afk");
+const { createAfkTracker, shouldCountAutoAfk, hasMoved } = require("./afk");
 const { createChooseController, TEAM } = require("./choose");
-const { planCompetitiveRecovery } = require("./recovery");
+const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose } = require("./warmupFlow");
+const { planCompetitiveRecovery, planExactFill, applyExactFill } = require("./recovery");
 const { createMatchController } = require("./match");
 const { applyJoinGuards } = require("./joinGuards");
 const { createUniformManager } = require("./uniforms");
-const { planWarmup, applyWarmupMoves } = require("./warmupFlow");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays } = require("./streak");
 const { createCommandHandler } = require("../commands");
 const { detectRageQuit, isChooseToken } = require("../gameLogic");
+const { rememberIdentity, withIdentity } = require("./playerAuth");
 
 function createRoom(HBInit) {
   const token = config.readToken();
@@ -44,6 +45,8 @@ function createRoom(HBInit) {
     admins: new Map(),
     mutes: new Map(),
     titles: new Map(),
+    auths: new Map(),
+    conns: new Map(),
     afk: null,
     match: null,
     streak: null,
@@ -51,7 +54,7 @@ function createRoom(HBInit) {
   };
 
   const afk = createAfkTracker(room, {
-    shouldAutoAfk: () => !!ctx.match?.isCompetitive?.(),
+    shouldAutoAfk: () => shouldCountAutoAfk(room.getPlayerList()),
   });
   ctx.afk = afk;
   const streak = createStreakTracker();
@@ -61,6 +64,57 @@ function createRoom(HBInit) {
   const match = createMatchController(room);
   ctx.match = match;
   const commands = createCommandHandler(room, ctx);
+  const lastPos = new Map();
+
+  function identified(player) {
+    return withIdentity(player, {
+      auths: ctx.auths,
+      conns: ctx.conns,
+      livePlayers: room.getPlayerList(),
+    });
+  }
+
+  async function bindIdentity(player) {
+    rememberIdentity(player, ctx);
+    const p = identified(player);
+    if (!p?.auth) {
+      await commands.loadTitleForPlayer(p);
+      return p;
+    }
+    if (!ctx.admins.has(p.id)) {
+      const admin = await getAdmin(p.auth);
+      if (admin) {
+        ctx.admins.set(p.id, admin);
+        commands.applyAdminLook(p, admin);
+      }
+    }
+    await commands.loadTitleForPlayer(p);
+    await commands.isMuted(p);
+    return p;
+  }
+
+  function retryAuth(playerId) {
+    let tries = 0;
+    const timer = setInterval(async () => {
+      tries += 1;
+      const live = room.getPlayerList().find((p) => p.id === playerId);
+      if (!live || tries > 10) {
+        clearInterval(timer);
+        return;
+      }
+      if (!live.auth) return;
+      clearInterval(timer);
+      rememberIdentity(live, ctx);
+      const ban = await findActiveBan({ auth: live.auth, conn: live.conn || ctx.conns.get(playerId) });
+      if (ban) {
+        const until = ban.ends_at ? ` até ${ban.ends_at}` : " (permanente)";
+        room.kickPlayer(playerId, `Banido${until}: ${ban.reason || ""}`.trim(), false);
+        return;
+      }
+      await bindIdentity(live);
+    }, 200);
+    if (typeof timer.unref === "function") timer.unref();
+  }
 
   const choose = createChooseController(room, {
     isExcluded: (p) => afk.isVoluntary(p.id),
@@ -69,6 +123,9 @@ function createRoom(HBInit) {
     deferAfterTeamChange(callback) {
       const timer = setTimeout(callback, 100);
       if (typeof timer.unref === "function") timer.unref();
+    },
+    onPickFromSpec(player) {
+      if (afk.isVoluntary(player.id)) afk.clearVoluntary(player.id);
     },
     onReadyToStart() {
       room.sendAnnouncement("4v4 pronto — iniciando!", null, 0x2ecc71, "bold", 2);
@@ -120,6 +177,36 @@ function createRoom(HBInit) {
         choose.onPlayerJoin();
         return;
       }
+
+      const promo = planPromoteToX4(players, {
+        isExcluded: (p) => afk.isVoluntary(p.id),
+        teamSize: config.teamSize,
+      });
+      if (promo) {
+        stopCurrentGame();
+        applyWarmupMoves(room, promo);
+        applyStadium(room, eligibleCount);
+        room.sendAnnouncement("4v4: jogadores acrescentados — iniciando!", null, 0x2ecc71, "bold", 2);
+        laterForCurrentLobby(startCompetitiveFromCurrentField);
+        return;
+      }
+
+      const held = planHeldWinnersToChoose(players, {
+        isExcluded: (p) => afk.isVoluntary(p.id),
+        teamSize: config.teamSize,
+      });
+      if (held) {
+        stopCurrentGame();
+        applyWarmupMoves(room, held);
+        applyStadium(room, eligibleCount);
+        if (held.start) {
+          laterForCurrentLobby(startCompetitiveFromCurrentField);
+        } else {
+          laterForCurrentLobby(() => choose.continueFromField());
+        }
+        return;
+      }
+
       stopCurrentGame();
       choose.deactivate();
       applyStadium(room, players.length);
@@ -134,14 +221,14 @@ function createRoom(HBInit) {
     if (!plan.eligibleCount) {
       choose.deactivate();
       stopCurrentGame();
-      applyStadium(room, players.length);
+      applyStadium(room, 0);
       return;
     }
 
     if (plan.replacementTeam) {
       stopCurrentGame();
       applyWarmupMoves(room, plan);
-      applyStadium(room, players.length);
+      applyStadium(room, plan.eligibleCount);
       if (choose.isReplacement()) {
         choose.onPlayerJoin();
       } else {
@@ -153,16 +240,18 @@ function createRoom(HBInit) {
 
     if (choose.isActive()) choose.deactivate();
 
-    if (plan.moves.length || !match.isRunning() || !room.getScores()) {
+    const mustRestart =
+      plan.eligibleCount <= 1 || plan.moves.length || !match.isRunning() || !room.getScores();
+    if (mustRestart) {
       stopCurrentGame();
       applyWarmupMoves(room, plan);
-      applyStadium(room, players.length);
+      applyStadium(room, plan.eligibleCount);
       laterForCurrentLobby(startWarmupIfPossible);
       return;
     }
 
     // Número ímpar: o único spec aguarda sem reiniciar o jogo atual.
-    applyStadium(room, players.length);
+    applyStadium(room, plan.eligibleCount);
   }
 
   function startCompetitiveFromCurrentField() {
@@ -200,17 +289,23 @@ function createRoom(HBInit) {
 
     if (plan.action === "none") return;
 
-    if (!live) {
+    if (!live && plan.action !== "keep-play" && plan.action !== "park-larger") {
       lobbyRevision += 1;
       stopCurrentGame();
     }
 
     if (plan.action === "fill-pairs") {
+      if (live && plan.restart) {
+        lobbyRevision += 1;
+        stopCurrentGame();
+      }
       for (let index = 0; index < plan.pairs * 2; index += 2) {
         room.setPlayerTeam(specs[index].id, TEAM.RED);
         room.setPlayerTeam(specs[index + 1].id, TEAM.BLUE);
-        match.addToLineup(specs[index], TEAM.RED);
-        match.addToLineup(specs[index + 1], TEAM.BLUE);
+        if (!plan.restart) {
+          match.addToLineup(specs[index], TEAM.RED);
+          match.addToLineup(specs[index + 1], TEAM.BLUE);
+        }
       }
       if (plan.restart) laterForCurrentLobby(startCompetitiveFromCurrentField);
       return;
@@ -272,6 +367,29 @@ function createRoom(HBInit) {
       return;
     }
 
+    if (plan.action === "park-larger") {
+      const largerTeam = plan.targetTeam;
+      const larger = room
+        .getPlayerList()
+        .filter((p) => p.id !== 0 && p.team === largerTeam);
+      const last = larger[larger.length - 1];
+      if (last) room.setPlayerTeam(last.id, TEAM.SPEC);
+      match.setCompetitive(false);
+      room.sendAnnouncement(
+        "3v3: o jogo segue. 4v4 recomeça quando entrar mais gente.",
+        null,
+        0xf1c40f,
+        "bold",
+        1
+      );
+      return;
+    }
+
+    if (plan.action === "keep-play") {
+      match.setCompetitive(false);
+      return;
+    }
+
     if (live) {
       lobbyRevision += 1;
       stopCurrentGame();
@@ -279,16 +397,14 @@ function createRoom(HBInit) {
     laterForCurrentLobby(refreshLobby);
   }
 
-  afk.setOnStateChange(({ type, player, previousTeam }) => {
-    if (type === "kick") return; // onPlayerKicked/onPlayerLeave cuidam disso.
+  afk.setOnStateChange(({ type }) => {
+    if (type === "kick") return;
 
-    if (type === "auto-afk" && previousTeam !== TEAM.SPEC) {
-      if (match.isCompetitive()) recoverCompetitiveLineup();
-      else refreshLobby();
+    if (match.isCompetitive()) {
+      recoverCompetitiveLineup();
       return;
     }
 
-    // !afk (permitido no spec/treino solo) altera a fila elegível.
     refreshLobby();
   });
 
@@ -298,9 +414,10 @@ function createRoom(HBInit) {
 
   room.onPlayerJoin = async (player) => {
     afk.touch(player.id);
+    rememberIdentity(player, ctx);
 
-    const auth = player.auth || null;
-    const conn = player.conn || null;
+    const auth = player.auth || ctx.auths.get(player.id) || null;
+    const conn = player.conn || ctx.conns.get(player.id) || null;
     const ip = connToIp(conn);
 
     const ban = await findActiveBan({ auth, conn });
@@ -311,21 +428,15 @@ function createRoom(HBInit) {
     }
 
     // Ghost kick (auth duplicada) e limite por conexão
-    const guard = applyJoinGuards(room, player);
+    const guard = applyJoinGuards(room, identified(player));
     if (guard === "conn-limit") return;
 
     await upsertPlayer({ auth, nick: player.name, conn, ip });
+    const bound = await bindIdentity(player);
+    const title = ctx.titles.get(player.id) || { emblem: "🌱", color: 0xbdc3c7 };
 
-    const admin = auth ? await getAdmin(auth) : null;
-    if (admin) {
-      ctx.admins.set(player.id, admin);
-      commands.applyAdminLook(player, admin);
-    }
-
-    const title = await commands.loadTitleForPlayer(player);
-    await commands.isMuted(player);
     room.sendAnnouncement(
-      `Bem-vindo, ${title.emblem} ${player.name}! !help · !cargos`,
+      `Bem-vindo, ${title.emblem} ${player.name}! !ajuda · !cargos`,
       player.id,
       title.color,
       "normal",
@@ -335,29 +446,38 @@ function createRoom(HBInit) {
     notifyJoin({
       playerId: player.id,
       nick: player.name,
-      auth,
-      conn,
+      auth: bound?.auth || auth,
+      conn: bound?.conn || conn,
       ip,
-      admin,
+      admin: ctx.admins.get(player.id) || null,
       title,
     }).catch(() => {});
 
     refreshLobby();
+    if (!auth) retryAuth(player.id);
   };
 
   const pendingLeaves = new Map();
 
   function cleanupPlayer(player) {
     afk.remove(player.id);
+    lastPos.delete(player.id);
     ctx.admins.delete(player.id);
     ctx.mutes.delete(player.id);
     ctx.titles.delete(player.id);
+    ctx.auths.delete(player.id);
+    ctx.conns.delete(player.id);
   }
 
   function processDeparture(player, { kicked = false } = {}) {
     if (choose.isActive()) {
       choose.onPlayerLeave();
-      setTimeout(refreshLobby, 100);
+      if (choose.isActive()) return;
+      // Choose encerrou: 4v4 pronto (inicia com delay) ou poucos jogadores (volta ao warmup).
+      const timer = setTimeout(() => {
+        if (!match.isCompetitive()) refreshLobby();
+      }, 150);
+      if (typeof timer.unref === "function") timer.unref();
       return;
     }
 
@@ -422,10 +542,6 @@ function createRoom(HBInit) {
     pendingLeaves.set(player.id, { timer, player });
   };
 
-  room.onPlayerActivity = (player) => {
-    afk.touch(player.id);
-  };
-
   room.onPlayerKicked = (kickedPlayer, reason, ban, byPlayer) => {
     const pending = pendingLeaves.get(kickedPlayer.id);
     if (pending) {
@@ -485,7 +601,7 @@ function createRoom(HBInit) {
 
   room.onPlayerBallKick = (player) => {
     afk.touch(player.id);
-    match.onBallKick(player);
+    match.onBallKick(identified(player));
   };
 
   room.onTeamGoal = (team) => {
@@ -499,14 +615,16 @@ function createRoom(HBInit) {
   };
 
   room.onGameStart = () => {
+    lastPos.clear();
     afk.setCounting(true);
     afk.setPaused(false);
   };
 
   room.onPlayerChat = (player, message) => {
-    afk.touch(player.id);
+    const who = identified(player);
+    afk.touch(who.id);
 
-    const muted = commands.peekMute(player);
+    const muted = commands.peekMute(who);
     if (muted) {
       room.sendAnnouncement(
         `Você está mutado até ${new Date(muted.endsAt).toLocaleString("pt-BR")}.`,
@@ -518,10 +636,10 @@ function createRoom(HBInit) {
       return false;
     }
 
-    if (choose.handleCaptainChat(player, message)) return false;
+    if (choose.handleCaptainChat(who, message)) return false;
 
     if (String(message || "").trim().startsWith("!")) {
-      commands.handle(player, message).catch((err) => {
+      commands.handle(who, message).catch((err) => {
         console.error("[cmd]", err?.message || err);
       });
       return false;
@@ -537,7 +655,7 @@ function createRoom(HBInit) {
       }
     }
 
-    const { line, color } = commands.formatPlayerChat(player, message);
+    const { line, color } = commands.formatPlayerChat(who, message);
     room.sendAnnouncement(line, null, color, "normal", 1);
     return false;
   };
@@ -551,6 +669,18 @@ function createRoom(HBInit) {
 
   room.onGameTick = () => {
     match.onTick();
+    if (!room.getScores()) return;
+    for (const p of room.getPlayerList()) {
+      if (p.id === 0 || p.team === 0) {
+        lastPos.delete(p.id);
+        continue;
+      }
+      const pos = p.position;
+      if (!pos) continue;
+      const prev = lastPos.get(p.id);
+      lastPos.set(p.id, { x: pos.x, y: pos.y });
+      if (hasMoved(prev, pos)) afk.touch(p.id);
+    }
   };
 
   room.onGameStop = async () => {
@@ -582,7 +712,31 @@ function createRoom(HBInit) {
       });
       uniforms.onWinnerStays(result.winner);
       if (mode === "choose") {
-        setTimeout(() => choose.continueFromField(), 400);
+        setTimeout(() => {
+          const eligible = room
+            .getPlayerList()
+            .filter((p) => p.id !== 0 && !afk.isVoluntary(p.id));
+          const specs = eligible.filter((p) => p.team === TEAM.SPEC);
+          const fill = planExactFill({
+            redCount: eligible.filter((p) => p.team === TEAM.RED).length,
+            blueCount: eligible.filter((p) => p.team === TEAM.BLUE).length,
+            specCount: specs.length,
+            teamSize: config.teamSize,
+          });
+          if (fill.action === "start") {
+            startCompetitiveFromCurrentField();
+            return;
+          }
+          if (fill.action === "fill-all") {
+            applyExactFill(room, specs, fill);
+            startCompetitiveFromCurrentField();
+            return;
+          }
+          if (fill.action === "keep") {
+            return;
+          }
+          choose.continueFromField();
+        }, 400);
         return;
       }
       // empate: reset → choose normal

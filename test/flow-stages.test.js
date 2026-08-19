@@ -6,7 +6,7 @@ const { createChooseController, TEAM } = require("../src/room/choose");
 const { createMatchController } = require("../src/room/match");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays } = require("../src/room/streak");
 const { attributeGoal, detectRageQuit } = require("../src/gameLogic");
-const { planCompetitiveRecovery } = require("../src/room/recovery");
+const { planCompetitiveRecovery, planExactFill, applyExactFill } = require("../src/room/recovery");
 const { pickMatchMvps } = require("../src/titles");
 const config = require("../src/config");
 
@@ -83,6 +83,9 @@ function createMockRoomHost() {
     isExcluded: (p) => voluntaryAfk.has(p.id),
     getStreakLabel: () => (streak.get() > 0 ? streak.label() : ""),
     getStreak: () => streak.get(),
+    onPickFromSpec(p) {
+      voluntaryAfk.delete(p.id);
+    },
     onReadyToStart() {
       readyStarts += 1;
       const { applyStadium } = require("../src/room/maps");
@@ -93,7 +96,7 @@ function createMockRoomHost() {
 
   function refreshLobby() {
     const { applyStadium } = require("../src/room/maps");
-    const { planWarmup, applyWarmupMoves } = require("../src/room/warmupFlow");
+    const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose } = require("../src/room/warmupFlow");
     const all = players.filter((p) => p.id !== 0);
     const eligibleCount = all.filter((p) => !voluntaryAfk.has(p.id)).length;
 
@@ -107,11 +110,33 @@ function createMockRoomHost() {
       room.stopGame();
     }
 
-    applyStadium(room, all.length);
+    applyStadium(room, eligibleCount);
 
     if (eligibleCount >= config.teamSize * 2) {
       if (choose.isActive()) {
         choose.onPlayerJoin();
+        return;
+      }
+      const promo = planPromoteToX4(all, {
+        isExcluded: (p) => voluntaryAfk.has(p.id),
+        teamSize: config.teamSize,
+      });
+      if (promo) {
+        applyWarmupMoves(room, promo);
+        match.start({ competitive: true });
+        return;
+      }
+      const held = planHeldWinnersToChoose(all, {
+        isExcluded: (p) => voluntaryAfk.has(p.id),
+        teamSize: config.teamSize,
+      });
+      if (held) {
+        applyWarmupMoves(room, held);
+        if (held.start) {
+          match.start({ competitive: true });
+        } else {
+          choose.continueFromField();
+        }
         return;
       }
       choose.tryStartChoose();
@@ -189,12 +214,19 @@ function createMockRoomHost() {
     if (plan.action === "none") return;
 
     if (plan.action === "fill-pairs") {
+      if (plan.restart) {
+        match.cancelRecordingOnly();
+        room.stopGame();
+      }
       for (let index = 0; index < plan.pairs * 2; index += 2) {
         room.setPlayerTeam(specs[index].id, TEAM.RED);
         room.setPlayerTeam(specs[index + 1].id, TEAM.BLUE);
-        match.addToLineup(specs[index], TEAM.RED);
-        match.addToLineup(specs[index + 1], TEAM.BLUE);
+        if (!plan.restart) {
+          match.addToLineup(specs[index], TEAM.RED);
+          match.addToLineup(specs[index + 1], TEAM.BLUE);
+        }
       }
+      if (plan.restart) match.start({ competitive: true });
       return;
     }
 
@@ -222,6 +254,19 @@ function createMockRoomHost() {
       return;
     }
 
+    if (plan.action === "park-larger") {
+      const larger = eligible.filter((p) => p.team === plan.targetTeam);
+      const last = larger[larger.length - 1];
+      if (last) room.setPlayerTeam(last.id, TEAM.SPEC);
+      match.setCompetitive(false);
+      return;
+    }
+
+    if (plan.action === "keep-play") {
+      match.setCompetitive(false);
+      return;
+    }
+
     settleLobby();
   }
 
@@ -232,7 +277,7 @@ function createMockRoomHost() {
 
     if (choose.isActive()) {
       choose.onPlayerLeave();
-      if (!choose.isActive()) settleLobby();
+      if (!choose.isActive() && !match.isCompetitive()) settleLobby();
       return;
     }
 
@@ -321,6 +366,26 @@ function createMockRoomHost() {
         isExcluded: (p) => voluntaryAfk.has(p.id),
       });
       if (mode === "choose") {
+        const eligible = players.filter((p) => p.id !== 0 && !voluntaryAfk.has(p.id));
+        const specs = eligible.filter((p) => p.team === TEAM.SPEC);
+        const fill = planExactFill({
+          redCount: eligible.filter((p) => p.team === TEAM.RED).length,
+          blueCount: eligible.filter((p) => p.team === TEAM.BLUE).length,
+          specCount: specs.length,
+          teamSize: config.teamSize,
+        });
+        if (fill.action === "start") {
+          match.start({ competitive: true });
+          return result;
+        }
+        if (fill.action === "fill-all") {
+          applyExactFill(room, specs, fill);
+          match.start({ competitive: true });
+          return result;
+        }
+        if (fill.action === "keep") {
+          return result;
+        }
         choose.continueFromField();
         return result;
       }
@@ -344,6 +409,18 @@ function createMockRoomHost() {
     return result;
   }
 
+  /** Primeiro 4v4 não picka. Choose só depois da vitória, se sobrar spec. */
+  async function enterChoose({ extra = 1, red = config.scoreLimit, blue = 1 } = {}) {
+    growTo(8 + extra);
+    const result = await endValidMatch({ red, blue });
+    assert.equal(
+      snapshot().chooseActive,
+      true,
+      "choose deveria estar ativo após vitória com sobra no spec"
+    );
+    return result;
+  }
+
   return {
     addPlayer,
     growTo,
@@ -354,13 +431,19 @@ function createMockRoomHost() {
     settleLobby,
     refreshLobby,
     endValidMatch,
+    enterChoose,
     match,
     choose,
     streak,
-    setVoluntaryAfk(id, on) {
-      if (on) voluntaryAfk.add(id);
-      else voluntaryAfk.delete(id);
-      if (choose.isActive()) choose.onPlayerJoin();
+    setVoluntaryAfk(id, on, { refresh = false } = {}) {
+      if (on) {
+        voluntaryAfk.add(id);
+        room.setPlayerTeam(id, 0);
+      } else {
+        voluntaryAfk.delete(id);
+      }
+      if (refresh) refreshLobby();
+      else if (choose.isActive()) choose.onPlayerJoin();
     },
     cleanup: () => choose.deactivate(),
     get players() {
@@ -386,6 +469,17 @@ function createMockRoomHost() {
       Object.assign(scores, partial);
     },
   };
+}
+
+/** Deixa só os 4 vencedores no vermelho (AFK no spec evita o auto-fill do 4v4). */
+async function holdFourWinners(host) {
+  host.growTo(9);
+  await host.endValidMatch({ red: config.scoreLimit, blue: 1 });
+  for (const p of host.players.filter((p) => p.team === TEAM.SPEC)) {
+    host.setVoluntaryAfk(p.id, true);
+  }
+  const others = host.players.filter((p) => p.team !== TEAM.RED);
+  for (const p of others) host.removePlayer(p.id);
 }
 
 describe("fluxo por estágios da sala", () => {
@@ -421,6 +515,32 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
+  it("1v1 e um sai → volta pro treino", () => {
+    const host = createMockRoomHost();
+    host.growTo(2);
+    const leaving = host.players.find((p) => p.team === TEAM.BLUE);
+    host.removePlayer(leaving.id);
+    const s = host.snapshot();
+    assert.equal(s.count, 1);
+    assert.equal(s.red, 1);
+    assert.equal(s.blue, 0);
+    assert.match(String(s.stadiumName), /training|treino|ice bear/i);
+    host.cleanup();
+  });
+
+  it("1v1 !afk manda para spec e o outro vai ao treino", () => {
+    const host = createMockRoomHost();
+    host.growTo(2);
+    const afkOne = host.players.find((p) => p.team === TEAM.BLUE);
+    host.setVoluntaryAfk(afkOne.id, true, { refresh: true });
+    assert.equal(afkOne.team, 0);
+    const s = host.snapshot();
+    assert.equal(s.red, 1);
+    assert.equal(s.spec, 1);
+    assert.match(String(s.stadiumName), /training|treino|ice bear/i);
+    host.cleanup();
+  });
+
   it("3 a 7 → pares jogam e, no número ímpar, 1 aguarda no spec", () => {
     for (let n = 3; n <= 7; n++) {
       const host = createMockRoomHost();
@@ -438,25 +558,23 @@ describe("fluxo por estágios da sala", () => {
     }
   });
 
-  it("8 jogadores → choose (1+1 + 6 spec), sem auto 4v4", () => {
+  it("8 jogadores a partir do 3v3 → acrescenta e inicia 4v4, sem choose", () => {
     const host = createMockRoomHost();
     host.growTo(8);
     const s = host.snapshot();
     assert.equal(s.count, 8);
-    assert.equal(s.chooseActive, true);
-    assert.equal(s.red, 1);
-    assert.equal(s.blue, 1);
-    assert.equal(s.spec, 6);
-    assert.equal(s.matchRunning, false);
-    assert.ok(s.announcements.some((m) => /Choose/i.test(m)));
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(s.spec, 0);
+    assert.equal(s.matchRunning, true);
+    assert.equal(host.match.isCompetitive(), true);
     host.cleanup();
   });
 
-  it("8 jogadores → picks até 4v4 e inicia", () => {
+  it("8 jogadores → 4v4 competitivo já montado", () => {
     const host = createMockRoomHost();
     host.growTo(8);
-    assert.equal(host.captainPick("top"), true);
-    assert.equal(host.captainPick("top"), true);
     const s = host.snapshot();
     assert.equal(s.chooseActive, false);
     assert.equal(s.red, 4);
@@ -464,7 +582,193 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.spec, 0);
     assert.equal(s.matchRunning, true);
     assert.equal(host.match.isCompetitive(), true);
-    assert.ok(s.readyStarts >= 1);
+    host.cleanup();
+  });
+
+  it("8 jogadores: após vitória os vencedores ficam e o azul remonta na ordem, sem pick", async () => {
+    const host = createMockRoomHost();
+    host.growTo(8);
+    const redIds = host.players.filter((p) => p.team === TEAM.RED).map((p) => p.id);
+    await host.endValidMatch({ red: config.scoreLimit, blue: 1 });
+    const s = host.snapshot();
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.matchRunning, true);
+    assert.equal(host.match.isCompetitive(), true);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(s.spec, 0);
+    for (const id of redIds) {
+      assert.equal(host.players.find((p) => p.id === id).team, TEAM.RED);
+    }
+    host.cleanup();
+  });
+
+  it("após vitória, só os 4 vencedores → ficam juntos (não vira 2v2)", async () => {
+    const host = createMockRoomHost();
+    await holdFourWinners(host);
+    const s = host.snapshot();
+    assert.equal(s.count, 4);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 0);
+    assert.equal(s.spec, 0);
+    assert.equal(s.chooseActive, false);
+    assert.equal(host.match.isCompetitive(), false);
+    host.cleanup();
+  });
+
+  it("9+ após vitória: perdedor desce e o capitão picka", async () => {
+    const host = createMockRoomHost();
+    host.growTo(9);
+    const redIds = host.players.filter((p) => p.team === TEAM.RED).map((p) => p.id);
+    await host.endValidMatch({ red: config.scoreLimit, blue: 1 });
+    const s = host.snapshot();
+    assert.equal(s.chooseActive, true);
+    assert.equal(s.matchRunning, false);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 1);
+    assert.equal(s.spec, 4);
+    for (const id of redIds) {
+      assert.equal(host.players.find((p) => p.id === id).team, TEAM.RED);
+    }
+    host.cleanup();
+  });
+
+  it("0→1 treino → 1v1 → spec → 2v2 → 3v3 → 8 sem pick", () => {
+    const host = createMockRoomHost();
+    assert.equal(host.snapshot().count, 0);
+    assert.equal(host.snapshot().matchRunning, false);
+
+    host.addPlayer("A");
+    let s = host.snapshot();
+    assert.equal(s.red, 1);
+    assert.equal(s.blue, 0);
+    assert.equal(host.match.isCompetitive(), false);
+    assert.match(String(s.stadiumName), /training|treino|ice bear/i);
+
+    host.addPlayer("B");
+    s = host.snapshot();
+    assert.equal(s.red, 1);
+    assert.equal(s.blue, 1);
+    assert.equal(s.spec, 0);
+
+    host.addPlayer("C");
+    s = host.snapshot();
+    assert.equal(s.red, 1);
+    assert.equal(s.blue, 1);
+    assert.equal(s.spec, 1);
+    assert.equal(s.chooseActive, false);
+
+    host.addPlayer("D");
+    s = host.snapshot();
+    assert.equal(s.red, 2);
+    assert.equal(s.blue, 2);
+    assert.equal(s.spec, 0);
+
+    host.addPlayer("E");
+    host.addPlayer("F");
+    s = host.snapshot();
+    assert.equal(s.red, 3);
+    assert.equal(s.blue, 3);
+    assert.equal(s.spec, 0);
+
+    host.addPlayer("G");
+    s = host.snapshot();
+    assert.equal(s.red, 3);
+    assert.equal(s.blue, 3);
+    assert.equal(s.spec, 1);
+    assert.equal(s.chooseActive, false);
+
+    host.addPlayer("H");
+    s = host.snapshot();
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(s.spec, 0);
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.matchRunning, true);
+    assert.equal(host.match.isCompetitive(), true);
+    host.cleanup();
+  });
+
+  it("vencedores parados + 4 specs → 4v4 na ordem, sem pick", async () => {
+    const host = createMockRoomHost();
+    await holdFourWinners(host);
+    assert.equal(host.snapshot().red, 4);
+    assert.equal(host.snapshot().count, 4);
+
+    host.growTo(8);
+    const s = host.snapshot();
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(s.spec, 0);
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.matchRunning, true);
+    assert.equal(host.match.isCompetitive(), true);
+    host.cleanup();
+  });
+
+  it("vencedores parados: 8 fecha sem pick; o 9º espera e após vitória o capitão picka", async () => {
+    const host = createMockRoomHost();
+    await holdFourWinners(host);
+
+    host.growTo(8);
+    let s = host.snapshot();
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(host.match.isCompetitive(), true);
+
+    host.addPlayer("Nono");
+    s = host.snapshot();
+    assert.equal(s.spec, 1);
+    assert.equal(s.chooseActive, false);
+    assert.equal(host.match.isCompetitive(), true);
+
+    const redIds = host.players.filter((p) => p.team === TEAM.RED).map((p) => p.id);
+    await host.endValidMatch({ red: config.scoreLimit, blue: 1 });
+    s = host.snapshot();
+    assert.equal(s.chooseActive, true);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 1);
+    assert.equal(s.spec, 4);
+    for (const id of redIds) {
+      assert.equal(host.players.find((p) => p.id === id).team, TEAM.RED);
+    }
+    host.cleanup();
+  });
+
+  it("choose: AFK deixa exatamente 3 vagas → puxa direto", async () => {
+    const host = createMockRoomHost();
+    await host.enterChoose();
+    assert.equal(host.snapshot().red, 4);
+    assert.equal(host.snapshot().blue, 1);
+    assert.equal(host.snapshot().spec, 4);
+    const afkOne = host.choose.list().specReady[0];
+    host.setVoluntaryAfk(afkOne.id, true);
+    const s = host.snapshot();
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(s.spec, 1);
+    assert.equal(s.matchRunning, true);
+    assert.equal(host.players.find((p) => p.id === afkOne.id).team, TEAM.SPEC);
+    host.cleanup();
+  });
+
+  it("choose: sai 1 e restam 2 vagas = 2 specs → puxa direto", async () => {
+    const host = createMockRoomHost();
+    await host.enterChoose();
+    host.captainPick("1");
+    assert.equal(host.snapshot().red, 4);
+    assert.equal(host.snapshot().blue, 2);
+    assert.equal(host.snapshot().spec, 3);
+    const leftover = host.choose.list().spec[0];
+    host.removePlayer(leftover.id);
+    const s = host.snapshot();
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.matchRunning, true);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(s.spec, 0);
     host.cleanup();
   });
 
@@ -487,37 +791,56 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("9, 12 e 16 jogadores → choose + extras no spec após 4v4", () => {
+  it("9, 12 e 16 jogadores → primeiro 4v4 acrescenta; extra fica no spec", () => {
     for (const n of [9, 12, 16]) {
       const host = createMockRoomHost();
       host.growTo(n);
-      assert.equal(host.snapshot().chooseActive, true, `choose @${n}`);
-      assert.equal(host.snapshot().spec, n - 2);
-
-      host.captainPick("top");
-      host.captainPick("top");
-      const after = host.snapshot();
-      assert.equal(after.red, 4, `red @${n}`);
-      assert.equal(after.blue, 4, `blue @${n}`);
-      assert.equal(after.spec, n - 8, `spec resto @${n}`);
-      assert.equal(after.matchRunning, true);
+      const s = host.snapshot();
+      assert.equal(s.chooseActive, false, `sem choose na 1ª @${n}`);
+      assert.equal(s.red, 4, `red @${n}`);
+      assert.equal(s.blue, 4, `blue @${n}`);
+      assert.equal(s.spec, n - 8, `spec resto @${n}`);
+      assert.equal(s.matchRunning, true);
+      assert.equal(host.match.isCompetitive(), true);
       host.cleanup();
     }
   });
 
-  it("8→7 cancela choose e volta warmup", () => {
+  it("8→7 vira 3v3 sem reiniciar o jogo", () => {
     const host = createMockRoomHost();
     host.growTo(8);
-    assert.equal(host.snapshot().chooseActive, true);
+    const started = host.snapshot().gameStarted;
     const last = host.players[host.players.length - 1];
     host.removePlayer(last.id);
     const s = host.snapshot();
     assert.equal(s.count, 7);
     assert.equal(s.chooseActive, false);
     assert.equal(s.matchRunning, true);
+    assert.equal(s.gameStarted, started);
     assert.equal(s.red, 3);
     assert.equal(s.blue, 3);
     assert.equal(s.spec, 1);
+    assert.equal(host.match.isCompetitive(), false);
+    host.cleanup();
+  });
+
+  it("3v3 ao vivo + 2 specs → puxa um de cada lado e reinicia 4v4", () => {
+    const host = createMockRoomHost();
+    host.growTo(8);
+    const last = host.players[host.players.length - 1];
+    host.removePlayer(last.id);
+    assert.equal(host.snapshot().red, 3);
+    assert.equal(host.snapshot().blue, 3);
+    const started = host.snapshot().gameStarted;
+    host.addPlayer("Novo");
+    const s = host.snapshot();
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(s.spec, 0);
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.matchRunning, true);
+    assert.equal(host.match.isCompetitive(), true);
+    assert.ok(s.gameStarted > started);
     host.cleanup();
   });
 
@@ -532,8 +855,6 @@ describe("fluxo por estágios da sala", () => {
   it("partida: gol+assist+MVP", async () => {
     const host = createMockRoomHost();
     host.growTo(8);
-    host.captainPick("top");
-    host.captainPick("top");
 
     const red = host.players.filter((p) => p.team === TEAM.RED);
     const a = red[0];
@@ -559,16 +880,18 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(mvps[0].auth, a.auth);
 
     await host.endValidMatch();
-    assert.equal(host.match.isRunning(), false);
+    assert.equal(host.snapshot().chooseActive, false);
+    assert.equal(host.snapshot().red, 4);
+    assert.equal(host.snapshot().blue, 4);
+    assert.equal(host.match.isRunning(), true);
+    assert.equal(host.match.isCompetitive(), true);
     host.cleanup();
   });
 
-  it("entra no meio do choose → não reseta times", () => {
+  it("entra no meio do choose → não reseta times", async () => {
     const host = createMockRoomHost();
-    host.growTo(8);
-    host.captainPick("top");
+    await host.enterChoose();
     const before = host.snapshot();
-    assert.equal(before.red + before.blue, 3);
     host.addPlayer("Late");
     const after = host.snapshot();
     assert.equal(after.chooseActive, true);
@@ -581,8 +904,6 @@ describe("fluxo por estágios da sala", () => {
   it("entra no meio do 4v4 competitivo → fica spec até o fim", () => {
     const host = createMockRoomHost();
     host.growTo(8);
-    host.captainPick("top");
-    host.captainPick("top");
     assert.equal(host.snapshot().matchRunning, true);
     assert.equal(host.match.isCompetitive(), true);
     host.addPlayer("Spectator");
@@ -605,31 +926,33 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("sai capitão com 9+ → promove spec (não remonta do zero)", () => {
+  it("sai jogador do time vencedor no choose → não remonta do zero", async () => {
     const host = createMockRoomHost();
-    host.growTo(9);
-    assert.equal(host.snapshot().chooseActive, true);
-    const cap = host.players.find((p) => p.team === TEAM.RED);
-    const specsBefore = host.players.filter((p) => p.team === TEAM.SPEC).map((p) => p.id);
-    host.removePlayer(cap.id);
+    await host.enterChoose();
+    const reds = host.players.filter((p) => p.team === TEAM.RED);
+    const leaving = reds[0];
+    const remainingRed = reds.filter((p) => p.id !== leaving.id);
+    host.removePlayer(leaving.id);
     const s = host.snapshot();
     assert.equal(s.count, 8);
     assert.equal(s.chooseActive, true);
-    assert.equal(s.red, 1);
+    assert.equal(s.red, 3);
     assert.equal(s.blue, 1);
-    const newRed = host.players.find((p) => p.team === TEAM.RED);
-    assert.ok(specsBefore.includes(newRed.id));
+    for (const p of remainingRed) {
+      assert.equal(host.players.find((x) => x.id === p.id).team, TEAM.RED);
+    }
     host.cleanup();
   });
 
-  it("choose: diff == specs → bot completa e inicia", () => {
+  it("choose: diff == specs → bot completa e inicia", async () => {
     const host = createMockRoomHost();
-    host.growTo(8);
-    for (let i = 0; i < 5; i++) host.captainPick("1"); // 4v3 + 1 spec (número não grava modo)
+    await host.enterChoose();
+    while (host.snapshot().blue < 3) host.captainPick("1");
     assert.equal(host.snapshot().red, 4);
     assert.equal(host.snapshot().blue, 3);
-    assert.equal(host.snapshot().spec, 1);
-    host.choose.onPlayerLeave();
+    assert.equal(host.snapshot().spec, 2);
+    const leftover = host.choose.list().spec[0];
+    host.removePlayer(leftover.id);
     const s = host.snapshot();
     assert.equal(s.chooseActive, false);
     assert.equal(s.matchRunning, true);
@@ -654,8 +977,6 @@ describe("fluxo por estágios da sala", () => {
   it("sair no 4v4 com spec → preenche vaga", () => {
     const host = createMockRoomHost();
     host.growTo(9);
-    host.captainPick("top");
-    host.captainPick("top");
     assert.equal(host.snapshot().matchRunning, true);
     assert.equal(host.snapshot().spec, 1);
     const red = host.players.find((p) => p.team === TEAM.RED);
@@ -671,8 +992,6 @@ describe("fluxo por estágios da sala", () => {
   it("ragequit: desbalance + diff 2 + tempo alto → encerra", () => {
     const host = createMockRoomHost();
     host.growTo(9);
-    host.captainPick("top");
-    host.captainPick("top");
     // 4v4 + 1 spec → após sair ainda ≥8
     host.setScores({ red: 2, blue: 0, time: config.timeLimit * 60 * 0.9 });
     const blue = host.players.find((p) => p.team === TEAM.BLUE);
@@ -684,14 +1003,16 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("AFK voluntário não entra na lista de pick", () => {
+  it("AFK voluntário vai para o fim da fila de pick", async () => {
     const host = createMockRoomHost();
-    host.growTo(8);
+    await host.enterChoose({ extra: 2 });
     const specs = host.players.filter((p) => p.team === TEAM.SPEC);
     const afkOne = specs[0];
     host.setVoluntaryAfk(afkOne.id, true);
     const listed = host.choose.list().spec.map((p) => p.id);
-    assert.ok(!listed.includes(afkOne.id));
+    assert.equal(listed[listed.length - 1], afkOne.id);
+    assert.ok(host.choose.list().specReady.every((p) => p.id !== afkOne.id));
+    assert.match(lastSpecMsg(host).msg, /AFK/);
     host.cleanup();
   });
 
@@ -699,8 +1020,8 @@ describe("fluxo por estágios da sala", () => {
     const host = createMockRoomHost();
     const prev = config.chooseTimeSec;
     config.chooseTimeSec = 0.05;
-    host.growTo(8);
-    const capId = host.players.find((p) => p.team === TEAM.RED || p.team === TEAM.BLUE).id;
+    await host.enterChoose();
+    const capId = host.currentCaptain().id;
     await new Promise((r) => setTimeout(r, 120));
     assert.ok(
       host.kicks.some((k) => k.id === capId && /tempo|AFK/i.test(k.reason)),
@@ -713,8 +1034,6 @@ describe("fluxo por estágios da sala", () => {
   it("azul ganha → vencedores vão pro vermelho + streak 1 + choose", async () => {
     const host = createMockRoomHost();
     host.growTo(9);
-    host.captainPick("top");
-    host.captainPick("top");
     const blueIds = host.players.filter((p) => p.team === TEAM.BLUE).map((p) => p.id);
     await host.endValidMatch({ red: 1, blue: config.scoreLimit });
     const s = host.snapshot();
@@ -735,8 +1054,6 @@ describe("fluxo por estágios da sala", () => {
   it("vermelho ganha de novo → streak incrementa e azul vai pro spec", async () => {
     const host = createMockRoomHost();
     host.growTo(9);
-    host.captainPick("top");
-    host.captainPick("top");
     await host.endValidMatch({ red: config.scoreLimit, blue: 0 });
     assert.equal(host.streak.get(), 1);
     // completa choose e joga de novo
@@ -758,8 +1075,6 @@ describe("fluxo por estágios da sala", () => {
   it("sobra 1 jogador no meio do 4v4 → volta pro treino", () => {
     const host = createMockRoomHost();
     host.growTo(8);
-    host.captainPick("top");
-    host.captainPick("top");
     assert.equal(host.snapshot().matchRunning, true);
 
     for (const p of [...host.players].slice(1)) host.removePlayer(p.id);
@@ -777,8 +1092,6 @@ describe("fluxo por estágios da sala", () => {
   it("sala esvazia por completo → sem partida e sem choose", () => {
     const host = createMockRoomHost();
     host.growTo(8);
-    host.captainPick("top");
-    host.captainPick("top");
     for (const p of [...host.players]) host.removePlayer(p.id);
 
     const s = host.snapshot();
@@ -788,14 +1101,13 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("admin completa os times no choose → inicia sem picks", () => {
+  it("admin completa os times no choose → inicia sem picks", async () => {
     const host = createMockRoomHost();
-    host.growTo(8);
+    await host.enterChoose();
     assert.equal(host.snapshot().chooseActive, true);
 
     const specs = host.players.filter((p) => p.team === TEAM.SPEC);
-    for (let i = 0; i < 3; i++) specs[i].team = TEAM.RED;
-    for (let i = 3; i < 6; i++) specs[i].team = TEAM.BLUE;
+    for (let i = 0; i < 3; i++) specs[i].team = TEAM.BLUE;
     host.choose.onTeamChange();
 
     const s = host.snapshot();
@@ -808,10 +1120,7 @@ describe("fluxo por estágios da sala", () => {
 
   it("choose mostra streak na mensagem de pick", async () => {
     const host = createMockRoomHost();
-    host.growTo(8);
-    host.captainPick("top");
-    host.captainPick("top");
-    await host.endValidMatch({ red: config.scoreLimit, blue: 0 });
+    await host.enterChoose();
     assert.ok(
       host.announcements.some((a) => /Choose.*streak/i.test(a.msg)),
       `msgs: ${host.announcements.map((a) => a.msg).join(" | ")}`
@@ -822,8 +1131,6 @@ describe("fluxo por estágios da sala", () => {
   it("4v4 sem spec: capitão sai → rebalanceia para warmup 3v3 + 1 spec", () => {
     const host = createMockRoomHost();
     host.growTo(8);
-    host.captainPick("top");
-    host.captainPick("top");
     assert.equal(host.match.isCompetitive(), true);
 
     const redCap = host.players.find((p) => p.team === TEAM.RED);
@@ -843,8 +1150,6 @@ describe("fluxo por estágios da sala", () => {
   it("4v4 + 1 spec: capitão sai → spec entra sozinho e o jogo segue", () => {
     const host = createMockRoomHost();
     host.growTo(9);
-    host.captainPick("top");
-    host.captainPick("top");
     const spec = host.players.find((p) => p.team === TEAM.SPEC);
     const redCap = host.players.find((p) => p.team === TEAM.RED);
     const remainingRed = host.players.filter((p) => p.team === TEAM.RED && p.id !== redCap.id);
@@ -929,8 +1234,6 @@ describe("fluxo por estágios da sala", () => {
   it("4v4 + spec AFK: capitão sai → AFK não preenche e rebalanceia", () => {
     const host = createMockRoomHost();
     host.growTo(9);
-    host.captainPick("top");
-    host.captainPick("top");
     const spec = host.players.find((p) => p.team === TEAM.SPEC);
     host.setVoluntaryAfk(spec.id, true);
 
@@ -963,28 +1266,29 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("choose: entra spec → lista do capitão inclui o novo e os números mudam", () => {
+  it("choose: entra spec → lista do capitão inclui o novo e os números mudam", async () => {
     const host = createMockRoomHost();
-    host.growTo(8);
+    await host.enterChoose();
     const before = lastSpecMsg(host);
     assert.ok(before);
-    assert.match(before.msg, /\[6\]/);
+    assert.match(before.msg, /\[4\]/);
     assert.equal(before.to, host.currentCaptain().id);
+    const teams = host.snapshot();
 
     const late = host.addPlayer("LateSpec");
     const after = lastSpecMsg(host);
     assert.ok(after);
-    assert.match(after.msg, /LateSpec\[7\]/);
+    assert.match(after.msg, /LateSpec\[5\]/);
     assert.equal(after.to, host.currentCaptain().id);
     assert.ok(host.choose.list().spec.some((p) => p.id === late.id));
-    assert.equal(host.snapshot().red, 1);
-    assert.equal(host.snapshot().blue, 1);
+    assert.equal(host.snapshot().red, teams.red);
+    assert.equal(host.snapshot().blue, teams.blue);
     host.cleanup();
   });
 
-  it("choose: spec AFK some da lista e o próximo herda o número", () => {
+  it("choose: spec AFK vai para o fim da fila e o próximo herda o número", async () => {
     const host = createMockRoomHost();
-    host.growTo(8);
+    await host.enterChoose({ extra: 2 });
     const specs = host.choose.list().spec;
     const first = specs[0];
     const second = specs[1];
@@ -992,16 +1296,16 @@ describe("fluxo por estágios da sala", () => {
 
     host.setVoluntaryAfk(first.id, true);
     const listed = host.choose.list().spec.map((p) => p.id);
-    assert.ok(!listed.includes(first.id));
     assert.equal(listed[0], second.id);
+    assert.equal(listed[listed.length - 1], first.id);
     assert.match(lastSpecMsg(host).msg, new RegExp(`${escapeReg(second.name)}\\[1\\]`));
-    assert.ok(!lastSpecMsg(host).msg.includes(first.name));
+    assert.match(lastSpecMsg(host).msg, new RegExp(`${escapeReg(first.name)}\\[\\d+\\] AFK`));
     host.cleanup();
   });
 
-  it("choose: spec sai → lista reenvia sem ele", () => {
+  it("choose: spec sai → lista reenvia sem ele", async () => {
     const host = createMockRoomHost();
-    host.growTo(9);
+    await host.enterChoose({ extra: 2 });
     const spec = host.choose.list().spec[0];
     host.removePlayer(spec.id);
     assert.equal(host.snapshot().chooseActive, true);
@@ -1026,9 +1330,9 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("choose: jogador comum não picka no lugar do capitão", () => {
+  it("choose: jogador comum não picka no lugar do capitão", async () => {
     const host = createMockRoomHost();
-    host.growTo(8);
+    await host.enterChoose();
     const spec = host.players.find((p) => p.team === TEAM.SPEC);
     assert.equal(host.choose.handleCaptainChat(spec, "1"), false);
     const otherTeam = host.players.find(
@@ -1061,18 +1365,19 @@ describe("fluxo por estágios da sala", () => {
 
   it("4v4 reposição: spec AFK some da lista; !afk volta", () => {
     const host = createMockRoomHost();
-    host.growTo(10);
-    host.captainPick("top");
-    host.captainPick("top");
+    host.growTo(11);
     host.removePlayer(host.players.find((p) => p.team === TEAM.RED).id);
     const specs = host.choose.list().spec;
-    assert.ok(specs.length >= 2);
+    assert.ok(specs.length >= 3);
     const afkOne = specs[0];
     const other = specs[1];
 
     host.setVoluntaryAfk(afkOne.id, true);
-    assert.ok(!host.choose.list().spec.some((p) => p.id === afkOne.id));
+    const listed = host.choose.list().spec.map((p) => p.id);
+    assert.equal(listed[listed.length - 1], afkOne.id);
+    assert.equal(host.choose.isActive(), true);
     assert.match(lastSpecMsg(host).msg, new RegExp(`${escapeReg(other.name)}\\[1\\]`));
+    assert.match(lastSpecMsg(host).msg, /AFK/);
 
     host.setVoluntaryAfk(afkOne.id, false);
     assert.ok(host.choose.list().spec.some((p) => p.id === afkOne.id));

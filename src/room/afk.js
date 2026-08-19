@@ -1,5 +1,21 @@
 const config = require("../config");
 
+function fieldPlayerCount(players) {
+  return (players || []).filter((p) => p.id !== 0 && p.team !== 0).length;
+}
+
+/** Treino solo (1 em campo) não pune; 1v1+ e 4v4 sim. */
+function shouldCountAutoAfk(players) {
+  return fieldPlayerCount(players) >= 2;
+}
+
+function hasMoved(prev, next, eps = 0.5) {
+  if (!prev || !next) return false;
+  const dx = next.x - prev.x;
+  const dy = next.y - prev.y;
+  return dx * dx + dy * dy >= eps * eps;
+}
+
 /**
  * AFK automático + AFK voluntário (!afk para entrar e sair).
  */
@@ -30,11 +46,33 @@ function createAfkTracker(room, opts = {}) {
     return voluntary.has(playerId);
   }
 
+  function sendToSpec(playerId) {
+    const inGame = typeof room.getScores === "function" && !!room.getScores();
+    if (inGame && typeof room.pauseGame === "function") {
+      try {
+        room.pauseGame(true);
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      room.setPlayerTeam(playerId, 0);
+    } finally {
+      if (inGame && typeof room.pauseGame === "function") {
+        try {
+          room.pauseGame(false);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
   function setVoluntary(player, on) {
     const previousTeam = player.team;
     if (on) {
       voluntary.add(player.id);
-      if (player.team !== 0) room.setPlayerTeam(player.id, 0);
+      if (player.team !== 0) sendToSpec(player.id);
       room.sendAnnouncement(`${player.name} está AFK (!afk para voltar)`, null, 0xbdc3c7, "normal", 1);
     } else {
       voluntary.delete(player.id);
@@ -46,6 +84,11 @@ function createAfkTracker(room, opts = {}) {
       player,
       previousTeam,
     });
+  }
+
+  function clearVoluntary(playerId) {
+    voluntary.delete(playerId);
+    touch(playerId);
   }
 
   function playingCount() {
@@ -79,7 +122,7 @@ function createAfkTracker(room, opts = {}) {
     for (const p of room.getPlayerList()) {
       if (p.id === 0) continue;
       if (voluntary.has(p.id)) {
-        if (p.team !== 0) room.setPlayerTeam(p.id, 0);
+        if (p.team !== 0) sendToSpec(p.id);
         continue;
       }
       // Spec não ocupa uma vaga em jogo e não recebe punição automática.
@@ -108,7 +151,7 @@ function createAfkTracker(room, opts = {}) {
       } else if (p.team !== 0) {
         const previousTeam = p.team;
         voluntary.add(p.id);
-        room.setPlayerTeam(p.id, 0);
+        sendToSpec(p.id);
         room.sendAnnouncement(
           `${p.name} movido para spect por AFK. Use !afk para voltar à fila.`,
           null,
@@ -129,6 +172,7 @@ function createAfkTracker(room, opts = {}) {
     touch,
     remove,
     isVoluntary,
+    clearVoluntary,
     setVoluntary,
     setOnStateChange(handler) {
       onStateChange = typeof handler === "function" ? handler : null;
@@ -144,4 +188,4 @@ function createAfkTracker(room, opts = {}) {
   };
 }
 
-module.exports = { createAfkTracker };
+module.exports = { createAfkTracker, fieldPlayerCount, shouldCountAutoAfk, hasMoved };

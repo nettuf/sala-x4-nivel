@@ -7,7 +7,7 @@ const {
   evaluateJoin,
   applyJoinGuards,
 } = require("../src/room/joinGuards");
-const { createAfkTracker } = require("../src/room/afk");
+const { createAfkTracker, shouldCountAutoAfk, hasMoved } = require("../src/room/afk");
 const config = require("../src/config");
 
 function mockRoom(players) {
@@ -230,5 +230,50 @@ describe("AFK: ações e pausa", () => {
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();
+  });
+
+  it("treino solo não conta AFK; 1v1 conta", () => {
+    assert.equal(shouldCountAutoAfk([{ id: 1, team: 1 }]), false);
+    assert.equal(
+      shouldCountAutoAfk([
+        { id: 1, team: 1 },
+        { id: 2, team: 2 },
+      ]),
+      true
+    );
+  });
+
+  it("1v1 parado vai para spect", () => {
+    const players = [
+      { id: 1, name: "A", team: 1, auth: "a1" },
+      { id: 2, name: "B", team: 2, auth: "a2" },
+    ];
+    const room = mockRoom(players);
+    room.getScores = () => ({ red: 0, blue: 0, time: 10 });
+    room.pauseGame = () => {};
+    const afk = createAfkTracker(room, {
+      shouldAutoAfk: () => shouldCountAutoAfk(room.getPlayerList()),
+    });
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 0;
+    config.afkActionMs = 0;
+
+    afk.touch(1);
+    afk.touch(2);
+    afk.tick();
+
+    assert.equal(players.find((p) => p.id === 1).team, 0);
+    assert.equal(afk.isVoluntary(1), true);
+    assert.equal(room.kicks.length, 0);
+
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("ocioso só conta se o boneco andou de verdade", () => {
+    assert.equal(hasMoved(null, { x: 0, y: 0 }), false);
+    assert.equal(hasMoved({ x: 0, y: 0 }, { x: 0.1, y: 0 }), false);
+    assert.equal(hasMoved({ x: 0, y: 0 }, { x: 3, y: 0 }), true);
   });
 });

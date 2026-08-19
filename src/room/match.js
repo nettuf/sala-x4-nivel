@@ -410,6 +410,9 @@ function createMatchController(room) {
     notePositionsReset,
     rageQuitReason,
     cancelRecordingOnly,
+    setCompetitive(value) {
+      if (match) match.competitive = !!value;
+    },
     isRunning: () => !!match,
     isCompetitive: () => !!match?.competitive,
     isActivePlay: () => activePlay,

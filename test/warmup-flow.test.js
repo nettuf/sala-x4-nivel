@@ -1,7 +1,7 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { planWarmup, applyWarmupMoves } = require("../src/room/warmupFlow");
+const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose } = require("../src/room/warmupFlow");
 const { createChooseController, TEAM } = require("../src/room/choose");
 
 function p(id, team = TEAM.SPEC) {
@@ -144,6 +144,122 @@ describe("máquina de estados do treino/warmup", () => {
     assert.equal(plan.moves.length, 0);
     assert.deepEqual(finalTeams(players, plan).spec, [3, 4]);
   });
+
+  it("AFK ainda no time é mandado para spec e não volta", () => {
+    const players = [p(1, TEAM.RED), p(2, TEAM.BLUE), p(3, TEAM.RED), p(4, TEAM.BLUE)];
+    const plan = planWarmup(players, { isExcluded: (player) => player.id === 4 });
+    assert.ok(plan.moves.some((m) => m.id === 4 && m.team === TEAM.SPEC));
+    assert.ok(!plan.moves.some((m) => m.id === 4 && m.team !== TEAM.SPEC));
+    const teams = finalTeams(players, plan);
+    assert.ok(teams.spec.includes(4));
+  });
+
+  it("1v1 com um AFK deixa o outro no vermelho (treino)", () => {
+    const players = [p(1, TEAM.RED), p(2, TEAM.BLUE)];
+    const plan = planWarmup(players, { isExcluded: (player) => player.id === 2 });
+    assert.equal(plan.eligibleCount, 1);
+    assert.equal(plan.shouldStart, true);
+    assert.ok(plan.moves.some((m) => m.id === 2 && m.team === TEAM.SPEC));
+    assert.deepEqual(finalTeams(players, plan), { red: [1], blue: [], spec: [2] });
+  });
+
+  it("3v3 + 2 specs promove para 4v4 sem choose", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(3, TEAM.RED),
+      p(4, TEAM.BLUE),
+      p(5, TEAM.RED),
+      p(6, TEAM.BLUE),
+      p(7),
+      p(8),
+    ];
+    const promo = planPromoteToX4(players);
+    assert.ok(promo);
+    assert.equal(promo.moves.length, 2);
+    assert.equal(promo.leftoverSpec, 0);
+    const teams = finalTeams(players, promo);
+    assert.equal(teams.red.length, 4);
+    assert.equal(teams.blue.length, 4);
+  });
+
+  it("3v3 + 3 specs acrescenta o par e deixa 1 no spec", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(3, TEAM.RED),
+      p(4, TEAM.BLUE),
+      p(5, TEAM.RED),
+      p(6, TEAM.BLUE),
+      p(7),
+      p(8),
+      p(9),
+    ];
+    const promo = planPromoteToX4(players);
+    assert.ok(promo);
+    assert.equal(promo.leftoverSpec, 1);
+    const teams = finalTeams(players, promo);
+    assert.equal(teams.red.length, 4);
+    assert.equal(teams.blue.length, 4);
+    assert.equal(teams.spec.length, 1);
+  });
+
+  it("4 vencedores + extras abaixo de 8 → os 4 ficam juntos", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.RED),
+      p(3, TEAM.RED),
+      p(4, TEAM.RED),
+      p(5),
+      p(6),
+    ];
+    const plan = planWarmup(players);
+    assert.equal(plan.shouldStart, false);
+    assert.deepEqual(finalTeams(players, plan), {
+      red: [1, 2, 3, 4],
+      blue: [],
+      spec: [5, 6],
+    });
+  });
+
+  it("4 vencedores + exatamente 4 specs → preenche o azul na ordem e inicia, sem pick", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.RED),
+      p(3, TEAM.RED),
+      p(4, TEAM.RED),
+      p(5),
+      p(6),
+      p(7),
+      p(8),
+    ];
+    const held = planHeldWinnersToChoose(players);
+    assert.ok(held);
+    assert.equal(held.start, true);
+    assert.deepEqual(
+      held.moves.map((m) => m.id),
+      [5, 6, 7, 8]
+    );
+    assert.ok(held.moves.every((m) => m.team === TEAM.BLUE));
+  });
+
+  it("4 vencedores + 5 specs → 1º spec vira capitão azul e o resto picka", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.RED),
+      p(3, TEAM.RED),
+      p(4, TEAM.RED),
+      p(5),
+      p(6),
+      p(7),
+      p(8),
+      p(9),
+    ];
+    const held = planHeldWinnersToChoose(players);
+    assert.ok(held);
+    assert.equal(held.start, false);
+    assert.deepEqual(held.moves, [{ id: 5, team: TEAM.BLUE }]);
+  });
 });
 
 describe("escolha de reposição", () => {
@@ -203,7 +319,7 @@ describe("escolha de reposição", () => {
     });
 
     choose.tryStartChoose();
-    for (let index = 0; index < 6; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
       const captain = choose.list().red.length <= choose.list().blue.length
         ? choose.list().red[0]
         : choose.list().blue[0];
