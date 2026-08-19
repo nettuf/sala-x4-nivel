@@ -22,10 +22,10 @@ function writeToken(token) {
 }
 
 const ADMIN_LEVELS = {
-  1: { title: "Estagiário", color: 0x95a5a6 },
-  2: { title: "Moderador", color: 0x3498db },
-  3: { title: "Gerente", color: 0x9b59b6 },
-  4: { title: "Chefe", color: 0xe74c3c },
+  1: { title: "Estagiário", emblem: "🛠️", color: 0x95a5a6 },
+  2: { title: "Moderador", emblem: "🔨", color: 0x3498db },
+  3: { title: "Gerente", emblem: "💼", color: 0x9b59b6 },
+  4: { title: "Chefe", emblem: "👑", color: 0xe74c3c },
 };
 
 function bool(v, fallback = false) {
@@ -67,6 +67,8 @@ const config = {
   tokenApiPort: Number(process.env.TOKEN_API_PORT || 3847),
   tokenApiSecret: process.env.TOKEN_API_SECRET || "",
   pm2ProcessName: process.env.PM2_PROCESS_NAME || "sala-x4",
+  discordInviteUrl: process.env.DISCORD_INVITE_URL || "https://discord.gg/ZTu7zwgvhm",
+  discordAdMs: Number(process.env.DISCORD_AD_MS || 20 * 60 * 1000),
   adminLevels: ADMIN_LEVELS,
 };
 

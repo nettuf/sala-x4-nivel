@@ -213,13 +213,12 @@ describe("titles / cargos", () => {
     assert.equal(mvps[0].auth, "a");
   });
 
-  it("formatChatPrefix junta staff + cargo", () => {
+  it("formatChatPrefix é só emoji de staff + cargo, sem nomes", () => {
     const prefix = formatChatPrefix(
       { emblem: "⚽", name: "Artilheiro" },
-      { title: "Chefe" }
+      { title: "Chefe", emblem: "👑" }
     );
-    assert.match(prefix, /Chefe/);
-    assert.match(prefix, /Artilheiro/);
+    assert.equal(prefix, "👑⚽");
   });
 });
 

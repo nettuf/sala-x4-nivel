@@ -10,14 +10,14 @@ const {
   resolveTitle,
   getTitleById,
   reqLabel,
-  formatChatPrefix,
   chatColor,
 } = require("../titles");
 
 function helpText(isAdmin) {
   const base = [
     "!help — comandos",
-    "!bb — tchau",
+    "!bb — sair da sala",
+    "!discord — convite do Discord",
     "!stats — estatísticas",
     "!cargos — emblemas desbloqueados",
     "!cargo <id|n> — escolher emblema",
@@ -42,21 +42,12 @@ function helpText(isAdmin) {
 function createCommandHandler(room, ctx) {
   /** @type {Map<number, number>} */
   const lastAfkCommandAt = new Map();
-  function applyTitleLook(player, title) {
-    if (!player || !title) return;
-    try {
-      room.setPlayerAvatar(player.id, title.emblem);
-    } catch {
-      /* ignore */
-    }
-  }
 
   async function loadTitleForPlayer(player) {
     if (!player?.auth) return resolveTitle({}, null);
     const stats = (await getPlayerStats(player.auth)) || {};
     const title = resolveTitle(stats, stats.selected_title);
     ctx.titles.set(player.id, title);
-    applyTitleLook(player, title);
     return title;
   }
 
@@ -64,10 +55,12 @@ function createCommandHandler(room, ctx) {
     const title = ctx.titles.get(player.id);
     const admin = ctx.admins.get(player.id);
     const adminMeta = admin ? config.adminLevels[admin.level] : null;
-    const prefix = formatChatPrefix(title, adminMeta);
-    const color = chatColor(title, adminMeta);
-    const line = prefix ? `${prefix} ${player.name}: ${message}` : `${player.name}: ${message}`;
-    return { line, color };
+    const staff = adminMeta?.emblem || "";
+    const emblem = title?.emblem || "";
+    return {
+      line: `${staff}${emblem}${player.name}: ${message}`,
+      color: chatColor(title, adminMeta),
+    };
   }
 
   async function handle(player, message) {
@@ -85,7 +78,18 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "bb") {
-      room.sendAnnouncement(`👋 ${player.name} mandou um !bb`, null, 0xbdc3c7, "normal", 1);
+      room.sendAnnouncement(`${player.name} saiu. Até mais!`, null, 0xbdc3c7, "normal", 1);
+      try {
+        room.kickPlayer(player.id, "Até mais!", false);
+      } catch {
+        /* ignore */
+      }
+      return true;
+    }
+
+    if (cmd === "discord" || cmd === "dc") {
+      const url = config.discordInviteUrl;
+      room.sendAnnouncement(`Entre em nosso Discord: ${url}`, null, 0x5865f2, "bold", 1);
       return true;
     }
 
@@ -319,7 +323,6 @@ function createCommandHandler(room, ctx) {
         return true;
       }
       ctx.titles.set(player.id, title);
-      applyTitleLook(player, title);
       room.sendAnnouncement(
         `Cargo ativo: ${title.emblem} ${title.name}`,
         null,
@@ -449,7 +452,7 @@ function createCommandHandler(room, ctx) {
     if (!adminRow) return;
     const meta = config.adminLevels[adminRow.level] || config.adminLevels[1];
     room.sendAnnouncement(
-      `[${meta.title}] ${player.name} entrou.`,
+      `${meta.emblem} ${meta.title} ${player.name} entrou.`,
       null,
       meta.color,
       "bold",

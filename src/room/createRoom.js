@@ -589,6 +589,19 @@ function createRoom(HBInit) {
 
   applyStadium(room, 0);
 
+  if (config.discordInviteUrl && config.discordAdMs > 0) {
+    const ad = setInterval(() => {
+      room.sendAnnouncement(
+        `Entre em nosso Discord: ${config.discordInviteUrl}`,
+        null,
+        0x5865f2,
+        "bold",
+        1
+      );
+    }, config.discordAdMs);
+    if (typeof ad.unref === "function") ad.unref();
+  }
+
   return { room, afk, match, choose, streak, uniforms };
 }
 

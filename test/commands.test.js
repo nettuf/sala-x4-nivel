@@ -10,6 +10,7 @@ function mockRoom() {
     { id: 3, name: "Spec", team: 0, auth: "auth3" },
   ];
   const announcements = [];
+  const kicks = [];
   return {
     announcements,
     getPlayerList: () => players,
@@ -18,8 +19,9 @@ function mockRoom() {
       const p = players.find((x) => x.id === id);
       if (p) p.team = team;
     },
-    kickPlayer: () => {},
+    kickPlayer: (id, reason, ban) => kicks.push({ id, reason, ban }),
     _players: players,
+    kicks,
   };
 }
 
@@ -132,10 +134,62 @@ describe("comandos (mock room)", () => {
   it("!help responde", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
-    const ctx = { admins: new Map(), mutes: new Map(), afk };
+    const ctx = { admins: new Map(), mutes: new Map(), afk, titles: new Map() };
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[2], "!help");
     assert.ok(room.announcements.some((a) => String(a.msg).includes("!stats")));
+    afk.stop();
+  });
+
+  it("chat usa só emoji + nick, sem escrever Novato", () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      titles: new Map([[1, { emblem: "🌱", name: "Novato", color: 0xbdc3c7 }]]),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    const { line } = cmd.formatPlayerChat(room._players[0], "oi");
+    assert.equal(line, "🌱RedCap: oi");
+    afk.stop();
+  });
+
+  it("chat de Chefe usa emoji de staff + cargo, sem escrever Chefe/Novato", () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map([[1, { level: 4, title: "Chefe" }]]),
+      mutes: new Map(),
+      afk,
+      titles: new Map([[1, { emblem: "🌱", name: "Novato", color: 0xbdc3c7 }]]),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    const { line } = cmd.formatPlayerChat(room._players[0], "s");
+    assert.equal(line, "👑🌱RedCap: s");
+    afk.stop();
+  });
+
+  it("!bb kicka o jogador da sala", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[2], "!bb");
+    assert.ok(room.kicks.some((k) => k.id === 3 && k.ban === false));
+    afk.stop();
+  });
+
+  it("!discord anuncia o convite", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!discord");
+    assert.ok(
+      room.announcements.some((a) => /discord\.gg\/ZTu7zwgvhm/i.test(a.msg))
+    );
     afk.stop();
   });
 });

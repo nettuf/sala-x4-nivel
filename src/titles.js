@@ -145,10 +145,7 @@ function resolveTitle(stats, selectedId) {
 }
 
 function formatChatPrefix(title, adminMeta) {
-  const parts = [];
-  if (adminMeta) parts.push(`[${adminMeta.title}]`);
-  if (title) parts.push(`${title.emblem}${title.name}`);
-  return parts.join(" ");
+  return `${adminMeta?.emblem || ""}${title?.emblem || ""}`;
 }
 
 function chatColor(title, adminMeta) {
