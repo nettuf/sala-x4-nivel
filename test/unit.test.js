@@ -243,19 +243,25 @@ describe("titles / cargos", () => {
 });
 
 describe("maps", () => {
-  it("carrega maptraining e mapx4", () => {
+  it("carrega maptraining, mapx3 e mapx4", () => {
     reloadMaps();
     const training = stadiumForPlayerCount(1);
+    const x3 = stadiumForPlayerCount(2);
     const x4 = stadiumForPlayerCount(8);
     assert.ok(training && training.length > 100);
+    assert.ok(x3 && x3.length > 100);
     assert.ok(x4 && x4.length > 100);
     assert.match(JSON.parse(training).name, /training|treino|ice bear/i);
-    assert.match(JSON.parse(x4).name, /x4|futsal/i);
-    assert.notEqual(training, x4);
+    assert.match(JSON.parse(x3).name, /x3/i);
+    assert.match(JSON.parse(x4).name, /x4/i);
+    assert.notEqual(training, x3);
+    assert.notEqual(x3, x4);
+    assert.equal(stadiumForPlayerCount(6), x3);
   });
 
   it("arquivos .hbs existem", () => {
     const root = path.join(__dirname, "..");
+    assert.ok(fs.existsSync(path.join(root, "maps/mapx3.hbs")));
     assert.ok(fs.existsSync(path.join(root, "maps/mapx4.hbs")));
     assert.ok(fs.existsSync(path.join(root, "maps/maptraining.hbs")));
   });

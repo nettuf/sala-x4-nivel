@@ -125,6 +125,19 @@ describe("uniformes: catálogo e regras puras", () => {
 });
 
 describe("uniformes: manager na sala", () => {
+  it("inicia vermelho tudo preto e azul tudo branco", () => {
+    const room = mockRoom(squad());
+    const uni = createUniformManager(room);
+    assert.equal(uni.current()[TEAM.RED], "preto");
+    assert.equal(uni.current()[TEAM.BLUE], "branco");
+    assert.deepEqual(room.colorCalls[0].colors, [0x000000]);
+    assert.equal(room.colorCalls[0].text, 0x000000);
+    assert.deepEqual(room.colorCalls[1].colors, [0xffffff]);
+    assert.equal(room.colorCalls[1].text, 0xffffff);
+    assert.match(uni.describe(), /preto/i);
+    assert.match(uni.describe(), /branco/i);
+  });
+
   it("capitão troca e aplica setTeamColors", () => {
     const players = squad();
     const room = mockRoom(players);
@@ -148,7 +161,7 @@ describe("uniformes: manager na sala", () => {
 
     assert.equal(r.ok, false);
     assert.match(r.error, /já está no time/i);
-    assert.equal(uni.current()[TEAM.BLUE], null);
+    assert.equal(uni.current()[TEAM.BLUE], "branco");
   });
 
   it("capitão é sempre o primeiro do time (muda quando o 1º sai)", () => {
@@ -175,7 +188,7 @@ describe("uniformes: manager na sala", () => {
     uni.onWinnerStays(TEAM.BLUE);
 
     assert.equal(uni.current()[TEAM.RED], "cru");
-    assert.equal(uni.current()[TEAM.BLUE], null);
+    assert.equal(uni.current()[TEAM.BLUE], "branco");
   });
 
   it("reset volta os dois times ao padrão", () => {
@@ -186,9 +199,10 @@ describe("uniformes: manager na sala", () => {
     uni.change({ player: players[0], isAdmin: false, kitId: "bra" });
     uni.reset();
 
-    assert.equal(uni.current()[TEAM.RED], null);
-    assert.equal(uni.current()[TEAM.BLUE], null);
-    assert.match(uni.describe(), /padrão/i);
+    assert.equal(uni.current()[TEAM.RED], "preto");
+    assert.equal(uni.current()[TEAM.BLUE], "branco");
+    assert.match(uni.describe(), /preto/i);
+    assert.match(uni.describe(), /branco/i);
   });
 });
 
@@ -233,7 +247,7 @@ describe("uniformes: comando !uni", () => {
     const { room, cmd, players, uniforms, ctx, afk } = setup();
 
     await cmd.handle(players[0], "!uni blue gre");
-    assert.equal(uniforms.current()[TEAM.BLUE], null);
+    assert.equal(uniforms.current()[TEAM.BLUE], "branco");
 
     ctx.admins.set(players[0].id, { level: 4 });
     await cmd.handle(players[0], "!uni blue gre");
@@ -251,7 +265,8 @@ describe("uniformes: comando !uni", () => {
 
     ctx.admins.set(players[0].id, { level: 3 });
     await cmd.handle(players[0], "!uni reset");
-    assert.equal(uniforms.current()[TEAM.RED], null);
+    assert.equal(uniforms.current()[TEAM.RED], "preto");
+    assert.equal(uniforms.current()[TEAM.BLUE], "branco");
     afk.stop();
   });
 

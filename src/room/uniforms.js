@@ -2,9 +2,15 @@ const { TEAM } = require("./choose");
 
 /**
  * Uniformes: [angle, textColor, colors[]] no formato do room.setTeamColors.
+ * Padrão inicial: vermelho tudo preto, azul tudo branco.
  */
+const KIT_PRETO = { id: "preto", name: "Preto", angle: 0, text: 0x000000, colors: [0x000000] };
+const KIT_BRANCO = { id: "branco", name: "Branco", angle: 0, text: 0xffffff, colors: [0xffffff] };
+
 const KITS = [
-  { id: "padrao", name: "Padrão", angle: 0, text: 0xffffff, colors: [0xe56e56] },
+  KIT_PRETO,
+  KIT_BRANCO,
+  { id: "padrao", name: "Padrão Hax", angle: 0, text: 0xffffff, colors: [0xe56e56] },
   { id: "bra", name: "Brasil", angle: 90, text: 0x40bfff, colors: [0xffe600] },
   { id: "arg", name: "Argentina", angle: 90, text: 0x1c3f94, colors: [0x75aadb, 0xffffff] },
   { id: "ale", name: "Alemanha", angle: 90, text: 0xffffff, colors: [0x000000, 0xff1212, 0xffdd00] },
@@ -23,6 +29,10 @@ const KITS = [
   { id: "roxo", name: "Roxo", angle: 90, text: 0xffffff, colors: [0x8e44ad] },
   { id: "verde", name: "Verde neon", angle: 90, text: 0x1c1c1c, colors: [0x2ecc71] },
 ];
+
+function defaultKit(team) {
+  return team === TEAM.RED ? KIT_PRETO : KIT_BRANCO;
+}
 
 function findKit(id) {
   const key = String(id || "").trim().toLowerCase();
@@ -91,7 +101,7 @@ function resolvePermission({ player, isAdmin, requestedTeam, captains }) {
 
 function createUniformManager(room) {
   /** @type {Record<number, string|null>} */
-  const current = { [TEAM.RED]: null, [TEAM.BLUE]: null };
+  const current = { [TEAM.RED]: KIT_PRETO.id, [TEAM.BLUE]: KIT_BRANCO.id };
 
   function captains() {
     const players = room.getPlayerList().filter((p) => p.id !== 0);
@@ -109,6 +119,20 @@ function createUniformManager(room) {
     }
     current[team] = kit.id;
     return true;
+  }
+
+  function kitFor(team) {
+    return findKit(current[team]) || defaultKit(team);
+  }
+
+  function isCustom(team) {
+    return current[team] && current[team] !== defaultKit(team).id;
+  }
+
+  /** Reaplica as cores atuais (o mapa zera o uniforme no setCustomStadium). */
+  function reapply() {
+    apply(TEAM.RED, kitFor(TEAM.RED));
+    apply(TEAM.BLUE, kitFor(TEAM.BLUE));
   }
 
   /**
@@ -137,16 +161,11 @@ function createUniformManager(room) {
     return { ok: true, kit: valid.kit, team: perm.team };
   }
 
-  /** Winner stays: quem venceu leva o uniforme para o vermelho. */
+  /** Winner stays: quem venceu leva o uniforme customizado para o vermelho. */
   function onWinnerStays(winner) {
     if (winner === TEAM.BLUE) {
-      const blueKit = current[TEAM.BLUE] ? findKit(current[TEAM.BLUE]) : null;
-      current[TEAM.BLUE] = null;
-      try {
-        room.setTeamColors(TEAM.BLUE, 0, 0xffffff, [0x5689e5]);
-      } catch {
-        /* ignore */
-      }
+      const blueKit = isCustom(TEAM.BLUE) ? findKit(current[TEAM.BLUE]) : null;
+      apply(TEAM.BLUE, KIT_BRANCO);
       if (blueKit) apply(TEAM.RED, blueKit);
       return;
     }
@@ -155,19 +174,13 @@ function createUniformManager(room) {
   }
 
   function reset() {
-    current[TEAM.RED] = null;
-    current[TEAM.BLUE] = null;
-    try {
-      room.setTeamColors(TEAM.RED, 0, 0xffffff, [0xe56e56]);
-      room.setTeamColors(TEAM.BLUE, 0, 0xffffff, [0x5689e5]);
-    } catch {
-      /* ignore */
-    }
+    apply(TEAM.RED, KIT_PRETO);
+    apply(TEAM.BLUE, KIT_BRANCO);
   }
 
   function describe() {
-    const red = current[TEAM.RED] ? findKit(current[TEAM.RED]).name : "padrão";
-    const blue = current[TEAM.BLUE] ? findKit(current[TEAM.BLUE]).name : "padrão";
+    const red = findKit(current[TEAM.RED])?.name || KIT_PRETO.name;
+    const blue = findKit(current[TEAM.BLUE])?.name || KIT_BRANCO.name;
     return `🔴 ${red} · 🔵 ${blue}`;
   }
 
@@ -175,9 +188,12 @@ function createUniformManager(room) {
     return KITS.map((k) => k.id).join(", ");
   }
 
+  reset();
+
   return {
     change,
     reset,
+    reapply,
     onWinnerStays,
     describe,
     listText,
@@ -188,6 +204,8 @@ function createUniformManager(room) {
 
 module.exports = {
   KITS,
+  KIT_PRETO,
+  KIT_BRANCO,
   findKit,
   parseTeamRef,
   validateChange,

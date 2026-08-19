@@ -3,7 +3,7 @@ const { connToIp } = require("../utils");
 const { upsertPlayer, getAdmin } = require("../db/players");
 const { findActiveBan } = require("../db/bans");
 const { notifyJoin } = require("../discord/webhook");
-const { applyStadium } = require("./maps");
+const { applyStadium, stadiumKindForCount } = require("./maps");
 const { createAfkTracker, shouldCountAutoAfk, hasMoved } = require("./afk");
 const { createChooseController, TEAM } = require("./choose");
 const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose } = require("./warmupFlow");
@@ -130,12 +130,15 @@ function createRoom(HBInit) {
     onReadyToStart() {
       room.sendAnnouncement("4v4 pronto — iniciando!", null, 0x2ecc71, "bold", 2);
       applyStadium(room, config.teamSize * 2);
+      stadiumKind = "x4";
+      uniforms.reapply();
       match.start({ competitive: true });
     },
   });
 
   let lobbyRevision = 0;
   const slowChat = new Set();
+  let stadiumKind = "training";
 
   function stopCurrentGame({ preserveMatch = false } = {}) {
     if (!preserveMatch) match.cancelRecordingOnly();
@@ -158,6 +161,16 @@ function createRoom(HBInit) {
     });
     if (!plan.shouldStart || plan.replacementTeam) return;
     match.start({ competitive: false });
+  }
+
+  function setLobbyStadium(count) {
+    const nextKind = stadiumKindForCount(count);
+    const live = !!(match.isRunning() && room.getScores());
+    // Queda 4v4 → 3v3/2v2/1v1: o jogo segue no x4; o x3 entra no próximo warmup.
+    if (live && stadiumKind === "x4" && nextKind === "x3") return;
+    applyStadium(room, count);
+    stadiumKind = nextKind;
+    uniforms.reapply();
   }
 
   function refreshLobby() {
@@ -185,7 +198,7 @@ function createRoom(HBInit) {
       if (promo) {
         stopCurrentGame();
         applyWarmupMoves(room, promo);
-        applyStadium(room, eligibleCount);
+        setLobbyStadium(eligibleCount);
         room.sendAnnouncement("4v4: jogadores acrescentados — iniciando!", null, 0x2ecc71, "bold", 2);
         laterForCurrentLobby(startCompetitiveFromCurrentField);
         return;
@@ -198,7 +211,7 @@ function createRoom(HBInit) {
       if (held) {
         stopCurrentGame();
         applyWarmupMoves(room, held);
-        applyStadium(room, eligibleCount);
+        setLobbyStadium(eligibleCount);
         if (held.start) {
           laterForCurrentLobby(startCompetitiveFromCurrentField);
         } else {
@@ -209,7 +222,7 @@ function createRoom(HBInit) {
 
       stopCurrentGame();
       choose.deactivate();
-      applyStadium(room, players.length);
+      setLobbyStadium(players.length);
       laterForCurrentLobby(() => choose.tryStartChoose());
       return;
     }
@@ -221,37 +234,58 @@ function createRoom(HBInit) {
     if (!plan.eligibleCount) {
       choose.deactivate();
       stopCurrentGame();
-      applyStadium(room, 0);
+      setLobbyStadium(0);
       return;
     }
 
+    const live = !!(match.isRunning() && room.getScores());
+    const nextKind = stadiumKindForCount(plan.eligibleCount);
+    // Treino → x3 (1v1). 4v4 já reinicia no promote. Queda 4v4→3v3 não RR (mapa troca no próximo start).
+    const loadX3 = nextKind === "x3" && stadiumKind === "training";
+
     if (plan.replacementTeam) {
-      stopCurrentGame();
       applyWarmupMoves(room, plan);
-      applyStadium(room, plan.eligibleCount);
+      setLobbyStadium(plan.eligibleCount);
       if (choose.isReplacement()) {
         choose.onPlayerJoin();
       } else {
+        if (live) {
+          try {
+            room.pauseGame(true);
+          } catch {
+            /* ignore */
+          }
+        }
         choose.deactivate();
-        choose.startReplacement(plan.replacementTeam, () => refreshLobby());
+        choose.startReplacement(plan.replacementTeam, () => {
+          if (live) {
+            try {
+              room.pauseGame(false);
+            } catch {
+              /* ignore */
+            }
+          }
+          refreshLobby();
+        });
       }
       return;
     }
 
     if (choose.isActive()) choose.deactivate();
 
-    const mustRestart =
-      plan.eligibleCount <= 1 || plan.moves.length || !match.isRunning() || !room.getScores();
-    if (mustRestart) {
+    // Só reinicia warmup ao carregar o mapa x3 (treino → 1v1).
+    // 3v3 → 2v2 e afins só remanejam os times e o jogo segue.
+    if (loadX3) {
       stopCurrentGame();
       applyWarmupMoves(room, plan);
-      applyStadium(room, plan.eligibleCount);
+      setLobbyStadium(plan.eligibleCount);
       laterForCurrentLobby(startWarmupIfPossible);
       return;
     }
 
-    // Número ímpar: o único spec aguarda sem reiniciar o jogo atual.
-    applyStadium(room, plan.eligibleCount);
+    applyWarmupMoves(room, plan);
+    setLobbyStadium(plan.eligibleCount);
+    if (!live) laterForCurrentLobby(startWarmupIfPossible);
   }
 
   function startCompetitiveFromCurrentField() {
@@ -264,6 +298,8 @@ function createRoom(HBInit) {
       return;
     }
     applyStadium(room, players.length);
+    stadiumKind = "x4";
+    uniforms.reapply();
     match.start({ competitive: true });
   }
 
@@ -481,6 +517,9 @@ function createRoom(HBInit) {
       return;
     }
 
+    // Spec saindo não mexe em 4v4 nem no warmup: sem RR, sem reposição.
+    if (player && player.team === TEAM.SPEC) return;
+
     if (match.isCompetitive()) {
       const rageReason = kicked ? null : match.rageQuitReason(player);
       if (rageReason) {
@@ -523,11 +562,9 @@ function createRoom(HBInit) {
       return;
     }
 
-    if (match.isRunning() || room.getScores()) {
-      lobbyRevision += 1;
-      stopCurrentGame();
-    }
-    setTimeout(refreshLobby, 100);
+    // Warmup / 3v3 ao vivo: o refresh decide se precisa parar.
+    // Spec saindo de um 3v3 já montado não reinicia o jogo.
+    refreshLobby();
   }
 
   room.onPlayerLeave = (player) => {
@@ -768,6 +805,8 @@ function createRoom(HBInit) {
   };
 
   applyStadium(room, 0);
+  stadiumKind = "training";
+  uniforms.reapply();
 
   if (config.discordInviteUrl && config.discordAdMs > 0) {
     const ad = setInterval(() => {

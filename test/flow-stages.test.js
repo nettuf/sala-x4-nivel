@@ -105,13 +105,6 @@ function createMockRoomHost() {
       return;
     }
 
-    if (room.getScores() || match.isRunning()) {
-      match.cancelRecordingOnly();
-      room.stopGame();
-    }
-
-    applyStadium(room, eligibleCount);
-
     if (eligibleCount >= config.teamSize * 2) {
       if (choose.isActive()) {
         choose.onPlayerJoin();
@@ -122,7 +115,10 @@ function createMockRoomHost() {
         teamSize: config.teamSize,
       });
       if (promo) {
+        match.cancelRecordingOnly();
+        room.stopGame();
         applyWarmupMoves(room, promo);
+        applyStadium(room, eligibleCount);
         match.start({ competitive: true });
         return;
       }
@@ -131,6 +127,8 @@ function createMockRoomHost() {
         teamSize: config.teamSize,
       });
       if (held) {
+        match.cancelRecordingOnly();
+        room.stopGame();
         applyWarmupMoves(room, held);
         if (held.start) {
           match.start({ competitive: true });
@@ -139,6 +137,8 @@ function createMockRoomHost() {
         }
         return;
       }
+      match.cancelRecordingOnly();
+      room.stopGame();
       choose.tryStartChoose();
       return;
     }
@@ -149,11 +149,14 @@ function createMockRoomHost() {
 
     if (!plan.eligibleCount) {
       choose.deactivate();
+      match.cancelRecordingOnly();
+      room.stopGame();
       return;
     }
 
     if (plan.replacementTeam) {
       applyWarmupMoves(room, plan);
+      applyStadium(room, plan.eligibleCount);
       if (choose.isReplacement()) {
         choose.onPlayerJoin();
       } else {
@@ -164,8 +167,25 @@ function createMockRoomHost() {
     }
 
     if (choose.isActive()) choose.deactivate();
+
+    const live = !!(match.isRunning() && room.getScores());
+    const { stadiumKindForCount } = require("../src/room/maps");
+    const nextKind = stadiumKindForCount(plan.eligibleCount);
+    const isTraining = /training|treino|ice bear/i.test(String(stadiumName));
+    const loadX3 = nextKind === "x3" && isTraining;
+    if (loadX3) {
+      match.cancelRecordingOnly();
+      room.stopGame();
+      applyWarmupMoves(room, plan);
+      applyStadium(room, plan.eligibleCount);
+      if (plan.shouldStart) match.start({ competitive: false });
+      return;
+    }
+
     applyWarmupMoves(room, plan);
-    if (plan.shouldStart) match.start({ competitive: false });
+    const keepX4Live = live && /x4/i.test(String(stadiumName)) && nextKind === "x3";
+    if (!keepX4Live) applyStadium(room, plan.eligibleCount);
+    if (!live && plan.shouldStart) match.start({ competitive: false });
   }
   /** Encerra partida em andamento e reavalia lobby (como onGameStop). */
   function settleLobby() {
@@ -281,6 +301,8 @@ function createMockRoomHost() {
       return;
     }
 
+    if (leaving && leaving.team === TEAM.SPEC) return;
+
     if (match.isCompetitive()) {
       const rageReason = leaving ? match.rageQuitReason(leaving) : null;
       if (rageReason) {
@@ -311,13 +333,7 @@ function createMockRoomHost() {
       return;
     }
 
-    if (room.getScores() || match.isRunning()) {
-      settleLobby();
-      return;
-    }
-
-    choose.onPlayerLeave();
-    settleLobby();
+    refreshLobby();
   }
 
   function snapshot() {
@@ -435,15 +451,17 @@ function createMockRoomHost() {
     match,
     choose,
     streak,
-    setVoluntaryAfk(id, on, { refresh = false } = {}) {
+    setVoluntaryAfk(id, on, { refresh = false, notify = true } = {}) {
       if (on) {
         voluntaryAfk.add(id);
         room.setPlayerTeam(id, 0);
       } else {
         voluntaryAfk.delete(id);
       }
+      if (!notify) return;
       if (refresh) refreshLobby();
       else if (choose.isActive()) choose.onPlayerJoin();
+      else if (match.isCompetitive()) recoverCompetitiveLineup();
     },
     cleanup: () => choose.deactivate(),
     get players() {
@@ -476,7 +494,7 @@ async function holdFourWinners(host) {
   host.growTo(9);
   await host.endValidMatch({ red: config.scoreLimit, blue: 1 });
   for (const p of host.players.filter((p) => p.team === TEAM.SPEC)) {
-    host.setVoluntaryAfk(p.id, true);
+    host.setVoluntaryAfk(p.id, true, { notify: false });
   }
   const others = host.players.filter((p) => p.team !== TEAM.RED);
   for (const p of others) host.removePlayer(p.id);
@@ -501,12 +519,13 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("2 jogadores → mapa x4 + warmup 1v1", () => {
+  it("2 jogadores → mapa x3 + warmup 1v1", () => {
     const host = createMockRoomHost();
     host.growTo(2);
     const s = host.snapshot();
     assert.equal(s.count, 2);
-    assert.match(String(s.stadiumName), /x4|futsal/i);
+    assert.match(String(s.stadiumName), /x3/i);
+    assert.doesNotMatch(String(s.stadiumName), /x4/i);
     assert.equal(s.red, 1);
     assert.equal(s.blue, 1);
     assert.equal(s.chooseActive, false);
@@ -553,7 +572,8 @@ describe("fluxo por estágios da sala", () => {
       assert.equal(s.blue, Math.floor(n / 2), `blue @${n}`);
       assert.equal(s.matchRunning, true, `match @${n}`);
       assert.equal(host.match.isCompetitive(), false, `warmup @${n}`);
-      assert.match(String(s.stadiumName), /x4|futsal/i);
+      assert.match(String(s.stadiumName), /x3/i, `mapa x3 @${n}`);
+      assert.doesNotMatch(String(s.stadiumName), /x4/i, `não x4 @${n}`);
       host.cleanup();
     }
   });
@@ -569,6 +589,7 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.spec, 0);
     assert.equal(s.matchRunning, true);
     assert.equal(host.match.isCompetitive(), true);
+    assert.match(String(s.stadiumName), /x4/i);
     host.cleanup();
   });
 
@@ -821,6 +842,45 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.blue, 3);
     assert.equal(s.spec, 1);
     assert.equal(host.match.isCompetitive(), false);
+    assert.match(String(s.stadiumName), /x4/i);
+    host.cleanup();
+  });
+
+  it("3v3 + 1 spec sai → o 3v3 segue sem RR", () => {
+    const host = createMockRoomHost();
+    host.growTo(7);
+    const started = host.snapshot().gameStarted;
+    const spec = host.players.find((p) => p.team === TEAM.SPEC);
+    host.removePlayer(spec.id);
+    const s = host.snapshot();
+    assert.equal(s.count, 6);
+    assert.equal(s.red, 3);
+    assert.equal(s.blue, 3);
+    assert.equal(s.spec, 0);
+    assert.equal(s.matchRunning, true);
+    assert.equal(s.gameStarted, started);
+    assert.equal(host.match.isCompetitive(), false);
+    host.cleanup();
+  });
+
+  it("4v4 cai pra 3v3 + spec sai → segue 3v3 sem RR", () => {
+    const host = createMockRoomHost();
+    host.growTo(8);
+    const last = host.players[host.players.length - 1];
+    host.removePlayer(last.id);
+    const started = host.snapshot().gameStarted;
+    const spec = host.players.find((p) => p.team === TEAM.SPEC);
+    host.removePlayer(spec.id);
+    const s = host.snapshot();
+    assert.equal(s.count, 6);
+    assert.equal(s.red, 3);
+    assert.equal(s.blue, 3);
+    assert.equal(s.spec, 0);
+    assert.equal(s.matchRunning, true);
+    assert.equal(s.gameStarted, started);
+    assert.match(String(s.stadiumName), /x4/i);
+    host.settleLobby();
+    assert.match(String(host.snapshot().stadiumName), /x3/i);
     host.cleanup();
   });
 
@@ -844,12 +904,16 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("mapas: 1 = treino, 2+ = x4", () => {
+  it("mapas: 1 = treino, 2–7 = x3, 8 = x4", () => {
     const t = stadiumForPlayerCount(1);
-    const x = stadiumForPlayerCount(2);
-    assert.notEqual(t, x);
+    const x3 = stadiumForPlayerCount(2);
+    const x4 = stadiumForPlayerCount(8);
+    assert.notEqual(t, x3);
+    assert.notEqual(x3, x4);
+    assert.equal(stadiumForPlayerCount(7), x3);
     assert.match(JSON.parse(t).name, /training|ice bear/i);
-    assert.match(JSON.parse(x).name, /x4|futsal/i);
+    assert.match(JSON.parse(x3).name, /x3/i);
+    assert.match(JSON.parse(x4).name, /x4/i);
   });
 
   it("partida: gol+assist+MVP", async () => {
@@ -898,6 +962,39 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(after.red, before.red);
     assert.equal(after.blue, before.blue);
     assert.equal(after.spec, before.spec + 1);
+    host.cleanup();
+  });
+
+  it("4v4 + spec sai → o 4v4 segue sem RR", () => {
+    const host = createMockRoomHost();
+    host.growTo(9);
+    const started = host.snapshot().gameStarted;
+    const spec = host.players.find((p) => p.team === TEAM.SPEC);
+    host.removePlayer(spec.id);
+    const s = host.snapshot();
+    assert.equal(s.count, 8);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(s.spec, 0);
+    assert.equal(s.matchRunning, true);
+    assert.equal(s.gameStarted, started);
+    assert.equal(host.match.isCompetitive(), true);
+    host.cleanup();
+  });
+
+  it("2v2 + spec sai → o 2v2 segue sem RR", () => {
+    const host = createMockRoomHost();
+    host.growTo(5);
+    const started = host.snapshot().gameStarted;
+    const spec = host.players.find((p) => p.team === TEAM.SPEC);
+    host.removePlayer(spec.id);
+    const s = host.snapshot();
+    assert.equal(s.count, 4);
+    assert.equal(s.red, 2);
+    assert.equal(s.blue, 2);
+    assert.equal(s.spec, 0);
+    assert.equal(s.matchRunning, true);
+    assert.equal(s.gameStarted, started);
     host.cleanup();
   });
 
@@ -961,16 +1058,53 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("sair no warmup → rebalanceia", () => {
+  it("sair no warmup → rebalanceia sem RR", () => {
     const host = createMockRoomHost();
     host.growTo(4);
+    const started = host.snapshot().gameStarted;
     assert.equal(host.snapshot().matchRunning, true);
     const red = host.players.find((p) => p.team === TEAM.RED);
     host.removePlayer(red.id);
     const s = host.snapshot();
     assert.equal(s.count, 3);
     assert.equal(s.matchRunning, true);
+    assert.equal(s.gameStarted, started);
     assert.ok(Math.abs(s.red - s.blue) <= 1);
+    host.cleanup();
+  });
+
+  it("3v3 sai um → vira 2v2 e o jogo segue sem RR", () => {
+    const host = createMockRoomHost();
+    host.growTo(6);
+    const started = host.snapshot().gameStarted;
+    assert.equal(host.snapshot().red, 3);
+    assert.equal(host.snapshot().blue, 3);
+    const leaving = host.players.find((p) => p.team === TEAM.RED);
+    host.removePlayer(leaving.id);
+    const s = host.snapshot();
+    assert.equal(s.count, 5);
+    assert.equal(s.red, 2);
+    assert.equal(s.blue, 2);
+    assert.equal(s.spec, 1);
+    assert.equal(s.matchRunning, true);
+    assert.equal(s.gameStarted, started);
+    assert.equal(host.match.isCompetitive(), false);
+    host.cleanup();
+  });
+
+  it("2v2 sai um → vira 1v1 e o jogo segue sem RR", () => {
+    const host = createMockRoomHost();
+    host.growTo(4);
+    const started = host.snapshot().gameStarted;
+    const leaving = host.players.find((p) => p.team === TEAM.RED);
+    host.removePlayer(leaving.id);
+    const s = host.snapshot();
+    assert.equal(s.count, 3);
+    assert.equal(s.red, 1);
+    assert.equal(s.blue, 1);
+    assert.equal(s.spec, 1);
+    assert.equal(s.matchRunning, true);
+    assert.equal(s.gameStarted, started);
     host.cleanup();
   });
 
@@ -1144,6 +1278,7 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.spec, 1);
     assert.equal(s.matchRunning, true);
     assert.equal(host.match.isCompetitive(), false);
+    assert.match(String(s.stadiumName), /x4/i);
     host.cleanup();
   });
 
@@ -1228,6 +1363,60 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.blue, 4);
     assert.equal(s.spec, 1);
     assert.equal(host.match.isCompetitive(), true);
+    host.cleanup();
+  });
+
+  it("4v4 + 1 spec: AFK no campo puxa o spec e o jogo segue", () => {
+    const host = createMockRoomHost();
+    host.growTo(9);
+    const spec = host.players.find((p) => p.team === TEAM.SPEC);
+    const red = host.players.find((p) => p.team === TEAM.RED);
+    host.setVoluntaryAfk(red.id, true);
+    const s = host.snapshot();
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.matchRunning, true);
+    assert.equal(host.match.isCompetitive(), true);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(s.spec, 1);
+    assert.equal(host.players.find((p) => p.id === spec.id).team, TEAM.RED);
+    assert.equal(host.players.find((p) => p.id === red.id).team, TEAM.SPEC);
+    host.cleanup();
+  });
+
+  it("4v4 + 2 specs: AFK no campo → capitão escolhe o substituto", () => {
+    const host = createMockRoomHost();
+    host.growTo(10);
+    const red = host.players.filter((p) => p.team === TEAM.RED);
+    const cap = red[0];
+    const idle = red[3];
+    host.setVoluntaryAfk(idle.id, true);
+    assert.equal(host.choose.isReplacement(), true);
+    assert.equal(host.currentCaptain().id, cap.id);
+    assert.equal(host.captainPick("1"), true);
+    const s = host.snapshot();
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.red, 4);
+    assert.equal(s.blue, 4);
+    assert.equal(s.spec, 2);
+    assert.equal(host.match.isCompetitive(), true);
+    assert.equal(host.players.find((p) => p.id === idle.id).team, TEAM.SPEC);
+    host.cleanup();
+  });
+
+  it("4v4 sem spec: AFK no campo → vira 3v3 e o jogo segue", () => {
+    const host = createMockRoomHost();
+    host.growTo(8);
+    const idle = host.players.find((p) => p.team === TEAM.RED);
+    host.setVoluntaryAfk(idle.id, true);
+    const s = host.snapshot();
+    assert.equal(s.chooseActive, false);
+    assert.equal(s.matchRunning, true);
+    assert.equal(host.match.isCompetitive(), false);
+    assert.equal(s.red, 3);
+    assert.equal(s.blue, 3);
+    assert.ok(s.spec >= 1);
+    assert.equal(host.players.find((p) => p.id === idle.id).team, TEAM.SPEC);
     host.cleanup();
   });
 

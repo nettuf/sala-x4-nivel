@@ -11,6 +11,7 @@ function mockRoom() {
   ];
   const announcements = [];
   const kicks = [];
+  const adminFlags = [];
   return {
     announcements,
     getPlayerList: () => players,
@@ -20,8 +21,10 @@ function mockRoom() {
       if (p) p.team = team;
     },
     kickPlayer: (id, reason, ban) => kicks.push({ id, reason, ban }),
+    setPlayerAdmin: (id, value) => adminFlags.push({ id, value }),
     _players: players,
     kicks,
+    adminFlags,
   };
 }
 
@@ -293,5 +296,19 @@ describe("comandos (mock room)", () => {
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(player, "!stats");
     assert.ok(room.announcements.some((a) => /logado no Haxball/i.test(a.msg)));
+  });
+
+  it("os 4 cargos de staff recebem admin nativo do Haxball", () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk };
+    const cmd = createCommandHandler(room, ctx);
+    const player = room._players[0];
+    for (const level of [1, 2, 3, 4]) {
+      room.adminFlags.length = 0;
+      cmd.applyAdminLook(player, { level, title: `nv${level}` });
+      assert.deepEqual(room.adminFlags, [{ id: 1, value: true }], `nível ${level}`);
+    }
+    afk.stop();
   });
 });

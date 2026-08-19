@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const config = require("../config");
 
-const cache = { training: null, x4: null, loaded: false };
+const cache = { training: null, x3: null, x4: null, loaded: false };
 
 function loadFile(filePath) {
   if (!filePath) return null;
@@ -18,47 +18,49 @@ function loadFile(filePath) {
   return raw;
 }
 
+function loadSlot(kind, inline, filePath, label) {
+  if (inline) {
+    cache[kind] = inline;
+    return;
+  }
+  try {
+    cache[kind] = loadFile(filePath);
+    if (cache[kind]) console.log(`[maps] ${label}:`, filePath);
+  } catch (err) {
+    console.warn(`[maps] ${label} inválido:`, err.message);
+  }
+}
+
 function ensureLoaded() {
   if (cache.loaded) return;
   cache.loaded = true;
 
-  // Prioridade: conteúdo inline no .env > arquivo
-  if (config.mapTraining) {
-    cache.training = config.mapTraining;
-  } else {
-    try {
-      cache.training = loadFile(config.mapTrainingFile);
-      if (cache.training) console.log("[maps] treino:", config.mapTrainingFile);
-    } catch (err) {
-      console.warn("[maps] treino inválido:", err.message);
-    }
-  }
+  loadSlot("training", config.mapTraining, config.mapTrainingFile, "treino");
+  loadSlot("x3", config.mapX3, config.mapX3File, "x3");
+  loadSlot("x4", config.mapX4, config.mapX4File, "x4");
+}
 
-  if (config.mapX4) {
-    cache.x4 = config.mapX4;
-  } else {
-    try {
-      cache.x4 = loadFile(config.mapX4File);
-      if (cache.x4) console.log("[maps] x4:", config.mapX4File);
-    } catch (err) {
-      console.warn("[maps] x4 inválido:", err.message);
-    }
-  }
+/** 1 = treino; 2–7 (1v1/2v2/3v3) = x3; 8+ = x4 */
+function stadiumKindForCount(count) {
+  const n = Number(count) || 0;
+  if (n <= 1) return "training";
+  if (n < 8) return "x3";
+  return "x4";
 }
 
 function stadiumForPlayerCount(count) {
   ensureLoaded();
-  if (count <= 1) {
-    return cache.training || cache.x4 || null;
-  }
-  return cache.x4 || cache.training || null;
+  const kind = stadiumKindForCount(count);
+  if (kind === "training") return cache.training || cache.x3 || cache.x4 || null;
+  if (kind === "x3") return cache.x3 || cache.x4 || cache.training || null;
+  return cache.x4 || cache.x3 || cache.training || null;
 }
 
 let lastStadiumKey = null;
 
 function applyStadium(room, count) {
   const stadium = stadiumForPlayerCount(count);
-  const key = count <= 1 ? "training" : "x4";
+  const key = stadiumKindForCount(count);
   if (!stadium) {
     if (lastStadiumKey !== "classic") {
       room.setDefaultStadium("Classic");
@@ -81,9 +83,10 @@ function applyStadium(room, count) {
 function reloadMaps() {
   cache.loaded = false;
   cache.training = null;
+  cache.x3 = null;
   cache.x4 = null;
   lastStadiumKey = null;
   ensureLoaded();
 }
 
-module.exports = { applyStadium, stadiumForPlayerCount, reloadMaps };
+module.exports = { applyStadium, stadiumForPlayerCount, stadiumKindForCount, reloadMaps };

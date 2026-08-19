@@ -513,7 +513,7 @@ function createCommandHandler(room, ctx) {
       "bold",
       1
     );
-    if (adminRow.level >= 3) {
+    if (adminRow.level >= 1) {
       room.setPlayerAdmin(player.id, true);
     }
   }
