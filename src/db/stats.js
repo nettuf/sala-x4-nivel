@@ -1,6 +1,56 @@
 const { getSupabase } = require("./supabase");
 const { pickMatchMvps, applyUnlockUpgrade, newlyUnlockedPlayerTitles } = require("../titles");
 
+function emptyPlayerStats() {
+  return {
+    games: 0,
+    wins: 0,
+    draws: 0,
+    losses: 0,
+    goals: 0,
+    assists: 0,
+    own_goals: 0,
+    mvps: 0,
+    cs: 0,
+    selected_title: null,
+  };
+}
+
+function winratePct(stats) {
+  const games = Number(stats?.games) || 0;
+  const wins = Number(stats?.wins) || 0;
+  if (games <= 0) return 0;
+  return Math.round((wins / games) * 1000) / 10;
+}
+
+function formatStatusCard(name, stats, title) {
+  const s = { ...emptyPlayerStats(), ...stats };
+  const wr = winratePct(s);
+  const wrText = Number.isInteger(wr) ? String(wr) : wr.toFixed(1);
+  const emblem = title?.emblem || "🌱";
+  const cargo = title?.name || "Novato";
+  return [
+    `${emblem} ${name}  ·  ${cargo}`,
+    `Jogos: ${Number(s.games) || 0}  (${Number(s.wins) || 0}V ${Number(s.draws) || 0}E ${Number(s.losses) || 0}D)  ·  WR ${wrText}%`,
+    `Gols: ${Number(s.goals) || 0}  ·  Assist: ${Number(s.assists) || 0}  ·  CS: ${Number(s.cs) || 0}  ·  MVP: ${Number(s.mvps) || 0}`,
+  ].join("\n");
+}
+
+async function countCleanSheets(sb, auth) {
+  const { data, error } = await sb
+    .from("match_players")
+    .select("team, matches!inner(valid, score_red, score_blue)")
+    .eq("auth", auth)
+    .eq("matches.valid", true);
+  if (error || !Array.isArray(data)) return null;
+  return data.filter((row) => {
+    const m = row.matches;
+    if (!m || m.valid === false) return false;
+    const conceded = Number(row.team) === 1 ? m.score_blue : m.score_red;
+    return Number(conceded) === 0;
+  }).length;
+}
+
 async function ensurePlayer(auth, nick) {
   const sb = getSupabase();
   if (!sb || !auth) return;
@@ -94,15 +144,7 @@ async function bumpPlayerStats(p) {
   const { data: cur } = await sb.from("player_stats").select("*").eq("auth", p.auth).maybeSingle();
   const row = cur || {
     auth: p.auth,
-    games: 0,
-    wins: 0,
-    draws: 0,
-    losses: 0,
-    goals: 0,
-    assists: 0,
-    own_goals: 0,
-    mvps: 0,
-    selected_title: null,
+    ...emptyPlayerStats(),
   };
 
   const prev = {
@@ -121,6 +163,7 @@ async function bumpPlayerStats(p) {
   row.assists += p.assists || 0;
   row.own_goals += p.own_goals || 0;
   if (p.mvp) row.mvps = (row.mvps || 0) + 1;
+  if (p.cleanSheet) row.cs = (row.cs || 0) + 1;
   row.updated_at = new Date().toISOString();
 
   const nextSelected = applyUnlockUpgrade(prev.selected_title, prev, row);
@@ -128,7 +171,15 @@ async function bumpPlayerStats(p) {
   row.selected_title = nextSelected;
 
   const { error } = await sb.from("player_stats").upsert(row);
-  if (error) console.error("[stats] bump", error.message);
+  if (error) {
+    if (/cs/i.test(error.message || "")) {
+      const { cs: _cs, ...withoutCs } = row;
+      const retry = await sb.from("player_stats").upsert(withoutCs);
+      if (retry.error) console.error("[stats] bump", retry.error.message);
+    } else {
+      console.error("[stats] bump", error.message);
+    }
+  }
 
   return {
     unlockedTitles,
@@ -139,10 +190,13 @@ async function bumpPlayerStats(p) {
 
 async function getPlayerStats(auth) {
   const sb = getSupabase();
-  if (!sb || !auth) return null;
+  if (!sb || !auth) return emptyPlayerStats();
   const { data, error } = await sb.from("player_stats").select("*").eq("auth", auth).maybeSingle();
   if (error) console.error("[stats] get", error.message);
-  return data;
+  const row = { ...emptyPlayerStats(), ...(data || {}) };
+  const counted = await countCleanSheets(sb, auth);
+  if (counted != null) row.cs = counted;
+  return row;
 }
 
 async function setSelectedTitle(auth, titleId) {
@@ -152,14 +206,7 @@ async function setSelectedTitle(auth, titleId) {
   const { data: cur } = await sb.from("player_stats").select("*").eq("auth", auth).maybeSingle();
   const row = cur || {
     auth,
-    games: 0,
-    wins: 0,
-    draws: 0,
-    losses: 0,
-    goals: 0,
-    assists: 0,
-    own_goals: 0,
-    mvps: 0,
+    ...emptyPlayerStats(),
   };
   row.selected_title = titleId;
   row.updated_at = new Date().toISOString();
@@ -171,4 +218,13 @@ async function setSelectedTitle(auth, titleId) {
   return true;
 }
 
-module.exports = { saveMatch, getPlayerStats, bumpPlayerStats, setSelectedTitle, pickMatchMvps };
+module.exports = {
+  saveMatch,
+  getPlayerStats,
+  bumpPlayerStats,
+  setSelectedTitle,
+  pickMatchMvps,
+  emptyPlayerStats,
+  formatStatusCard,
+  winratePct,
+};

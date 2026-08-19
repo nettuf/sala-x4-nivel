@@ -5,6 +5,7 @@ const {
   KITS,
   findKit,
   parseTeamRef,
+  formatKickoffVs,
   validateChange,
   resolvePermission,
   createUniformManager,
@@ -55,6 +56,17 @@ describe("uniformes: catálogo e regras puras", () => {
     assert.equal(parseTeamRef("blue"), TEAM.BLUE);
     assert.equal(parseTeamRef("azul"), TEAM.BLUE);
     assert.equal(parseTeamRef("verde"), null);
+  });
+
+  it("kickoff formata Brasil vs França", () => {
+    assert.equal(
+      formatKickoffVs(findKit("bra"), findKit("fra")),
+      "🔴 Brasil  vs  🔵 França"
+    );
+    assert.equal(
+      formatKickoffVs(findKit("preto"), findKit("branco")),
+      "🔴 Preto  vs  🔵 Branco"
+    );
   });
 
   it("não deixa os dois times usarem o mesmo uniforme", () => {
@@ -136,6 +148,16 @@ describe("uniformes: manager na sala", () => {
     assert.equal(room.colorCalls[1].text, 0xffffff);
     assert.match(uni.describe(), /preto/i);
     assert.match(uni.describe(), /branco/i);
+  });
+
+  it("kickoffVs usa os kits atuais", () => {
+    const players = squad();
+    const room = mockRoom(players);
+    const uni = createUniformManager(room);
+    assert.equal(uni.kickoffVs(), "🔴 Preto  vs  🔵 Branco");
+    uni.change({ player: players[0], isAdmin: false, kitId: "bra" });
+    uni.change({ player: players[2], isAdmin: false, kitId: "fra" });
+    assert.equal(uni.kickoffVs(), "🔴 Brasil  vs  🔵 França");
   });
 
   it("capitão troca e aplica setTeamColors", () => {

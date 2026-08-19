@@ -4,7 +4,7 @@ const { upsertPlayer, getAdmin } = require("../db/players");
 const { findActiveBan } = require("../db/bans");
 const { notifyJoin } = require("../discord/webhook");
 const { applyStadium, stadiumKindForCount } = require("./maps");
-const { createAfkTracker, shouldCountAutoAfk, hasMoved } = require("./afk");
+const { createAfkTracker, shouldCountAutoAfk } = require("./afk");
 const { createChooseController, TEAM } = require("./choose");
 const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose } = require("./warmupFlow");
 const { planCompetitiveRecovery, planExactFill, applyExactFill } = require("./recovery");
@@ -13,7 +13,7 @@ const { applyJoinGuards } = require("./joinGuards");
 const { createUniformManager } = require("./uniforms");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays } = require("./streak");
 const { createCommandHandler } = require("../commands");
-const { detectRageQuit, isChooseToken } = require("../gameLogic");
+const { detectRageQuit, isChooseToken, rageQuitMessages } = require("../gameLogic");
 const { rememberIdentity, withIdentity } = require("./playerAuth");
 
 function createRoom(HBInit) {
@@ -64,7 +64,6 @@ function createRoom(HBInit) {
   const match = createMatchController(room);
   ctx.match = match;
   const commands = createCommandHandler(room, ctx);
-  const lastPos = new Map();
 
   function identified(player) {
     return withIdentity(player, {
@@ -124,10 +123,17 @@ function createRoom(HBInit) {
       const timer = setTimeout(callback, 100);
       if (typeof timer.unref === "function") timer.unref();
     },
-    onPickFromSpec(player) {
-      if (afk.isVoluntary(player.id)) afk.clearVoluntary(player.id);
+    onPickFromSpec() {
+      // AFK voluntário só sai com !afk / !voltar
     },
     onReadyToStart() {
+      try {
+        room.pauseGame(false);
+      } catch {
+        /* ignore */
+      }
+      // Admin fechou o 4v4 numa reposição pausada: só despausa, não reinicia.
+      if (room.getScores()) return;
       room.sendAnnouncement("4v4 pronto — iniciando!", null, 0x2ecc71, "bold", 2);
       applyStadium(room, config.teamSize * 2);
       stadiumKind = "x4";
@@ -135,6 +141,7 @@ function createRoom(HBInit) {
       match.start({ competitive: true });
     },
   });
+  ctx.choose = choose;
 
   let lobbyRevision = 0;
   const slowChat = new Set();
@@ -491,13 +498,13 @@ function createRoom(HBInit) {
 
     refreshLobby();
     if (!auth) retryAuth(player.id);
+    afk.ensureReserveSlots();
   };
 
   const pendingLeaves = new Map();
 
   function cleanupPlayer(player) {
     afk.remove(player.id);
-    lastPos.delete(player.id);
     ctx.admins.delete(player.id);
     ctx.mutes.delete(player.id);
     ctx.titles.delete(player.id);
@@ -505,7 +512,17 @@ function createRoom(HBInit) {
     ctx.conns.delete(player.id);
   }
 
-  function processDeparture(player, { kicked = false } = {}) {
+  function announceRageQuit(player, reason) {
+    const { public: publicMsg, private: privateMsg } = rageQuitMessages(player.name, reason);
+    room.sendAnnouncement(publicMsg, null, 0xe74c3c, "bold", 2);
+    try {
+      room.sendAnnouncement(privateMsg, player.id, 0xe74c3c, "bold", 2);
+    } catch {
+      /* jogador já saiu */
+    }
+  }
+
+  function processDeparture(player, { kicked = false, scoresAtLeave = null } = {}) {
     if (choose.isActive()) {
       choose.onPlayerLeave();
       if (choose.isActive()) return;
@@ -517,23 +534,17 @@ function createRoom(HBInit) {
       return;
     }
 
-    // Spec saindo não mexe em 4v4 nem no warmup: sem RR, sem reposição.
-    if (player && player.team === TEAM.SPEC) return;
-
     if (match.isCompetitive()) {
-      const rageReason = kicked ? null : match.rageQuitReason(player);
+      const rageReason = kicked ? null : match.rageQuitReason(player, scoresAtLeave);
       if (rageReason) {
-        room.sendAnnouncement(
-          `🚨 Ragequit de ${player.name}: ${rageReason}. Partida encerrada.`,
-          null,
-          0xe74c3c,
-          "bold",
-          2
-        );
+        announceRageQuit(player, rageReason);
         match.markVictory();
         setTimeout(() => room.stopGame(), 100);
         return;
       }
+
+      // Spec saindo não mexe em 4v4: sem RR, sem reposição.
+      if (player && player.team === TEAM.SPEC) return;
 
       if (!kicked) {
         const remaining = room
@@ -542,7 +553,7 @@ function createRoom(HBInit) {
         const classic = detectRageQuit({
           redCount: remaining.filter((p) => p.team === TEAM.RED).length,
           blueCount: remaining.filter((p) => p.team === TEAM.BLUE).length,
-          scores: room.getScores(),
+          scores: scoresAtLeave || match.snapshotScores() || room.getScores(),
         });
         if (classic && remaining.length >= config.teamSize * 2) {
           room.sendAnnouncement(
@@ -562,21 +573,29 @@ function createRoom(HBInit) {
       return;
     }
 
+    // Spec saindo não mexe no warmup: sem RR, sem reposição.
+    if (player && player.team === TEAM.SPEC) return;
+
     // Warmup / 3v3 ao vivo: o refresh decide se precisa parar.
     // Spec saindo de um 3v3 já montado não reinicia o jogo.
     refreshLobby();
   }
 
   room.onPlayerLeave = (player) => {
+    const scoresAtLeave = match.snapshotScores();
+    const snapshot = { ...player, team: player.team };
     cleanupPlayer(player);
+
+    // Capitão precisa passar o pick na hora; o delay de 75ms é só do ragequit.
+    if (choose.isActive()) choose.onPlayerLeave();
 
     // onPlayerKicked vem logo após onPlayerLeave. O pequeno atraso impede
     // que kick de admin/AFK seja classificado como ragequit.
     const timer = setTimeout(() => {
       pendingLeaves.delete(player.id);
-      processDeparture(player, { kicked: false });
+      processDeparture(snapshot, { kicked: false, scoresAtLeave });
     }, 75);
-    pendingLeaves.set(player.id, { timer, player });
+    pendingLeaves.set(player.id, { timer, player: snapshot, scoresAtLeave });
   };
 
   room.onPlayerKicked = (kickedPlayer, reason, ban, byPlayer) => {
@@ -632,8 +651,12 @@ function createRoom(HBInit) {
       match.addToLineup(changedPlayer, changedPlayer.team);
     }
     // Admin mexeu nos times no choose → reavalia sem resetar o que já foi escolhido
-    if (byPlayer && choose.isActive()) choose.onTeamChange();
+    if (byPlayer && choose.isActive()) choose.onTeamChange(changedPlayer);
     else if (byPlayer && !match.isCompetitive()) refreshLobby();
+  };
+
+  room.onPlayerActivity = (player) => {
+    afk.touch(player.id);
   };
 
   room.onPlayerBallKick = (player) => {
@@ -652,14 +675,18 @@ function createRoom(HBInit) {
   };
 
   room.onGameStart = () => {
-    lastPos.clear();
     afk.setCounting(true);
     afk.setPaused(false);
+    const humans = room.getPlayerList().filter((p) => p.id !== 0);
+    const hasRed = humans.some((p) => p.team === TEAM.RED);
+    const hasBlue = humans.some((p) => p.team === TEAM.BLUE);
+    if (hasRed && hasBlue) {
+      room.sendAnnouncement(uniforms.kickoffVs(), null, 0xf1c40f, "bold", 2);
+    }
   };
 
   room.onPlayerChat = (player, message) => {
     const who = identified(player);
-    afk.touch(who.id);
 
     const muted = commands.peekMute(who);
     if (muted) {
@@ -706,18 +733,6 @@ function createRoom(HBInit) {
 
   room.onGameTick = () => {
     match.onTick();
-    if (!room.getScores()) return;
-    for (const p of room.getPlayerList()) {
-      if (p.id === 0 || p.team === 0) {
-        lastPos.delete(p.id);
-        continue;
-      }
-      const pos = p.position;
-      if (!pos) continue;
-      const prev = lastPos.get(p.id);
-      lastPos.set(p.id, { x: pos.x, y: pos.y });
-      if (hasMoved(prev, pos)) afk.touch(p.id);
-    }
   };
 
   room.onGameStop = async () => {

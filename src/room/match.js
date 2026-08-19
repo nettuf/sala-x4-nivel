@@ -45,9 +45,29 @@ function createMatchController(room) {
     }
   }
 
+  function rememberScores(s) {
+    if (!s) return lastScores;
+    lastScores = {
+      red: s.red,
+      blue: s.blue,
+      time: s.time,
+      scoreLimit: s.scoreLimit,
+      timeLimit: s.timeLimit,
+    };
+    return lastScores;
+  }
+
+  function snapshotScores() {
+    const live = room.getScores();
+    if (live && ((live.red || 0) > 0 || (live.blue || 0) > 0 || (live.time || 0) > 0)) {
+      return rememberScores(live);
+    }
+    return lastScores || live || null;
+  }
+
   function onTick() {
     const s = room.getScores();
-    if (s) lastScores = { red: s.red, blue: s.blue, time: s.time, scoreLimit: s.scoreLimit, timeLimit: s.timeLimit };
+    rememberScores(s);
 
     const pos = ballPosition();
     if (pos && prevBall) {
@@ -140,7 +160,7 @@ function createMatchController(room) {
   function onTeamGoal(team) {
     if (!match) return;
     activePlay = false;
-    const scores = room.getScores();
+    const scores = rememberScores(room.getScores());
     const time = scores?.time ?? 0;
     const { scorer, assist, isOwnGoal } = attributeGoal(match.touches, team);
     const clock = formatMatchClock(time);
@@ -257,6 +277,7 @@ function createMatchController(room) {
         team: 1,
         ...t,
         result: winner === 0 ? "draw" : winner === 1 ? "win" : "loss",
+        cleanSheet: Number(scores?.blue ?? 0) === 0,
       });
     }
     for (const p of match.lineupBlue) {
@@ -268,6 +289,7 @@ function createMatchController(room) {
         team: 2,
         ...t,
         result: winner === 0 ? "draw" : winner === 2 ? "win" : "loss",
+        cleanSheet: Number(scores?.red ?? 0) === 0,
       });
     }
     return rows;
@@ -360,26 +382,42 @@ function createMatchController(room) {
     endByVictory = true;
   }
 
+  function playerTeamInMatch(player) {
+    if (player.team === 1 || player.team === 2) return player.team;
+    const inList = (list) =>
+      list.some((p) => p.id === player.id || (player.auth && p.auth && p.auth === player.auth));
+    const inRed = inList(match.lineupRed);
+    const inBlue = inList(match.lineupBlue);
+    if (inRed && !inBlue) return 1;
+    if (inBlue && !inRed) return 2;
+    return 0;
+  }
+
   /**
    * Ragequit só vale no 4v4 oficial e para quem saiu do time perdedor.
-   * - diferença de 2+ gols; ou
+   * - diferença de 2+ gols (inclui 3x0 quitando antes de acabar); ou
    * - saída até 10s depois de sofrer um gol enquanto perdia.
    */
-  function rageQuitReason(player, scores = room.getScores(), now = Date.now()) {
-    if (!match?.competitive || !player || player.team === 0 || !scores) return null;
+  function rageQuitReason(player, scores, now = Date.now()) {
+    if (!match?.competitive || !player) return null;
+    const resolved = scores || snapshotScores();
+    if (!resolved) return null;
+
+    const team = playerTeamInMatch(player);
+    if (!team) return null;
 
     const losingTeam =
-      scores.red < scores.blue ? 1 : scores.blue < scores.red ? 2 : 0;
-    if (!losingTeam || player.team !== losingTeam) return null;
+      resolved.red < resolved.blue ? 1 : resolved.blue < resolved.red ? 2 : 0;
+    if (!losingTeam || team !== losingTeam) return null;
 
-    const difference = Math.abs(scores.red - scores.blue);
+    const difference = Math.abs(resolved.red - resolved.blue);
     if (difference >= 2) {
-      return `abandonou perdendo ${scores.red}x${scores.blue}`;
+      return `abandonou perdendo ${resolved.red}x${resolved.blue}`;
     }
 
     if (
       match.lastGoal &&
-      match.lastGoal.scoringTeam !== player.team &&
+      match.lastGoal.scoringTeam !== team &&
       now - match.lastGoal.at <= 10_000
     ) {
       return "abandonou até 10s após sofrer um gol";
@@ -409,6 +447,7 @@ function createMatchController(room) {
     addToLineup,
     notePositionsReset,
     rageQuitReason,
+    snapshotScores,
     cancelRecordingOnly,
     setCompetitive(value) {
       if (match) match.competitive = !!value;

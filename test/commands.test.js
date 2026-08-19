@@ -158,11 +158,11 @@ describe("comandos (mock room)", () => {
     const ctx = { admins: new Map(), mutes: new Map(), afk, titles: new Map() };
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[2], "!help");
-    assert.ok(room.announcements.some((a) => String(a.msg).includes("!stats")));
+    assert.ok(room.announcements.some((a) => String(a.msg).includes("!status")));
     afk.stop();
   });
 
-  it("!ajuda lista comandos de jogador", async () => {
+  it("!ajuda lista só comandos de jogador", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
     const ctx = { admins: new Map(), mutes: new Map(), afk, titles: new Map() };
@@ -172,16 +172,38 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /!ajuda/);
     assert.match(msg, /!afk /);
     assert.equal(msg.includes("!ban"), false);
+    assert.equal(msg.includes("!ajudaadm"), false);
+    assert.match(msg, /!unis/);
+    assert.equal(/!uni /.test(msg), false);
+    assert.equal(msg.includes("!t "), false);
     afk.stop();
   });
 
-  it("!ajudaadm é só para admin", async () => {
+  it("!ajuda de admin inclui !ajudaadm", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map([[1, { level: 2, title: "Mod" }]]),
+      mutes: new Map(),
+      afk,
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!ajuda");
+    const msg = room.announcements.find((a) => String(a.msg).includes("!ajudaadm"))?.msg || "";
+    assert.match(msg, /!ajudaadm/);
+    assert.equal(msg.includes("!ban"), false);
+    afk.stop();
+  });
+
+  it("!ajudaadm não responde nada se não for admin", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
     const ctx = { admins: new Map(), mutes: new Map(), afk, titles: new Map() };
     const cmd = createCommandHandler(room, ctx);
-    await cmd.handle(room._players[2], "!ajudaadm");
-    assert.ok(room.announcements.some((a) => /Sem permissão/i.test(a.msg)));
+    const ok = await cmd.handle(room._players[2], "!ajudaadm");
+    assert.equal(ok, true);
+    assert.equal(room.announcements.length, 0);
     afk.stop();
   });
 
@@ -284,8 +306,29 @@ describe("comandos (mock room)", () => {
     await cmd.handle(player, "!stats");
     assert.ok(!room.announcements.some((a) => /Sem auth/i.test(a.msg)));
     assert.ok(
-      room.announcements.some((a) => /partidas registradas|J .*V .*E|logado no Haxball/i.test(a.msg))
+      room.announcements.some((a) => /Jogos:|WR |logado no Haxball/i.test(a.msg))
     );
+  });
+
+  it("!status mostra jogos, gols, CS, MVP, assist, WR e cargo", async () => {
+    const room = mockRoom();
+    const player = room._players[0];
+    const ctx = {
+      admins: new Map([[1, { level: 4, title: "Chefe" }]]),
+      mutes: new Map(),
+      auths: new Map([[1, "auth1"]]),
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(player, "!status");
+    const msg = room.announcements.map((a) => a.msg).join("\n");
+    assert.match(msg, /Jogos:/);
+    assert.match(msg, /Gols:/);
+    assert.match(msg, /Assist:/);
+    assert.match(msg, /CS:/);
+    assert.match(msg, /MVP/);
+    assert.match(msg, /WR /);
+    assert.match(msg, /Chefe|Novato|🌱|👑/);
   });
 
   it("!stats sem auth nem cache avisa para logar", async () => {

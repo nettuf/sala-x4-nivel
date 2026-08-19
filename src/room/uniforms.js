@@ -51,6 +51,15 @@ function teamLabel(team) {
   return team === TEAM.RED ? "🔴 vermelho" : "🔵 azul";
 }
 
+function kitName(kit) {
+  return kit?.name || "—";
+}
+
+/** Texto do kickoff. Depois pode incluir dono do uniforme personalizado. */
+function formatKickoffVs(redKit, blueKit) {
+  return `🔴 ${kitName(redKit)}  vs  🔵 ${kitName(blueKit)}`;
+}
+
 /**
  * Regras puras de troca de uniforme.
  * @param {{ team: number, kitId: string, current: Record<number, string|null> }} input
@@ -184,6 +193,10 @@ function createUniformManager(room) {
     return `🔴 ${red} · 🔵 ${blue}`;
   }
 
+  function kickoffVs() {
+    return formatKickoffVs(kitFor(TEAM.RED), kitFor(TEAM.BLUE));
+  }
+
   function listText() {
     return KITS.map((k) => k.id).join(", ");
   }
@@ -196,6 +209,7 @@ function createUniformManager(room) {
     reapply,
     onWinnerStays,
     describe,
+    kickoffVs,
     listText,
     captains,
     current: () => ({ ...current }),
@@ -208,6 +222,7 @@ module.exports = {
   KIT_BRANCO,
   findKit,
   parseTeamRef,
+  formatKickoffVs,
   validateChange,
   resolvePermission,
   createUniformManager,

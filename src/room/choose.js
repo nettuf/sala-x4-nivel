@@ -107,20 +107,36 @@ function createChooseController(room, {
     }
   }
 
+  /** Time que precisa pickar: nunca o que já está completo. */
+  function pickingTeam() {
+    if (replacement) return replacement.targetTeam;
+    const { red, blue } = list();
+    const redHole = red.length < teamSize;
+    const blueHole = blue.length < teamSize;
+    if (redHole && !blueHole) return TEAM.RED;
+    if (blueHole && !redHole) return TEAM.BLUE;
+    if (redHole && blueHole) return red.length <= blue.length ? TEAM.RED : TEAM.BLUE;
+    return 0;
+  }
+
   function currentCaptain() {
     const { red, blue } = list();
-    if (replacement) {
-      const team = replacement.targetTeam === TEAM.RED ? red : blue;
-      return team[0] || null;
-    }
-    if (!red.length || !blue.length) return null;
-    if (red.length <= blue.length) return red[0];
-    return blue[0];
+    const team = pickingTeam();
+    if (!team) return null;
+    const side = team === TEAM.RED ? red : blue;
+    return side[0] || null;
   }
 
   function teamForCaptain(cap) {
     if (replacement) return replacement.targetTeam;
-    return cap.team;
+    return pickingTeam() || cap?.team || 0;
+  }
+
+  function promoteSpecTo(team) {
+    const next = list().specReady[0];
+    if (!next) return false;
+    setTeam(next.id, team);
+    return true;
   }
 
   function teamHasHole(team) {
@@ -184,40 +200,47 @@ function createChooseController(room, {
   function promptCaptain() {
     clearCapTimeout();
     if (!active) return;
+    if (tryFinishChoose()) return;
     if (tryFillExactHoles()) return;
 
     const cap = currentCaptain();
-    if (!cap) return;
+    const team = teamForCaptain(cap);
+    if (!cap || !team) return;
+    if (!replacement && !teamHasHole(team)) return;
 
     const { specReady, spec } = list();
-    const team = teamForCaptain(cap);
     if (specReady.length === 1 && teamHasHole(team)) {
       applyCaptainPick(cap, specReady[0], team, "");
       return;
     }
-    if (!specReady.length && spec.length === 1 && teamHasHole(team)) {
-      applyCaptainPick(cap, spec[0], team, "");
+    if (!specReady.length) {
+      if (!spec.length) {
+        room.sendAnnouncement("Sem jogadores no spec.", cap.id, 0xe74c3c, "bold", 2);
+        return;
+      }
+      announceSpecList(cap.id);
+      room.sendAnnouncement("Ninguém elegível (AFK). Voltam só com !afk.", cap.id, 0xbdc3c7, "normal", 1);
       return;
     }
 
-    const remembered = !replacement && lastMode[cap.team];
+    const remembered = !replacement && lastMode[team];
     if (remembered && specReady.length) {
       const chosen = pickSpec(remembered);
       if (chosen) {
-        applyCaptainPick(cap, chosen, cap.team, remembered);
+        applyCaptainPick(cap, chosen, team, remembered);
         return;
       }
-    }
-
-    if (!spec.length) {
-      room.sendAnnouncement("Sem jogadores no spec.", cap.id, 0xe74c3c, "bold", 2);
-      return;
     }
 
     announceSpecList(cap.id);
 
     const chooseTime = config.chooseTimeSec;
+    const capId = cap.id;
     timeout = setTimeout(() => {
+      if (!active || currentCaptain()?.id !== capId) {
+        promptCaptain();
+        return;
+      }
       room.sendAnnouncement(
         `${cap.name}, ${Math.floor(chooseTime / 2)}s restantes!`,
         cap.id,
@@ -226,7 +249,12 @@ function createChooseController(room, {
         2
       );
       timeout = setTimeout(() => {
-        room.kickPlayer(cap.id, "Não escolheu a tempo (AFK no choose)", false);
+        if (!active || currentCaptain()?.id !== capId) {
+          promptCaptain();
+          return;
+        }
+        if (tryFinishChoose()) return;
+        room.kickPlayer(capId, "Não escolheu a tempo (AFK no choose)", false);
       }, (chooseTime / 2) * 1000);
       if (typeof timeout.unref === "function") timeout.unref();
     }, (chooseTime / 2) * 1000);
@@ -236,6 +264,38 @@ function createChooseController(room, {
   function bothFull() {
     const { red, blue } = list();
     return red.length >= teamSize && blue.length >= teamSize;
+  }
+
+  function replacementTeamFull() {
+    if (!replacement) return false;
+    const { red, blue } = list();
+    const count = replacement.targetTeam === TEAM.RED ? red.length : blue.length;
+    return count >= teamSize;
+  }
+
+  /** 4v4 fechado (pick ou admin): encerra choose/reposição e não kicka capitão. */
+  function tryFinishChoose(movedPlayer) {
+    if (!active) return false;
+    if (replacement) {
+      if (!replacementTeamFull() && !bothFull()) return false;
+      const onReady = replacement.onReady;
+      const target = replacement.targetTeam;
+      const side = target === TEAM.RED ? list().red : list().blue;
+      const chosen =
+        (movedPlayer && movedPlayer.team === target
+          ? side.find((p) => p.id === movedPlayer.id)
+          : null) ||
+        side[side.length - 1] ||
+        movedPlayer ||
+        null;
+      deactivate();
+      afterTeamChange(() => onReady?.({ chosen }));
+      return true;
+    }
+    if (!bothFull()) return false;
+    deactivate();
+    afterTeamChange(onReadyToStart);
+    return true;
   }
 
   function deactivate() {
@@ -285,16 +345,23 @@ function createChooseController(room, {
    */
   function continueFromField() {
     if (room.getScores()) return;
-    const { red, blue } = list();
-    if (!red.length || !blue.length) {
-      tryStartChoose();
-      return;
-    }
     if (bothFull()) {
       deactivate();
       onReadyToStart();
       return;
     }
+
+    const { red, blue } = list();
+    // Vencedores já no campo: não resetar o time cheio só porque o outro ainda está vazio.
+    if (red.length >= teamSize && !blue.length) {
+      if (!promoteSpecTo(TEAM.BLUE)) return;
+    } else if (blue.length >= teamSize && !red.length) {
+      if (!promoteSpecTo(TEAM.RED)) return;
+    } else if (!red.length || !blue.length) {
+      tryStartChoose();
+      return;
+    }
+
     if (active) {
       promptCaptain();
       return;
@@ -311,9 +378,12 @@ function createChooseController(room, {
   /**
    * Admin mexeu nos times durante o choose: se completou 4v4 inicia,
    * se esvaziou um time refaz capitães, senão só atualiza a lista.
+   * Reposição ocorre com o jogo pausado (getScores() != null).
    */
-  function onTeamChange() {
-    if (!active || room.getScores()) return;
+  function onTeamChange(movedPlayer) {
+    if (!active) return;
+    if (room.getScores() && !replacement) return;
+    if (tryFinishChoose(movedPlayer)) return;
     if (replacement) {
       const cap = currentCaptain();
       const { spec } = list();
@@ -324,11 +394,6 @@ function createChooseController(room, {
         return;
       }
       promptCaptain();
-      return;
-    }
-    if (bothFull()) {
-      deactivate();
-      onReadyToStart();
       return;
     }
     const { red, blue } = list();
@@ -379,10 +444,12 @@ function createChooseController(room, {
   function pickSpec(indexOrMode) {
     const { spec, specReady } = list();
     const mode = String(indexOrMode || "").toLowerCase();
-    if (mode === "top" || mode === "auto" || mode === "random" || mode === "rand") {
-      return pickFromSpecList(specReady.length ? specReady : spec, indexOrMode);
+    if (/^\d+$/.test(mode)) {
+      const chosen = pickFromSpecList(spec, indexOrMode);
+      if (!chosen || excluded(chosen)) return null;
+      return chosen;
     }
-    return pickFromSpecList(spec, indexOrMode);
+    return pickFromSpecList(specReady, indexOrMode);
   }
 
   /**
@@ -391,6 +458,12 @@ function createChooseController(room, {
   function applyCaptainPick(player, chosen, team, token) {
     const { red, blue } = list();
     if ((team === TEAM.RED && red.length >= teamSize) || (team === TEAM.BLUE && blue.length >= teamSize)) {
+      if (bothFull()) {
+        deactivate();
+        afterTeamChange(onReadyToStart);
+      } else {
+        promptCaptain();
+      }
       return true;
     }
 
@@ -398,9 +471,8 @@ function createChooseController(room, {
     if (!replacement) {
       lastMode[team] = rememberedChooseMode(token) || lastMode[team];
     }
-    if (excluded(chosen) && typeof onPickFromSpec === "function") {
-      onPickFromSpec(chosen);
-    }
+    if (excluded(chosen)) return true;
+    if (typeof onPickFromSpec === "function") onPickFromSpec(chosen);
     setTeam(chosen.id, team);
     const arrow = team === TEAM.RED ? "🔴" : "🔵";
     room.sendAnnouncement(
@@ -448,11 +520,8 @@ function createChooseController(room, {
       return true;
     }
 
-    const team = replacement
-      ? replacement.targetTeam
-      : red.length <= blue.length
-        ? TEAM.RED
-        : TEAM.BLUE;
+    const team = teamForCaptain(cap);
+    if (!team || (!replacement && !teamHasHole(team))) return false;
     return applyCaptainPick(player, chosen, team, token);
   }
 
@@ -490,12 +559,12 @@ function createChooseController(room, {
       ({ red, blue, spec, specReady } = list());
     }
 
-    // Time vazio → sobe o 1º do spec (mantém picks já feitos)
+    // Time vazio → sobe o 1º do spec pronto (AFK não sobe)
     if (!red.length || !blue.length) {
-      const next = specReady[0] || spec[0];
+      const next = specReady[0];
       if (next) {
         const empty = !red.length ? TEAM.RED : TEAM.BLUE;
-        if (excluded(next) && typeof onPickFromSpec === "function") onPickFromSpec(next);
+        if (typeof onPickFromSpec === "function") onPickFromSpec(next);
         setTeam(next.id, empty);
         room.sendAnnouncement(
           `${next.name} virou capitão do time ${empty === TEAM.RED ? "vermelho" : "azul"}.`,
@@ -505,6 +574,12 @@ function createChooseController(room, {
           1
         );
         ({ red, blue, spec, specReady } = list());
+      } else if (
+        (red.length >= teamSize && !blue.length) ||
+        (blue.length >= teamSize && !red.length)
+      ) {
+        promptCaptain();
+        return;
       } else {
         active = false;
         clearCapTimeout();

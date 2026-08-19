@@ -20,6 +20,7 @@ const {
   possessionPercents,
   canJoinMatchStats,
   detectRageQuit,
+  rageQuitMessages,
 } = require("../src/gameLogic");
 const {
   listUnlocked,
@@ -28,9 +29,11 @@ const {
   pickMatchMvps,
   formatChatPrefix,
   applyUnlockUpgrade,
+  reqLabel,
 } = require("../src/titles");
-const { stadiumForPlayerCount, reloadMaps } = require("../src/room/maps");
+const { stadiumForPlayerCount, stadiumKindForCount, reloadMaps } = require("../src/room/maps");
 const { buildSummary } = require("../src/discord/replay");
+const { formatStatusCard, emptyPlayerStats, winratePct } = require("../src/db/stats");
 
 describe("utils", () => {
   it("decodifica conn hex para IP", () => {
@@ -126,14 +129,24 @@ describe("gameLogic", () => {
     assert.equal(canJoinMatchStats({ time: 10, timeLimit: 180, red: 2, blue: 0 }), false);
   });
 
-  it("detectRageQuit só no fim com diff 2", () => {
+  it("detectRageQuit só no fim com diff 2+", () => {
     const scores = { red: 2, blue: 0, time: 160, timeLimit: 180 };
     assert.deepEqual(detectRageQuit({ redCount: 4, blueCount: 3, scores }), { winner: 1 });
+    assert.deepEqual(
+      detectRageQuit({ redCount: 4, blueCount: 3, scores: { ...scores, red: 3 } }),
+      { winner: 1 }
+    );
     assert.equal(detectRageQuit({ redCount: 4, blueCount: 4, scores }), null);
     assert.equal(
       detectRageQuit({ redCount: 4, blueCount: 3, scores: { ...scores, time: 10 } }),
       null
     );
+  });
+
+  it("rageQuitMessages menciona o nick no público e no PV", () => {
+    const msgs = rageQuitMessages("Netto", "abandonou perdendo 3x0");
+    assert.equal(msgs.public, "🚨 Ragequit de @Netto: abandonou perdendo 3x0. Partida encerrada.");
+    assert.equal(msgs.private, "@Netto você levou ragequit: abandonou perdendo 3x0.");
   });
 });
 
@@ -185,6 +198,18 @@ describe("titles / cargos", () => {
     assert.equal(isUnlocked({}, "novato"), true);
     assert.equal(isUnlocked({ goals: 0 }, "artilheiro"), false);
     assert.equal(isUnlocked({ goals: 200 }, "artilheiro"), true);
+  });
+
+  it("Negativo: 10 jogos e WR abaixo de 50%", () => {
+    assert.equal(isUnlocked({ games: 9, wins: 0 }, "negativo"), false);
+    assert.equal(isUnlocked({ games: 10, wins: 5 }, "negativo"), false);
+    assert.equal(isUnlocked({ games: 10, wins: 4 }, "negativo"), true);
+    assert.equal(isUnlocked({ games: 20, wins: 10 }, "negativo"), false);
+    assert.match(reqLabel({ games: 10, maxWinrate: 50 }), /10J/);
+    assert.match(reqLabel({ games: 10, maxWinrate: 50 }), /WR < 50%/);
+    const t = resolveTitle({ games: 10, wins: 3 }, null);
+    assert.equal(t.id, "negativo");
+    assert.equal(t.emblem, "📉");
   });
 
   it("completo exige conjunto", () => {
@@ -257,6 +282,9 @@ describe("maps", () => {
     assert.notEqual(training, x3);
     assert.notEqual(x3, x4);
     assert.equal(stadiumForPlayerCount(6), x3);
+    assert.equal(stadiumKindForCount(1), "training");
+    assert.equal(stadiumKindForCount(7), "x3");
+    assert.equal(stadiumKindForCount(8), "x4");
   });
 
   it("arquivos .hbs existem", () => {
@@ -264,6 +292,34 @@ describe("maps", () => {
     assert.ok(fs.existsSync(path.join(root, "maps/mapx3.hbs")));
     assert.ok(fs.existsSync(path.join(root, "maps/mapx4.hbs")));
     assert.ok(fs.existsSync(path.join(root, "maps/maptraining.hbs")));
+  });
+});
+
+describe("status", () => {
+  it("formata jogos, gols, CS, MVP, assist, WR e cargo", () => {
+    const stats = {
+      ...emptyPlayerStats(),
+      games: 10,
+      wins: 6,
+      draws: 1,
+      losses: 3,
+      goals: 12,
+      assists: 7,
+      cs: 4,
+      mvps: 2,
+    };
+    const text = formatStatusCard("Netto", stats, { emblem: "👑", name: "Chefe" });
+    assert.match(text, /👑 Netto/);
+    assert.match(text, /Chefe/);
+    assert.match(text, /Jogos: 10/);
+    assert.match(text, /6V 1E 3D/);
+    assert.match(text, /WR 60%/);
+    assert.match(text, /Gols: 12/);
+    assert.match(text, /Assist: 7/);
+    assert.match(text, /CS: 4/);
+    assert.match(text, /MVP: 2/);
+    assert.equal(winratePct(stats), 60);
+    assert.equal(winratePct(emptyPlayerStats()), 0);
   });
 });
 

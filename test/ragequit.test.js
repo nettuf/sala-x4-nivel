@@ -33,6 +33,9 @@ function setup({ competitive = true } = {}) {
     setScores(next) {
       scores = { ...scores, ...next };
     },
+    clearScores() {
+      scores = null;
+    },
   };
 }
 
@@ -43,6 +46,35 @@ describe("ragequit no x4 oficial", () => {
     assert.match(
       host.match.rageQuitReason(host.players[1]),
       /abandonou perdendo 2x0/i
+    );
+  });
+
+  it("3x0 quitando antes de acabar → ragequit", () => {
+    const host = setup();
+    host.setScores({ red: 3, blue: 0 });
+    assert.match(
+      host.match.rageQuitReason(host.players[1]),
+      /abandonou perdendo 3x0/i
+    );
+  });
+
+  it("3x0 com getScores nulo usa o último placar", () => {
+    const host = setup();
+    host.setScores({ red: 3, blue: 0 });
+    host.match.onTick();
+    host.clearScores();
+    assert.match(
+      host.match.rageQuitReason(host.players[1]),
+      /abandonou perdendo 3x0/i
+    );
+  });
+
+  it("perdedor já em spec no leave ainda conta pelo lineup", () => {
+    const host = setup();
+    host.setScores({ red: 3, blue: 0 });
+    assert.match(
+      host.match.rageQuitReason({ ...host.players[1], team: TEAM.SPEC }),
+      /abandonou perdendo 3x0/i
     );
   });
 
@@ -81,6 +113,20 @@ describe("ragequit no x4 oficial", () => {
   it("treino/warmup nunca classifica ragequit", () => {
     const host = setup({ competitive: false });
     host.setScores({ red: 2, blue: 0 });
+    assert.equal(host.match.rageQuitReason(host.players[1]), null);
+  });
+
+  it("0x3 o perdedor sai → ragequit; o vencedor não", () => {
+    const host = setup();
+    host.setScores({ red: 0, blue: 3 });
+    assert.match(host.match.rageQuitReason(host.players[0]), /0x3/);
+    assert.equal(host.match.rageQuitReason(host.players[1]), null);
+  });
+
+  it("empate 1x1 não é ragequit", () => {
+    const host = setup();
+    host.setScores({ red: 1, blue: 1 });
+    assert.equal(host.match.rageQuitReason(host.players[0]), null);
     assert.equal(host.match.rageQuitReason(host.players[1]), null);
   });
 });

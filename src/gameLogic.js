@@ -20,7 +20,7 @@ function attributeGoal(touches, scoringTeam) {
   return { scorer: t0, assist: null, isOwnGoal: true };
 }
 
-function isValidMatchScores(scores, { scoreLimit = 3, timeLimitMin = 3, endByVictory = false } = {}) {
+function isValidMatchScores(scores, { scoreLimit = 3, timeLimitMin = 4, endByVictory = false } = {}) {
   if (!scores) return false;
   const hitScore =
     scores.red >= (scores.scoreLimit || scoreLimit) ||
@@ -90,8 +90,8 @@ function canJoinMatchStats(scores) {
 }
 
 /**
- * Ragequit (Wazarr/Fazendão): após saída, times desiguais, placar com diferença 2
- * a favor do time maior, e tempo ≥ 5/6 do limite.
+ * Ragequit (Wazarr/Fazendão): após saída, times desiguais, placar com
+ * diferença de 2+ gols a favor do time maior, e tempo ≥ 5/6 do limite.
  * @returns {null | { winner: 1|2 }}
  */
 function detectRageQuit({ redCount, blueCount, scores }) {
@@ -101,11 +101,19 @@ function detectRageQuit({ redCount, blueCount, scores }) {
   if (!(timeLimit > 0 && scores.time >= timeLimit * (5 / 6))) return null;
 
   if (redCount < blueCount) {
-    if (scores.blue - scores.red === 2) return { winner: 2 };
-  } else if (scores.red - scores.blue === 2) {
+    if (scores.blue - scores.red >= 2) return { winner: 2 };
+  } else if (scores.red - scores.blue >= 2) {
     return { winner: 1 };
   }
   return null;
+}
+
+function rageQuitMessages(name, reason) {
+  const mention = `@${name}`;
+  return {
+    public: `🚨 Ragequit de ${mention}: ${reason}. Partida encerrada.`,
+    private: `${mention} você levou ragequit: ${reason}.`,
+  };
 }
 
 module.exports = {
@@ -120,4 +128,5 @@ module.exports = {
   possessionPercents,
   canJoinMatchStats,
   detectRageQuit,
+  rageQuitMessages,
 };

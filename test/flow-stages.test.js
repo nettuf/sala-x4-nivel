@@ -5,7 +5,7 @@ const { reloadMaps, stadiumForPlayerCount } = require("../src/room/maps");
 const { createChooseController, TEAM } = require("../src/room/choose");
 const { createMatchController } = require("../src/room/match");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays } = require("../src/room/streak");
-const { attributeGoal, detectRageQuit } = require("../src/gameLogic");
+const { attributeGoal, detectRageQuit, rageQuitMessages } = require("../src/gameLogic");
 const { planCompetitiveRecovery, planExactFill, applyExactFill } = require("../src/room/recovery");
 const { pickMatchMvps } = require("../src/titles");
 const config = require("../src/config");
@@ -301,20 +301,18 @@ function createMockRoomHost() {
       return;
     }
 
-    if (leaving && leaving.team === TEAM.SPEC) return;
-
     if (match.isCompetitive()) {
       const rageReason = leaving ? match.rageQuitReason(leaving) : null;
       if (rageReason) {
-        room.sendAnnouncement(
-          `🚨 Ragequit de ${leaving.name}: ${rageReason}. Partida encerrada.`,
-          null,
-          0xe74c3c
-        );
+        const msgs = rageQuitMessages(leaving.name, rageReason);
+        room.sendAnnouncement(msgs.public, null, 0xe74c3c);
+        room.sendAnnouncement(msgs.private, leaving.id, 0xe74c3c);
         match.markVictory();
         room.stopGame();
         return;
       }
+
+      if (leaving && leaving.team === TEAM.SPEC) return;
 
       const remaining = players.filter((p) => p.id !== 0 && !voluntaryAfk.has(p.id));
       const classic = detectRageQuit({
@@ -332,6 +330,8 @@ function createMockRoomHost() {
       recoverCompetitiveLineup();
       return;
     }
+
+    if (leaving && leaving.team === TEAM.SPEC) return;
 
     refreshLobby();
   }
@@ -358,7 +358,7 @@ function createMockRoomHost() {
 
   function captainPick(token) {
     const cap = currentCaptain();
-    assert.ok(cap, "sem capitão");
+    if (!cap) return false;
     return choose.handleCaptainChat(cap, token);
   }
 
@@ -557,6 +557,22 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.red, 1);
     assert.equal(s.spec, 1);
     assert.match(String(s.stadiumName), /training|treino|ice bear/i);
+    host.cleanup();
+  });
+
+  it("2v2 AFK no campo → spec e vira 1v1 sem RR", () => {
+    const host = createMockRoomHost();
+    host.growTo(4);
+    const started = host.snapshot().gameStarted;
+    const idle = host.players.find((p) => p.team === TEAM.RED);
+    host.setVoluntaryAfk(idle.id, true, { refresh: true });
+    const s = host.snapshot();
+    assert.equal(idle.team, TEAM.SPEC);
+    assert.equal(s.red, 1);
+    assert.equal(s.blue, 1);
+    assert.equal(s.matchRunning, true);
+    assert.equal(s.gameStarted, started);
+    assert.equal(host.match.isCompetitive(), false);
     host.cleanup();
   });
 
@@ -1131,8 +1147,31 @@ describe("fluxo por estágios da sala", () => {
     const blue = host.players.find((p) => p.team === TEAM.BLUE);
     host.removePlayer(blue.id);
     assert.ok(
-      host.announcements.some((a) => /Ragequit/i.test(a.msg)),
+      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
       `devia anunciar ragequit, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.ok(
+      host.announcements.some((a) => a.to === blue.id && a.msg.includes(`@${blue.name}`)),
+      "devia mencionar o jogador no PV"
+    );
+    host.cleanup();
+  });
+
+  it("ragequit: 3x0 quitando antes de acabar menciona no PV", () => {
+    const host = createMockRoomHost();
+    host.growTo(8);
+    host.setScores({ red: 3, blue: 0, time: 40 });
+    const blue = host.players.find((p) => p.team === TEAM.BLUE);
+    const blueId = blue.id;
+    const blueName = blue.name;
+    host.removePlayer(blue.id);
+    assert.ok(
+      host.announcements.some((a) => a.to == null && a.msg.includes(`@${blueName}`) && /3x0/.test(a.msg)),
+      `devia anunciar ragequit 3x0, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.ok(
+      host.announcements.some((a) => a.to === blueId && a.msg.includes(`@${blueName}`)),
+      "devia mencionar o jogador no PV"
     );
     host.cleanup();
   });
@@ -1150,6 +1189,33 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
+  it("pós-vitória 4v3: capitão azul sai e o de baixo picka", async () => {
+    const host = createMockRoomHost();
+    host.growTo(10);
+    await host.endValidMatch({ red: config.scoreLimit, blue: 0 });
+    assert.equal(host.snapshot().red, 4);
+    assert.equal(host.snapshot().chooseActive, true);
+    assert.equal(host.currentCaptain()?.team, TEAM.BLUE);
+    assert.equal(host.captainPick("1"), true);
+    assert.equal(host.captainPick("1"), true);
+    assert.equal(host.snapshot().red, 4);
+    assert.equal(host.snapshot().blue, 3);
+
+    const redIds = host.players.filter((p) => p.team === TEAM.RED).map((p) => p.id);
+    const blue = host.players.filter((p) => p.team === TEAM.BLUE);
+    const next = blue[1];
+    host.removePlayer(blue[0].id);
+
+    assert.equal(host.snapshot().chooseActive, true);
+    assert.equal(host.currentCaptain().id, next.id);
+    assert.equal(host.choose.handleCaptainChat(host.players.find((p) => redIds.includes(p.id)), "1"), false);
+    assert.equal(host.captainPick("1"), true);
+    assert.equal(host.snapshot().blue, 3);
+    assert.equal(host.snapshot().red, 4);
+    assert.equal(host.currentCaptain()?.team, TEAM.BLUE);
+    host.cleanup();
+  });
+
   it("capitão AFK no choose → kick por tempo", async () => {
     const host = createMockRoomHost();
     const prev = config.chooseTimeSec;
@@ -1161,6 +1227,28 @@ describe("fluxo por estágios da sala", () => {
       host.kicks.some((k) => k.id === capId && /tempo|AFK/i.test(k.reason)),
       `kick esperado, got ${JSON.stringify(host.kicks)}`
     );
+    config.chooseTimeSec = prev;
+    host.cleanup();
+  });
+
+  it("admin completa 4v4 no choose → não kicka o capitão", async () => {
+    const host = createMockRoomHost();
+    const prev = config.chooseTimeSec;
+    config.chooseTimeSec = 0.05;
+    await host.enterChoose();
+    const capId = host.currentCaptain().id;
+    const specs = host.players.filter((p) => p.team === TEAM.SPEC);
+    for (let i = 0; i < 3; i++) specs[i].team = TEAM.BLUE;
+    host.choose.onTeamChange(specs[2]);
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(
+      host.kicks.some((k) => k.id === capId),
+      false,
+      `não devia kickar capitão, got ${JSON.stringify(host.kicks)}`
+    );
+    assert.equal(host.snapshot().chooseActive, false);
+    assert.equal(host.snapshot().red, 4);
+    assert.equal(host.snapshot().blue, 4);
     config.chooseTimeSec = prev;
     host.cleanup();
   });
@@ -1203,6 +1291,41 @@ describe("fluxo por estágios da sala", () => {
       if (p) assert.equal(p.team, TEAM.RED);
     }
     assert.ok(host.announcements.some((a) => /streak 2/i.test(a.msg)));
+    host.cleanup();
+  });
+
+  it("empate no 4v4 zera streak e reseta times", async () => {
+    const host = createMockRoomHost();
+    host.growTo(8);
+    await host.endValidMatch({ red: config.scoreLimit, blue: 0 });
+    assert.equal(host.streak.get(), 1);
+    await host.endValidMatch({ red: 2, blue: 2 });
+    assert.equal(host.streak.get(), 0);
+    assert.ok(host.announcements.some((a) => /Empate/i.test(a.msg)));
+    host.cleanup();
+  });
+
+  it("pós-vitória com spec: vermelho cheio não é capitão", async () => {
+    const host = createMockRoomHost();
+    await host.enterChoose({ extra: 2 });
+    assert.equal(host.snapshot().red, 4);
+    assert.ok(host.snapshot().blue < 4);
+    const cap = host.currentCaptain();
+    assert.ok(cap);
+    assert.equal(cap.team, TEAM.BLUE);
+    const red = host.players.find((p) => p.team === TEAM.RED);
+    assert.equal(host.choose.handleCaptainChat(red, "1"), false);
+    host.cleanup();
+  });
+
+  it("4v4 2x0 cedo: perdedor sair é ragequit com @ no PV", () => {
+    const host = createMockRoomHost();
+    host.growTo(8);
+    host.setScores({ red: 2, blue: 0, time: 25 });
+    const blue = host.players.find((p) => p.team === TEAM.BLUE);
+    host.removePlayer(blue.id);
+    assert.ok(host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)));
+    assert.ok(host.announcements.some((a) => a.to === blue.id && a.msg.includes(`@${blue.name}`)));
     host.cleanup();
   });
 

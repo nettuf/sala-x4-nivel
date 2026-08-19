@@ -27,6 +27,8 @@ function mockRoom(players) {
       const p = players.find((x) => x.id === id);
       if (p) p.team = team;
     },
+    getScores: () => ({ red: 0, blue: 0, time: 10 }),
+    pauseGame: () => {},
   };
 }
 
@@ -184,6 +186,53 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
+  it("!afk permanece até o jogador tirar, mesmo com atividade", () => {
+    const { room, players } = afkSetup(4);
+    const afk = createAfkTracker(room);
+    const spec = players.find((p) => p.team === 0);
+    afk.setVoluntary(spec, true);
+    afk.touch(spec.id);
+    afk.tick();
+    assert.equal(afk.isVoluntary(spec.id), true);
+    assert.equal(spec.team, 0);
+    afk.setVoluntary(spec, false);
+    assert.equal(afk.isVoluntary(spec.id), false);
+    afk.stop();
+  });
+
+  it("faltando 5 vagas kicka só o AFK mais antigo; os outros ficam", () => {
+    const { room, players } = afkSetup(26);
+    const afk = createAfkTracker(room);
+    const prevMax = config.maxPlayers;
+    config.maxPlayers = 40;
+    const first = players.find((p) => p.id === 20);
+    const second = players.find((p) => p.id === 21);
+    const third = players.find((p) => p.id === 22);
+    afk.setVoluntary(first, true);
+    afk.setVoluntary(second, true);
+    afk.setVoluntary(third, true);
+    assert.equal(room.kicks.length, 0);
+    config.maxPlayers = prevMax;
+    afk.ensureReserveSlots();
+
+    assert.ok(room.kicks.some((k) => k.id === 20));
+    assert.ok(room.kicks.some((k) => k.id === 21));
+    assert.equal(room.kicks.some((k) => k.id === 22), false);
+    assert.equal(afk.isVoluntary(22), true);
+    assert.equal(players.length, 24);
+    afk.stop();
+  });
+
+  it("sala folgada não kicka AFK voluntário", () => {
+    const { room, players } = afkSetup(20);
+    const afk = createAfkTracker(room);
+    afk.setVoluntary(players[5], true);
+    afk.ensureReserveSlots();
+    assert.equal(room.kicks.length, 0);
+    assert.equal(afk.isVoluntary(players[5].id), true);
+    afk.stop();
+  });
+
   it("15s parado avisa; 20s manda para o spec", () => {
     const { room, players } = afkSetup(4);
     const afk = createAfkTracker(room);
@@ -232,13 +281,28 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("treino solo não conta AFK; 1v1 conta", () => {
+  it("treino solo não conta AFK; 1v1, 2v2 e 4v4 contam", () => {
     assert.equal(shouldCountAutoAfk([{ id: 1, team: 1 }]), false);
     assert.equal(
       shouldCountAutoAfk([
         { id: 1, team: 1 },
         { id: 2, team: 2 },
       ]),
+      true
+    );
+    assert.equal(
+      shouldCountAutoAfk([
+        { id: 1, team: 1 },
+        { id: 2, team: 1 },
+        { id: 3, team: 2 },
+        { id: 4, team: 2 },
+      ]),
+      true
+    );
+    assert.equal(
+      shouldCountAutoAfk(
+        Array.from({ length: 8 }, (_, i) => ({ id: i + 1, team: i < 4 ? 1 : 2 }))
+      ),
       true
     );
   });
@@ -266,6 +330,68 @@ describe("AFK: ações e pausa", () => {
     assert.equal(afk.isVoluntary(1), true);
     assert.equal(room.kicks.length, 0);
 
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("2v2 parado vai para spect", () => {
+    const players = [
+      { id: 1, name: "A", team: 1, auth: "a1" },
+      { id: 2, name: "B", team: 1, auth: "a2" },
+      { id: 3, name: "C", team: 2, auth: "a3" },
+      { id: 4, name: "D", team: 2, auth: "a4" },
+    ];
+    const room = mockRoom(players);
+    const afk = createAfkTracker(room, {
+      shouldAutoAfk: () => shouldCountAutoAfk(room.getPlayerList()),
+    });
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 0;
+    config.afkActionMs = 0;
+    afk.touch(1);
+    afk.tick();
+    assert.equal(players.find((p) => p.id === 1).team, 0);
+    assert.equal(afk.isVoluntary(1), true);
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("4v4 parado vai para spect", () => {
+    const players = Array.from({ length: 8 }, (_, i) => ({
+      id: i + 1,
+      name: `P${i + 1}`,
+      team: i < 4 ? 1 : 2,
+      auth: `a${i + 1}`,
+    }));
+    const room = mockRoom(players);
+    const afk = createAfkTracker(room, {
+      shouldAutoAfk: () => shouldCountAutoAfk(room.getPlayerList()),
+    });
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 0;
+    config.afkActionMs = 0;
+    afk.touch(1);
+    afk.tick();
+    assert.equal(players.find((p) => p.id === 1).team, 0);
+    assert.equal(afk.isVoluntary(1), true);
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("fora de partida (choose/lobby) parado não vai spec", () => {
+    const { room, players } = afkSetup(4);
+    room.getScores = () => null;
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 0;
+    config.afkActionMs = 0;
+    afk.touch(1);
+    afk.tick();
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+    assert.equal(afk.isVoluntary(1), false);
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();

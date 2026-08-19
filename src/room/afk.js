@@ -4,7 +4,7 @@ function fieldPlayerCount(players) {
   return (players || []).filter((p) => p.id !== 0 && p.team !== 0).length;
 }
 
-/** Treino solo (1 em campo) não pune; 1v1+ e 4v4 sim. */
+/** Treino solo (1 em campo) não pune; 1v1, 2v2, 3v3 e 4v4 sim. */
 function shouldCountAutoAfk(players) {
   return fieldPlayerCount(players) >= 2;
 }
@@ -18,12 +18,13 @@ function hasMoved(prev, next, eps = 0.5) {
 
 /**
  * AFK automático + AFK voluntário (!afk para entrar e sair).
+ * Voluntário só sai com !afk/!voltar — pick e atividade não tiram.
  */
 function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, { lastActive: number, warned: boolean }>} */
   const state = new Map();
-  /** @type {Set<number>} */
-  const voluntary = new Set();
+  /** @type {Map<number, number>} id → desde quando (ordem de inserção = mais antigo) */
+  const voluntary = new Map();
   let paused = false;
   let counting = true;
   let onStateChange = null;
@@ -44,6 +45,10 @@ function createAfkTracker(room, opts = {}) {
 
   function isVoluntary(playerId) {
     return voluntary.has(playerId);
+  }
+
+  function markVoluntary(playerId) {
+    if (!voluntary.has(playerId)) voluntary.set(playerId, Date.now());
   }
 
   function sendToSpec(playerId) {
@@ -68,12 +73,50 @@ function createAfkTracker(room, opts = {}) {
     }
   }
 
+  function humans() {
+    return room.getPlayerList().filter((p) => p.id !== 0);
+  }
+
+  function oldestVoluntaryPlayer() {
+    const present = new Set(humans().map((p) => p.id));
+    for (const id of voluntary.keys()) {
+      if (!present.has(id)) continue;
+      return room.getPlayerList().find((p) => p.id === id) || null;
+    }
+    return null;
+  }
+
+  /**
+   * Se faltam 5 vagas (ou menos), kicka o AFK mais antigo até sobrar espaço.
+   * AFKs extras ficam.
+   */
+  function ensureReserveSlots() {
+    const reserve = Number(config.afkReserveSlots) || 5;
+    const maxPlayers = Number(config.maxPlayers) || 30;
+    for (let i = 0; i < 32; i++) {
+      const free = maxPlayers - humans().length;
+      if (free > reserve) return;
+      const p = oldestVoluntaryPlayer();
+      if (!p) return;
+      onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
+      room.sendAnnouncement(
+        `${p.name} foi kickado por AFK (sala com poucas vagas).`,
+        null,
+        0xe67e22,
+        "normal",
+        1
+      );
+      room.kickPlayer(p.id, "AFK (sala quase cheia)", false);
+      remove(p.id);
+    }
+  }
+
   function setVoluntary(player, on) {
     const previousTeam = player.team;
     if (on) {
-      voluntary.add(player.id);
+      markVoluntary(player.id);
       if (player.team !== 0) sendToSpec(player.id);
-      room.sendAnnouncement(`${player.name} está AFK (!afk para voltar)`, null, 0xbdc3c7, "normal", 1);
+      room.sendAnnouncement(`${player.name} está AFK (!afk ou !voltar para sair)`, null, 0xbdc3c7, "normal", 1);
     } else {
       voluntary.delete(player.id);
       touch(player.id);
@@ -84,6 +127,7 @@ function createAfkTracker(room, opts = {}) {
       player,
       previousTeam,
     });
+    if (on) ensureReserveSlots();
   }
 
   function clearVoluntary(playerId) {
@@ -92,7 +136,7 @@ function createAfkTracker(room, opts = {}) {
   }
 
   function playingCount() {
-    return room.getPlayerList().filter((p) => p.id !== 0).length;
+    return humans().length;
   }
 
   /** Jogo pausado não conta como inatividade (evita kick injusto). */
@@ -116,8 +160,19 @@ function createAfkTracker(room, opts = {}) {
   }
 
   function tick(now = Date.now()) {
-    if (paused || !counting) return;
-    if (!shouldAutoAfk()) return;
+    if (paused || !counting) {
+      ensureReserveSlots();
+      return;
+    }
+    if (!shouldAutoAfk()) {
+      ensureReserveSlots();
+      return;
+    }
+    // Só em partida: no choose/lobby parado não conta.
+    if (typeof room.getScores === "function" && !room.getScores()) {
+      ensureReserveSlots();
+      return;
+    }
     const full = playingCount() >= config.afkFullThreshold;
     for (const p of room.getPlayerList()) {
       if (p.id === 0) continue;
@@ -150,7 +205,7 @@ function createAfkTracker(room, opts = {}) {
         remove(p.id);
       } else if (p.team !== 0) {
         const previousTeam = p.team;
-        voluntary.add(p.id);
+        markVoluntary(p.id);
         sendToSpec(p.id);
         room.sendAnnouncement(
           `${p.name} movido para spect por AFK. Use !afk para voltar à fila.`,
@@ -162,6 +217,7 @@ function createAfkTracker(room, opts = {}) {
         onStateChange?.({ type: "auto-afk", player: p, previousTeam });
       }
     }
+    ensureReserveSlots();
   }
 
   const interval = setInterval(tick, 1000);
@@ -174,6 +230,7 @@ function createAfkTracker(room, opts = {}) {
     isVoluntary,
     clearVoluntary,
     setVoluntary,
+    ensureReserveSlots,
     setOnStateChange(handler) {
       onStateChange = typeof handler === "function" ? handler : null;
     },

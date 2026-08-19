@@ -1,6 +1,6 @@
 /**
  * Cargos/emblemas desbloqueáveis por stats + cargos de staff.
- * Só um cargo ativo por vez. req: { games?, goals?, assists?, mvps? }.
+ * Só um cargo ativo por vez. req: { games?, goals?, assists?, mvps?, maxWinrate? }.
  */
 const config = require("./config");
 
@@ -11,6 +11,13 @@ const TITLES = [
     emblem: "🌱",
     color: 0xbdc3c7,
     req: {},
+  },
+  {
+    id: "negativo",
+    name: "Negativo",
+    emblem: "📉",
+    color: 0x7f8c8d,
+    req: { games: 10, maxWinrate: 50 },
   },
   {
     id: "estreante",
@@ -106,18 +113,27 @@ const TITLES = [
 ];
 
 function statsBag(stats) {
+  const games = Number(stats?.games) || 0;
+  const wins = Number(stats?.wins) || 0;
   return {
-    games: Number(stats?.games) || 0,
+    games,
+    wins,
+    losses: Number(stats?.losses) || 0,
     goals: Number(stats?.goals) || 0,
     assists: Number(stats?.assists) || 0,
     mvps: Number(stats?.mvps) || 0,
+    winrate: games > 0 ? (wins / games) * 100 : 0,
   };
 }
 
 function meetsReq(stats, req = {}) {
   const s = statsBag(stats);
-  for (const [key, min] of Object.entries(req)) {
-    if ((s[key] || 0) < min) return false;
+  for (const [key, value] of Object.entries(req)) {
+    if (key === "maxWinrate") {
+      if (s.winrate >= Number(value)) return false;
+      continue;
+    }
+    if ((s[key] || 0) < value) return false;
   }
   return true;
 }
@@ -235,7 +251,7 @@ function reqLabel(req, title) {
   if (!req || !Object.keys(req).length) return "livre";
   const map = { games: "J", goals: "G", assists: "A", mvps: "MVP" };
   return Object.entries(req)
-    .map(([k, v]) => `${v}${map[k] || k}`)
+    .map(([k, v]) => (k === "maxWinrate" ? `WR < ${v}%` : `${v}${map[k] || k}`))
     .join(" + ");
 }
 

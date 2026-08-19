@@ -3,7 +3,7 @@ const { findPlayer, parseDurationToMs, formatDuration, connToIp } = require("../
 const { resolvePlayerAuth } = require("../room/playerAuth");
 const { createBan, deactivateBan } = require("../db/bans");
 const { createMute, unmute, findActiveMute } = require("../db/mutes");
-const { getPlayerStats, setSelectedTitle } = require("../db/stats");
+const { getPlayerStats, setSelectedTitle, formatStatusCard, emptyPlayerStats } = require("../db/stats");
 const {
   TITLES,
   STAFF_TITLES,
@@ -16,23 +16,45 @@ const {
   formatChatPrefix,
 } = require("../titles");
 
-function playerHelpText() {
-  return [
+function playerHelpLines({
+  isAdmin = false,
+  canChangeUni = false,
+  onField = false,
+  canAfk = true,
+  isAfk = false,
+  canChoose = false,
+} = {}) {
+  const lines = [
     "!ajuda — lista de comandos",
     "!bb — sair da sala",
     "!discord — convite do Discord",
-    "!stats — estatísticas",
+    "!status — estatísticas (jogos, gols, CS, MVP, WR, cargo)",
     "!cargos — emblemas desbloqueados",
     "!cargo <id|n> — escolher emblema",
-    "!afk — ficar AFK / voltar",
-    "!afks — ver quem está AFK",
-    "!t <msg> — chat do time",
+  ];
+  if (isAfk) lines.push("!voltar — sair do AFK");
+  else if (canAfk) lines.push("!afk — ficar AFK / voltar");
+  lines.push("!afks — ver quem está AFK");
+  if (onField) lines.push("!t <msg> — chat do time");
+  lines.push(
     "!ids — lista id dos jogadores",
     "!streak — sequência de vitórias atual",
-    "!unis — uniformes disponíveis",
-    "!uni <kit> — capitão/admin troca o uniforme do time",
-    "Choose (8+): capitão usa número / top / random / bottom",
-  ].join("\n");
+    "!unis — uniformes disponíveis"
+  );
+  if (canChangeUni) {
+    lines.push("!uni <kit> — troca o uniforme do time");
+  }
+  if (canChoose) {
+    lines.push("Pick: número | top | random | bottom");
+  }
+  if (isAdmin) {
+    lines.push("!ajudaadm — comandos de admin");
+  }
+  return lines;
+}
+
+function playerHelpText(opts) {
+  return playerHelpLines(opts).join("\n");
 }
 
 function adminHelpText() {
@@ -48,8 +70,7 @@ function adminHelpText() {
 }
 
 function helpText(isAdmin) {
-  if (!isAdmin) return playerHelpText();
-  return `${playerHelpText()}\n${adminHelpText()}`;
+  return playerHelpText({ isAdmin, canChangeUni: !!isAdmin });
 }
 
 function createCommandHandler(room, ctx) {
@@ -94,16 +115,34 @@ function createCommandHandler(room, ctx) {
     const admin = ctx.admins.get(player.id);
 
     if (cmd === "help" || cmd === "comandos" || cmd === "ajuda") {
-      const extra = admin ? "\nAdmin: !ajudaadm" : "";
-      room.sendAnnouncement(playerHelpText() + extra, player.id, 0xecf0f1, "small", 1);
+      const scores = typeof room.getScores === "function" ? room.getScores() : null;
+      const inOfficial = !!ctx.match?.isCompetitive?.();
+      const isAfk = !!ctx.afk?.isVoluntary?.(player.id);
+      const captains = ctx.uniforms?.captains?.() || {};
+      const canChangeUni = !!(
+        admin ||
+        (player.team && captains[player.team] === player.id)
+      );
+      const cap = ctx.choose?.isActive?.() ? ctx.choose.currentCaptain?.() : null;
+      room.sendAnnouncement(
+        playerHelpText({
+          isAdmin: !!admin,
+          canChangeUni,
+          onField: player.team !== 0,
+          canAfk: isAfk || !(player.team !== 0 && scores && inOfficial),
+          isAfk,
+          canChoose: !!(cap && cap.id === player.id),
+        }),
+        player.id,
+        0xecf0f1,
+        "small",
+        1
+      );
       return true;
     }
 
     if (cmd === "ajudaadm" || cmd === "helpadm" || cmd === "comandosadm") {
-      if (!admin) {
-        room.sendAnnouncement("Sem permissão.", player.id, 0xe74c3c, "bold", 2);
-        return true;
-      }
+      if (!admin) return true;
       room.sendAnnouncement(adminHelpText(), player.id, 0xecf0f1, "small", 1);
       return true;
     }
@@ -284,26 +323,33 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
-    if (cmd === "stats" || cmd === "stat" || cmd === "elo") {
-      const auth = resolveAuth(player);
+    if (cmd === "status" || cmd === "stats" || cmd === "stat" || cmd === "elo") {
+      const target = args.length ? findPlayer(room, args.join(" ")) : player;
+      if (!target) {
+        room.sendAnnouncement(
+          "Jogador não encontrado. Use !status ou !status <nick|#id>",
+          player.id,
+          0xe74c3c,
+          "normal",
+          1
+        );
+        return true;
+      }
+      const auth = resolvePlayerAuth(target, ctx.auths, room.getPlayerList());
       if (!auth) {
-        room.sendAnnouncement(noAuthMsg, player.id, 0xe74c3c, "normal", 1);
+        room.sendAnnouncement(
+          target.id === player.id ? noAuthMsg : `${target.name} está sem auth (guest).`,
+          player.id,
+          0xe74c3c,
+          "normal",
+          1
+        );
         return true;
       }
-      const s = await getPlayerStats(auth);
-      if (!s) {
-        room.sendAnnouncement("Sem partidas registradas ainda.", player.id, 0xbdc3c7, "normal", 1);
-        return true;
-      }
-      const adminLevel = ctx.admins.get(player.id)?.level || 0;
+      const s = (await getPlayerStats(auth)) || emptyPlayerStats();
+      const adminLevel = ctx.admins.get(target.id)?.level || 0;
       const title = resolveTitle(s, s.selected_title, adminLevel);
-      room.sendAnnouncement(
-        `${title.emblem} ${player.name}: ${s.games}J ${s.wins}V ${s.draws}E ${s.losses}D | ${s.goals}G ${s.assists}A ${s.mvps || 0}MVP ${s.own_goals}GC`,
-        player.id,
-        title.color,
-        "bold",
-        1
-      );
+      room.sendAnnouncement(formatStatusCard(target.name, s, title), player.id, title.color, "bold", 1);
       return true;
     }
 
@@ -528,6 +574,7 @@ function createCommandHandler(room, ctx) {
     helpText,
     playerHelpText,
     adminHelpText,
+    playerHelpLines,
   };
 }
 
