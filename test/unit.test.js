@@ -215,8 +215,9 @@ describe("titles / cargos", () => {
   });
 
   it("formatChatPrefix é um único emoji, sem nomes", () => {
-    assert.equal(formatChatPrefix({ emblem: "👑", name: "Chefe" }), "👑");
-    assert.equal(formatChatPrefix({ emblem: "🐉", name: "Lenda" }), "🐉");
+    assert.equal(formatChatPrefix({ emblem: "👑", name: "Chefe" }), "👑 ");
+    assert.equal(formatChatPrefix({ emblem: "🐉", name: "Lenda" }), "🐉 ");
+    assert.equal(formatChatPrefix(null), "");
   });
 
   it("admin sem seleção usa cargo de staff", () => {

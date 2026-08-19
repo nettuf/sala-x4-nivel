@@ -50,7 +50,9 @@ function createRoom(HBInit) {
     uniforms: null,
   };
 
-  const afk = createAfkTracker(room);
+  const afk = createAfkTracker(room, {
+    shouldAutoAfk: () => !!ctx.match?.isCompetitive?.(),
+  });
   ctx.afk = afk;
   const streak = createStreakTracker();
   ctx.streak = streak;
@@ -286,7 +288,7 @@ function createRoom(HBInit) {
       return;
     }
 
-    // !afk (permitido no spec/treino solo) e !back alteram a fila elegível.
+    // !afk (permitido no spec/treino solo) altera a fila elegível.
     refreshLobby();
   });
 
@@ -321,6 +323,7 @@ function createRoom(HBInit) {
     }
 
     const title = await commands.loadTitleForPlayer(player);
+    await commands.isMuted(player);
     room.sendAnnouncement(
       `Bem-vindo, ${title.emblem} ${player.name}! !help · !cargos`,
       player.id,
@@ -500,10 +503,10 @@ function createRoom(HBInit) {
     afk.setPaused(false);
   };
 
-  room.onPlayerChat = async (player, message) => {
+  room.onPlayerChat = (player, message) => {
     afk.touch(player.id);
 
-    const muted = await commands.isMuted(player);
+    const muted = commands.peekMute(player);
     if (muted) {
       room.sendAnnouncement(
         `Você está mutado até ${new Date(muted.endsAt).toLocaleString("pt-BR")}.`,
@@ -517,12 +520,16 @@ function createRoom(HBInit) {
 
     if (choose.handleCaptainChat(player, message)) return false;
 
-    const handled = await commands.handle(player, message);
-    if (handled) return false;
+    if (String(message || "").trim().startsWith("!")) {
+      commands.handle(player, message).catch((err) => {
+        console.error("[cmd]", err?.message || err);
+      });
+      return false;
+    }
 
     if (choose.isActive() && !ctx.admins.has(player.id)) {
       const token = String(message || "").trim().split(/\s+/)[0];
-      if (!String(message || "").startsWith("!") && !isChooseToken(token)) {
+      if (!isChooseToken(token)) {
         if (slowChat.has(player.id)) return false;
         slowChat.add(player.id);
         const timer = setTimeout(() => slowChat.delete(player.id), 2000);

@@ -208,7 +208,8 @@ function applyUnlockUpgrade(selectedId, prevStats, nextStats) {
 }
 
 function formatChatPrefix(title) {
-  return title?.emblem || "";
+  const emblem = title?.emblem || "";
+  return emblem ? `${emblem} ` : "";
 }
 
 function chatColor(title) {

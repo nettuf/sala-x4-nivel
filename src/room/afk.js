@@ -1,9 +1,9 @@
 const config = require("../config");
 
 /**
- * AFK automático + AFK voluntário (!afk / !back).
+ * AFK automático + AFK voluntário (!afk para entrar e sair).
  */
-function createAfkTracker(room) {
+function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, { lastActive: number, warned: boolean }>} */
   const state = new Map();
   /** @type {Set<number>} */
@@ -11,6 +11,7 @@ function createAfkTracker(room) {
   let paused = false;
   let counting = true;
   let onStateChange = null;
+  const shouldAutoAfk = typeof opts.shouldAutoAfk === "function" ? opts.shouldAutoAfk : () => true;
 
   function touch(playerId) {
     if (voluntary.has(playerId)) return;
@@ -34,7 +35,7 @@ function createAfkTracker(room) {
     if (on) {
       voluntary.add(player.id);
       if (player.team !== 0) room.setPlayerTeam(player.id, 0);
-      room.sendAnnouncement(`${player.name} está AFK (!back para voltar)`, null, 0xbdc3c7, "normal", 1);
+      room.sendAnnouncement(`${player.name} está AFK (!afk para voltar)`, null, 0xbdc3c7, "normal", 1);
     } else {
       voluntary.delete(player.id);
       touch(player.id);
@@ -73,6 +74,7 @@ function createAfkTracker(room) {
 
   function tick(now = Date.now()) {
     if (paused || !counting) return;
+    if (!shouldAutoAfk()) return;
     const full = playingCount() >= config.afkFullThreshold;
     for (const p of room.getPlayerList()) {
       if (p.id === 0) continue;
@@ -108,7 +110,7 @@ function createAfkTracker(room) {
         voluntary.add(p.id);
         room.setPlayerTeam(p.id, 0);
         room.sendAnnouncement(
-          `${p.name} movido para spect por AFK. Use !back para voltar à fila.`,
+          `${p.name} movido para spect por AFK. Use !afk para voltar à fila.`,
           null,
           0xe67e22,
           "normal",

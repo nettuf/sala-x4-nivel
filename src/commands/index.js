@@ -23,7 +23,7 @@ function helpText(isAdmin) {
     "!stats — estatísticas",
     "!cargos — emblemas desbloqueados",
     "!cargo <id|n> — escolher emblema",
-    "!afk / !back — AFK voluntário",
+    "!afk — ficar AFK / voltar",
     "!t <msg> — chat do time",
     "!ids — lista id dos jogadores",
     "!streak — sequência de vitórias atual",
@@ -98,7 +98,7 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "afk") {
       if (ctx.afk?.isVoluntary(player.id)) {
-        room.sendAnnouncement("Já está AFK. Use !back", player.id, 0xf1c40f, "normal", 1);
+        ctx.afk.setVoluntary(player, false);
         return true;
       }
       const roomCount = room.getPlayerList().filter((p) => p.id !== 0).length;
@@ -137,7 +137,7 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "back" || cmd === "voltar") {
       if (!ctx.afk?.isVoluntary(player.id)) {
-        room.sendAnnouncement("Você não está AFK.", player.id, 0xbdc3c7, "normal", 1);
+        room.sendAnnouncement("Você não está AFK. Use !afk.", player.id, 0xbdc3c7, "normal", 1);
         return true;
       }
       ctx.afk.setVoluntary(player, false);
@@ -278,7 +278,7 @@ function createCommandHandler(room, ctx) {
       const activeId = resolveTitle(stats, stats.selected_title, adminLevel).id;
       const lines = unlocked.map((t, i) => {
         const mark = t.id === activeId ? "✓" : "·";
-        return `${mark} ${i + 1}. ${t.emblem}${t.name} (${t.id}) [${reqLabel(t.req, t)}]`;
+        return `${mark} ${i + 1}. ${t.emblem} ${t.name} (${t.id}) [${reqLabel(t.req, t)}]`;
       });
       const total = TITLES.length + STAFF_TITLES.filter((t) => adminLevel >= t.level).length;
       room.sendAnnouncement(
@@ -442,17 +442,22 @@ function createCommandHandler(room, ctx) {
   }
 
   async function isMuted(player) {
-    const cached = ctx.mutes.get(player.id);
-    if (cached) {
-      if (Date.now() < cached.endsAt) return cached;
-      ctx.mutes.delete(player.id);
-    }
+    const cached = peekMute(player);
+    if (cached) return cached;
     if (!player.auth) return null;
     const m = await findActiveMute(player.auth);
     if (!m) return null;
     const endsAt = new Date(m.ends_at).getTime();
     ctx.mutes.set(player.id, { endsAt, reason: m.reason });
     return { endsAt, reason: m.reason };
+  }
+
+  function peekMute(player) {
+    const cached = ctx.mutes.get(player.id);
+    if (!cached) return null;
+    if (Date.now() < cached.endsAt) return cached;
+    ctx.mutes.delete(player.id);
+    return null;
   }
 
   function applyAdminLook(player, adminRow) {
@@ -470,7 +475,7 @@ function createCommandHandler(room, ctx) {
     }
   }
 
-  return { handle, isMuted, applyAdminLook, loadTitleForPlayer, formatPlayerChat, helpText };
+  return { handle, isMuted, peekMute, applyAdminLook, loadTitleForPlayer, formatPlayerChat, helpText };
 }
 
 module.exports = { createCommandHandler };

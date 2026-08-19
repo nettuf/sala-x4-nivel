@@ -212,4 +212,23 @@ describe("AFK: ações e pausa", () => {
     config.afkActionMs = prev.act;
     afk.stop();
   });
+
+  it("treino/warmup: parado não gera AFK automático", () => {
+    const { room, players } = afkSetup(4);
+    const afk = createAfkTracker(room, { shouldAutoAfk: () => false });
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 0;
+    config.afkActionMs = 0;
+
+    afk.touch(1);
+    afk.tick();
+
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+    assert.equal(afk.isVoluntary(1), false);
+    assert.equal(room.kicks.length, 0);
+
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
 });

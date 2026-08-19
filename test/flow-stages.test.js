@@ -1059,7 +1059,7 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("4v4 reposição: spec AFK some da lista; !back volta", () => {
+  it("4v4 reposição: spec AFK some da lista; !afk volta", () => {
     const host = createMockRoomHost();
     host.growTo(10);
     host.captainPick("top");

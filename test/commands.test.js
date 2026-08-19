@@ -91,7 +91,7 @@ describe("comandos (mock room)", () => {
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[2], "!afk");
     assert.equal(afk.isVoluntary(3), true);
-    await cmd.handle(room._players[2], "!back");
+    await cmd.handle(room._players[2], "!afk");
     assert.equal(afk.isVoluntary(3), false);
     afk.stop();
   });
@@ -105,7 +105,7 @@ describe("comandos (mock room)", () => {
 
     await cmd.handle(spec, "!afk");
     assert.equal(afk.isVoluntary(3), true);
-    await cmd.handle(spec, "!back");
+    await cmd.handle(spec, "!afk");
     assert.equal(afk.isVoluntary(3), false);
 
     await cmd.handle(spec, "!afk");
@@ -152,7 +152,7 @@ describe("comandos (mock room)", () => {
     };
     const cmd = createCommandHandler(room, ctx);
     const { line } = cmd.formatPlayerChat(room._players[0], "oi");
-    assert.equal(line, "🌱RedCap: oi");
+    assert.equal(line, "🌱 RedCap: oi");
     afk.stop();
   });
 
@@ -167,7 +167,7 @@ describe("comandos (mock room)", () => {
     };
     const cmd = createCommandHandler(room, ctx);
     const { line } = cmd.formatPlayerChat(room._players[0], "s");
-    assert.equal(line, "👑RedCap: s");
+    assert.equal(line, "👑 RedCap: s");
     afk.stop();
   });
 
