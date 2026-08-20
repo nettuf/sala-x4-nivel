@@ -7,7 +7,8 @@
  * - lobby sem jogo e sem choose com gente suficiente para jogar
  *
  * Treino/warmup NÃO entra nas regras de time vazio/desigual: 1 no vermelho
- * ou 2v1 é estado normal — o watchdog antigo RR a cada ~10s no mapa de treino.
+ * ou 2v1 é estado normal — inclusive se o flag competitive ficou preso
+ * depois de um 4v4 (o watchdog antigo RR a cada ~10s no mapa de treino).
  */
 
 const HEALTH_CHECK_MS = 5000;
@@ -27,17 +28,17 @@ function diagnoseRoom({
   specReadyCount = 0,
   teamSize = 4,
 } = {}) {
-  const onField = redCount + blueCount;
-  const eligible = onField + specReadyCount;
+  const eligible = redCount + blueCount + specReadyCount;
+  // 1v0/2v1 no treino não é 4v4: o flag competitive às vezes fica preso
+  // depois de um x4 e o watchdog RR a cada 10s.
+  const official = !!competitive && Math.max(redCount, blueCount) >= teamSize - 1;
 
   if (live) {
-    // Choose normal nunca convive com jogo rolando: um dos dois está órfão.
-    if (chooseActive && !replacement) {
+    if (official && chooseActive && !replacement) {
       return { action: "stop-game", reason: "choose aberto com jogo rolando" };
     }
 
-    // Warmup/treino: não para por time vazio nem reequilibra por desigualdade.
-    if (!competitive) {
+    if (!official) {
       return { action: "none" };
     }
 

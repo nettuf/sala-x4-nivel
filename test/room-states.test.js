@@ -201,6 +201,27 @@ describe("sala se destrava sem admin", () => {
     assert.equal(host.pauses[host.pauses.length - 1], false, "pausa longa é desfeita");
     host.cleanup();
   });
+
+  it("1v0 no treino com flag competitive não fica em loop de stop-game", () => {
+    const host = bootRoom();
+    fill4v4(host);
+    host.startMatch();
+    for (const p of host.players.slice(1)) p.team = TEAM.SPEC;
+
+    const acted = [];
+    for (let i = 0; i < 6; i++) {
+      const r = host.handles.health.check();
+      if (r) acted.push(r.action);
+    }
+
+    assert.equal(
+      acted.filter((a) => a === "stop-game").length,
+      0,
+      `treino 1v0 não pode RR (${acted.join(",")})`
+    );
+    assert.ok(host.live(), "o treino segue sem o watchdog derrubar");
+    host.cleanup();
+  });
 });
 
 describe("ações de admin", () => {

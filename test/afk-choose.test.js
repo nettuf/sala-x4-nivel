@@ -128,7 +128,7 @@ describe("AFK: pausa, gol e kickoff", () => {
     host.cleanup();
   });
 
-  it("entre o gol e o kickoff o relógio do AFK congela (não zera)", () => {
+  it("gol e kickoff não congelam o AFK: parado continua acumulando", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.startMatch();
@@ -136,21 +136,19 @@ describe("AFK: pausa, gol e kickoff", () => {
     const at = Date.now();
     for (const p of all) host.handles.afk.touch(p.id, at);
     host.handles.afk.tick(at + config.afkWarnMs + 500);
+    assert.ok(host.said(/mexa-se/, all[0].id));
 
-    host.handles.afk.setCounting(false, at + config.afkWarnMs + 500);
-    host.handles.afk.tick(at + config.afkActionMs * 4);
-    assert.equal(host.teamCount(TEAM.SPEC), 0, "comemoração de gol não vira AFK");
+    host.room.onTeamGoal(TEAM.RED);
+    host.handles.afk.tick(at + config.afkActionMs + 500);
+    assert.equal(host.find(all[0].id).team, TEAM.SPEC, "comemoração não pausa o timer");
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
 
-    host.handles.afk.setCounting(true, at + config.afkActionMs * 4);
-    host.handles.afk.tick(at + config.afkActionMs * 4);
-    assert.equal(host.teamCount(TEAM.SPEC), 0, "kickoff continua o progresso, ainda abaixo do limite");
-
-    host.handles.afk.tick(at + config.afkActionMs * 4 + (config.afkActionMs - config.afkWarnMs));
-    assert.equal(host.find(all[0].id).team, TEAM.SPEC, "após o kickoff o AFK completa o tempo");
+    host.room.onPositionsReset();
+    assert.equal(host.handles.afk.isAfk(all[0].id), true, "kickoff não perdoa quem já estava parado");
     host.cleanup();
   });
 
-  it("gol e kickoff pelos eventos da sala não perdoam quem já estava parado", () => {
+  it("gol pelos eventos da sala não zera quem já estava parado", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     const parado = all[0];
@@ -163,13 +161,12 @@ describe("AFK: pausa, gol e kickoff", () => {
 
     host.room.onTeamGoal(TEAM.RED);
     host.handles.afk.tick(Date.now());
-    assert.equal(host.find(parado.id).team, TEAM.RED, "durante a comemoração ninguém cai");
+    assert.equal(host.find(parado.id).team, TEAM.RED, "ainda não estourou o limite só com o gol");
 
-    host.room.onPositionsReset();
     const restante = config.afkActionMs - config.afkWarnMs;
     host.handles.afk.tick(Date.now() + restante + 1000);
 
-    assert.equal(host.handles.afk.isAfk(parado.id), true, "o gol congelou o relógio, não zerou");
+    assert.equal(host.handles.afk.isAfk(parado.id), true, "o gol não zerou o relógio");
     assert.equal(host.find(parado.id).team, TEAM.SPEC);
     assert.equal(host.handles.afk.isAfk(ativo.id), false, "quem estava ativo não é punido");
     host.cleanup();

@@ -25,18 +25,17 @@ function afkRemainSec() {
   return Math.max(1, Math.ceil(remain / 1000));
 }
 
-/** Se onPositionsReset não vier após o gol, o relógio não pode ficar morto pra sempre. */
-const COUNTING_STALL_MS = 8000;
-
 /**
  * AFK é um estado só, venha do !afk ou de ficar parado em campo:
  * sai da fila do pick, ninguém escolhe, admin não consegue colocar em campo.
  * Só sai com !afk do próprio jogador — ou kick, se a sala encher.
  *
- * Atividade = tecla (onPlayerActivity) / chute / entrar em time.
+ * Modelo do bot de referência (kickOff): conta 1s em 1s enquanto o jogo está
+ * rodando e o jogador está em campo. Atividade = tecla (onPlayerActivity) /
+ * chute / entrar em time. Empurrão da bola não conta.
  *
- * Pausa e comemoração de gol CONGELAM o relógio (não zeram). Zerar em todo
- * kickoff/despause fazia o AFK nunca chegar aos 12s se tivesse gol ou pause.
+ * Pausa CONGELA o relógio (não zera). Gol/kickoff NÃO congelam — se congelar
+ * após cada gol o parado nunca chega no limite.
  */
 function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, { lastActive: number, warned: boolean }>} lastActive = relógio efetivo */
@@ -44,9 +43,7 @@ function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, number>} id → AFK desde quando (para kickar o mais antigo) */
   const afks = new Map();
   let paused = false;
-  let counting = true;
-  let countingOffAt = 0;
-  /** Tempo de parede acumulado em hold (pausa + pós-gol). */
+  /** Tempo de parede acumulado em pausa. */
   let holdAccumMs = 0;
   /** Se > 0, hold aberto desde esse Date.now(). */
   let holdStartedAt = 0;
@@ -70,8 +67,7 @@ function createAfkTracker(room, opts = {}) {
   }
 
   function syncHold(wallNow = Date.now()) {
-    const shouldHold = paused || !counting;
-    if (shouldHold) beginHold(wallNow);
+    if (paused) beginHold(wallNow);
     else endHold(wallNow);
   }
 
@@ -200,29 +196,10 @@ function createAfkTracker(room, opts = {}) {
     syncHold(wallNow);
   }
 
-  function setCounting(on, wallNow = Date.now()) {
-    counting = !!on;
-    if (counting) countingOffAt = 0;
-    else countingOffAt = wallNow;
-    syncHold(wallNow);
-  }
-
   function tick(wallNow = Date.now()) {
-    // onPositionsReset às vezes falha: sem isso o AFK morre pra sempre após um gol.
-    if (
-      !counting &&
-      !paused &&
-      countingOffAt > 0 &&
-      wallNow - countingOffAt >= COUNTING_STALL_MS &&
-      typeof room.getScores === "function" &&
-      room.getScores()
-    ) {
-      setCounting(true, wallNow);
-    }
-
     syncHold(wallNow);
 
-    if (paused || !counting) {
+    if (paused) {
       ensureReserveSlots();
       return;
     }
@@ -300,10 +277,8 @@ function createAfkTracker(room, opts = {}) {
       onStateChange = typeof handler === "function" ? handler : null;
     },
     setPaused,
-    setCounting,
     isPaused: () => paused,
-    isCounting: () => counting,
-    /** Exposto para testes do relógio congelado. */
+    /** Exposto para testes do relógio congelado na pausa. */
     effectiveNow,
     tick,
     stop() {
@@ -318,5 +293,4 @@ module.exports = {
   shouldCountAutoAfk,
   hasMoved,
   MOVE_EPS,
-  COUNTING_STALL_MS,
 };

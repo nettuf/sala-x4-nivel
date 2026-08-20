@@ -256,13 +256,22 @@ function createRoom(HBInit) {
     lobbyRevision += 1;
     const players = room.getPlayerList().filter((p) => p.id !== 0);
     const eligibleCount = players.filter((p) => !afk.isAfk(p.id)).length;
+    const redN = players.filter((p) => p.team === TEAM.RED && !afk.isAfk(p.id)).length;
+    const blueN = players.filter((p) => p.team === TEAM.BLUE && !afk.isAfk(p.id)).length;
+    const liveOfficial =
+      match.isCompetitive() &&
+      !!room.getScores() &&
+      stadiumKind === "x4" &&
+      redN > 0 &&
+      blueN > 0;
 
-    // O 4v4 oficial não é interrompido por uma entrada; o novo fica no spec.
-    // Reposição/choose pausado só atualiza a lista do capitão.
-    if (match.isCompetitive()) {
+    // 4v4 oficial de verdade: não desmonta por entrada/saída de spec.
+    // Flag competitive preso no treino 1v0 não pode bloquear o lobby.
+    if (liveOfficial) {
       if (choose.isActive()) choose.onPlayerJoin();
       return;
     }
+    if (match.isCompetitive()) match.setCompetitive(false);
 
     // Winner stays 1v1/2v2/3v3/4v4: não deixa o warmup desmontar os vencedores.
     if (choose.isActive() && !choose.isReplacement()) {
@@ -829,17 +838,14 @@ function createRoom(HBInit) {
   };
 
   room.onTeamGoal = (team) => {
-    afk.setCounting(false);
     match.onTeamGoal(team);
   };
 
   room.onPositionsReset = () => {
     match.notePositionsReset();
-    afk.setCounting(true);
   };
 
   room.onGameStart = () => {
-    afk.setCounting(true);
     afk.setPaused(false);
     afk.resetClocks();
     uniforms.prepareKickoff();
@@ -1056,6 +1062,7 @@ function createRoom(HBInit) {
       console.warn(`[health] ${action}: ${reason}`);
       if (action === "stop-game") {
         choose.deactivate();
+        match.setCompetitive(false);
         lobbyRevision += 1;
         forceResume();
         stopCurrentGame();

@@ -204,9 +204,8 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("se o kickoff não vier, o AFK volta a contar sozinho sem zerar o progresso", () => {
+  it("gol não pausa o AFK: o parado continua acumulando", () => {
     const { room, players } = afkSetup(4);
-    const { COUNTING_STALL_MS } = require("../src/room/afk");
     const afk = createAfkTracker(room);
     const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
     config.afkWarnMs = 8000;
@@ -214,18 +213,11 @@ describe("AFK: ações e pausa", () => {
     const at = Date.now();
 
     afk.touch(1, at);
-    afk.setCounting(false, at + 5000);
-    afk.tick(at + 6000);
-    assert.equal(afk.isCounting(), false);
-    assert.equal(players.find((p) => p.id === 1).team, 1, "ainda em comemoração");
+    afk.tick(at + 5000);
+    assert.equal(players.find((p) => p.id === 1).team, 1, "ainda abaixo do limite");
 
-    // Stall religa; progresso de 5s idle permanece (faltam 7s para a ação).
-    afk.tick(at + 5000 + COUNTING_STALL_MS + 100);
-    assert.equal(afk.isCounting(), true, "stall religa o relógio");
-    assert.equal(players.find((p) => p.id === 1).team, 1, "ainda não estourou o limite");
-
-    afk.tick(at + 5000 + COUNTING_STALL_MS + 100 + 8000);
-    assert.equal(players.find((p) => p.id === 1).team, 0, "completa os 12s efetivos após o stall");
+    afk.tick(at + 13000);
+    assert.equal(players.find((p) => p.id === 1).team, 0, "completa os 12s mesmo após um gol");
     assert.equal(afk.isAfk(1), true);
 
     config.afkWarnMs = prev.warn;

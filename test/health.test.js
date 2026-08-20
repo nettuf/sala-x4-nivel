@@ -67,6 +67,27 @@ describe("diagnóstico da sala", () => {
     );
   });
 
+  it("competitive preso no treino 1v0/2v1 não RR", () => {
+    assert.equal(
+      diagnoseRoom({ live: true, competitive: true, redCount: 1, blueCount: 0 }).action,
+      "none"
+    );
+    assert.equal(
+      diagnoseRoom({ live: true, competitive: true, redCount: 2, blueCount: 1 }).action,
+      "none"
+    );
+    assert.equal(
+      diagnoseRoom({
+        live: true,
+        competitive: true,
+        chooseActive: true,
+        redCount: 1,
+        blueCount: 0,
+      }).action,
+      "none"
+    );
+  });
+
   it("3v4 oficial rolando sem choose pede reposição", () => {
     const d = diagnoseRoom({
       live: true,
