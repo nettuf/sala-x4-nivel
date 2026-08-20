@@ -20,6 +20,7 @@ function createChooseController(room, {
   let active = false;
   let timeout = null;
   let replacement = null;
+  let lockedSize = 0;
   const pendingTeams = new Map();
   const lastMode = { [TEAM.RED]: "", [TEAM.BLUE]: "" };
 
@@ -27,7 +28,7 @@ function createChooseController(room, {
     return typeof isExcluded === "function" ? !!isExcluded(p) : false;
   }
 
-  function currentTeamSize() {
+  function computeTeamSize() {
     if (replacement) return config.teamSize;
     const players = room.getPlayerList().filter((p) => p.id !== 0 && !excluded(p));
     const teamOf = (p) => (pendingTeams.has(p.id) ? pendingTeams.get(p.id) : p.team);
@@ -38,6 +39,12 @@ function createChooseController(room, {
     );
     const byCount = targetTeamSize(players.length, config.teamSize);
     return Math.min(config.teamSize, Math.max(byCount, held));
+  }
+
+  function currentTeamSize() {
+    if (replacement) return config.teamSize;
+    if (active && lockedSize) return lockedSize;
+    return computeTeamSize();
   }
 
   function streakSuffix() {
@@ -319,6 +326,7 @@ function createChooseController(room, {
 
   function deactivate() {
     active = false;
+    lockedSize = 0;
     clearCapTimeout();
     replacement = null;
     lastMode[TEAM.RED] = "";
@@ -328,6 +336,7 @@ function createChooseController(room, {
   function activate() {
     if (active) return;
     active = true;
+    lockedSize = computeTeamSize();
     if (tryFillExactHoles()) return;
     room.sendAnnouncement(
       `🎮 Choose ativado — ${config.chooseTimeSec}s por pick · até ${currentTeamSize()}v${currentTeamSize()}${streakSuffix()}`,
@@ -346,6 +355,7 @@ function createChooseController(room, {
     clearCapTimeout();
     replacement = { targetTeam, onReady };
     active = true;
+    lockedSize = config.teamSize;
     if (list().specReady.length !== 1) {
       room.sendAnnouncement(
         `🔄 Reposição: capitão ${targetTeam === TEAM.RED ? "vermelho" : "azul"} escolhe um jogador do spec.`,
@@ -529,7 +539,10 @@ function createChooseController(room, {
     if (!replacement) {
       lastMode[team] = rememberedChooseMode(token) || lastMode[team];
     }
-    if (excluded(chosen)) return true;
+    if (excluded(chosen)) {
+      promptCaptain();
+      return true;
+    }
     if (typeof onPickFromSpec === "function") onPickFromSpec(chosen);
     setTeam(chosen.id, team);
     const arrow = team === TEAM.RED ? "🔴" : "🔵";

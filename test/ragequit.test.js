@@ -15,7 +15,7 @@ function setup({ competitive = true } = {}) {
     blue: 0,
     time: 30,
     scoreLimit: 3,
-    timeLimit: 180,
+    timeLimit: 240,
   };
   const room = {
     getPlayerList: () => players,
@@ -90,23 +90,19 @@ describe("ragequit no x4 oficial", () => {
     assert.equal(host.match.rageQuitReason(host.players[2]), null);
   });
 
-  it("perdedor sai até 10s depois de sofrer gol → ragequit", () => {
+  it("perdedor sai no 1x0 no começo → saída normal", () => {
     const host = setup();
-    host.setScores({ red: 1, blue: 0 });
+    host.setScores({ red: 1, blue: 0, time: 40, timeLimit: 240 });
     host.match.onTeamGoal(TEAM.RED);
-    assert.match(
-      host.match.rageQuitReason(host.players[1]),
-      /até 10s após sofrer/i
-    );
+    assert.equal(host.match.rageQuitReason(host.players[1]), null);
   });
 
-  it("após mais de 10s do gol e diferença 1 → saída normal", () => {
+  it("1x0 no último minuto → ragequit", () => {
     const host = setup();
-    host.setScores({ red: 1, blue: 0 });
-    host.match.onTeamGoal(TEAM.RED);
-    assert.equal(
-      host.match.rageQuitReason(host.players[1], undefined, Date.now() + 10_001),
-      null
+    host.setScores({ red: 1, blue: 0, time: 185, timeLimit: 240 });
+    assert.match(
+      host.match.rageQuitReason(host.players[1]),
+      /abandonou perdendo 1x0/i
     );
   });
 

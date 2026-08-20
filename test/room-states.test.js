@@ -114,6 +114,7 @@ function bootRoom() {
     },
     cleanup() {
       handles.afk.stop();
+      handles.chatLog?.stop();
     },
   };
 }
@@ -326,6 +327,35 @@ describe("ações de admin", () => {
     assert.ok(!msg.includes(`${saiu.name}[`), "quem saiu some da lista");
     assert.match(msg, new RegExp(`${specs[1].name}\\[1\\]`));
     assert.equal(host.lastSpecList().to, cap.id);
+    host.cleanup();
+  });
+});
+
+describe("mute no chat", () => {
+  it("mutado só usa comando com ! — fala e pick sem ! são bloqueados", async () => {
+    const host = bootRoom();
+    startChoose(host);
+    const cap = host.handles.choose.currentCaptain();
+    host.handles.mutes.set(cap.id, { endsAt: Date.now() + 60_000 });
+
+    host.announcements.length = 0;
+    await host.room.onPlayerChat(host.find(cap.id), "fala aí");
+    assert.ok(host.announcements.some((a) => a.to === cap.id && /mutado/i.test(a.msg)));
+    assert.equal(host.announcements.some((a) => /fala aí/.test(a.msg)), false);
+
+    host.announcements.length = 0;
+    await host.room.onPlayerChat(host.find(cap.id), "1");
+    assert.ok(host.announcements.some((a) => a.to === cap.id && /mutado/i.test(a.msg)));
+    assert.equal(host.handles.choose.list().blue.length, 1);
+
+    host.announcements.length = 0;
+    await host.room.onPlayerChat(host.find(cap.id), "!ids");
+    await new Promise((r) => setTimeout(r, 30));
+    assert.ok(host.announcements.some((a) => a.to === cap.id && /#/.test(a.msg)));
+
+    host.announcements.length = 0;
+    await host.room.onPlayerChat(host.find(cap.id), "!1");
+    assert.equal(host.handles.choose.list().blue.length, 2);
     host.cleanup();
   });
 });

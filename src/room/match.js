@@ -8,13 +8,14 @@ const {
   ballSpeedKmh,
   possessionPercents,
   canJoinMatchStats,
+  isDecidedLosingScore,
 } = require("../gameLogic");
 const { pickMatchMvps } = require("../titles");
 
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
  */
-function createMatchController(room, { identify } = {}) {
+function createMatchController(room, { identify, onCompletedMatch } = {}) {
   /** @type {null | {
    *   recordingStarted: boolean,
    *   touches: object[],
@@ -423,6 +424,12 @@ function createMatchController(room, { identify } = {}) {
         console.error("[match] save", e.message);
       }
 
+      try {
+        onCompletedMatch?.({ goals: scoreRed + scoreBlue });
+      } catch (e) {
+        console.warn("[match] room stats", e.message);
+      }
+
       setTimeout(() => {
         sendReplayAndSummary(snapshot).catch(() => {});
       }, 400);
@@ -449,11 +456,10 @@ function createMatchController(room, { identify } = {}) {
   }
 
   /**
-   * Ragequit só vale no 4v4 oficial e para quem saiu do time perdedor.
-   * - diferença de 2+ gols (inclui 3x0 quitando antes de acabar); ou
-   * - saída até 10s depois de sofrer um gol enquanto perdia.
+   * Ragequit só no 4v4 oficial, só quem saiu do time perdedor, e só com o jogo decidido:
+   * 2+ de diferença em qualquer momento, ou 1 de diferença no último minuto.
    */
-  function rageQuitReason(player, scores, now = Date.now()) {
+  function rageQuitReason(player, scores) {
     if (!match?.competitive || !player) return null;
     const resolved = scores || snapshotScores();
     if (!resolved) return null;
@@ -465,20 +471,8 @@ function createMatchController(room, { identify } = {}) {
       resolved.red < resolved.blue ? 1 : resolved.blue < resolved.red ? 2 : 0;
     if (!losingTeam || team !== losingTeam) return null;
 
-    const difference = Math.abs(resolved.red - resolved.blue);
-    if (difference >= 2) {
-      return `abandonou perdendo ${resolved.red}x${resolved.blue}`;
-    }
-
-    if (
-      match.lastGoal &&
-      match.lastGoal.scoringTeam !== team &&
-      now - match.lastGoal.at <= 10_000
-    ) {
-      return "abandonou até 10s após sofrer um gol";
-    }
-
-    return null;
+    if (!isDecidedLosingScore(resolved)) return null;
+    return `abandonou perdendo ${resolved.red}x${resolved.blue}`;
   }
 
   function cancelRecordingOnly() {

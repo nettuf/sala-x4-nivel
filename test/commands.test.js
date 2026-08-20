@@ -52,6 +52,56 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("@nick manda PV só para o destinatário e o remetente", () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk, titles: new Map() };
+    const cmd = createCommandHandler(room, ctx);
+    assert.equal(cmd.handleWhisper(room._players[0], "@Spec eae"), true);
+    const toSpec = room.announcements.filter((a) => a.to === 3);
+    const toSender = room.announcements.filter((a) => a.to === 1);
+    const toOthers = room.announcements.filter((a) => a.to == null || a.to === 2);
+    assert.equal(toSpec.length, 1);
+    assert.match(toSpec[0].msg, /PV de .*RedCap: eae/);
+    assert.equal(toSender.length, 1);
+    assert.match(toSender[0].msg, /PV para Spec: eae/);
+    assert.equal(toOthers.length, 0);
+    afk.stop();
+  });
+
+  it("admin na sala também lê o PV", () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map([[2, { level: 2, title: "Mod" }]]),
+      mutes: new Map(),
+      afk,
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    assert.equal(cmd.handleWhisper(room._players[0], "@Spec eae"), true);
+    const toAdmin = room.announcements.filter((a) => a.to === 2);
+    assert.equal(toAdmin.length, 1);
+    assert.match(toAdmin[0].msg, /RedCap → Spec: eae/);
+    assert.equal(room.announcements.some((a) => a.to == null), false);
+    afk.stop();
+  });
+
+  it("@#id funciona e nick inexistente avisa só no PV", () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk, titles: new Map() };
+    const cmd = createCommandHandler(room, ctx);
+    assert.equal(cmd.handleWhisper(room._players[0], "@#3 bora"), true);
+    assert.ok(room.announcements.some((a) => a.to === 3 && /bora/.test(a.msg)));
+    room.announcements.length = 0;
+    assert.equal(cmd.handleWhisper(room._players[0], "@Ninguem oi"), true);
+    assert.ok(room.announcements.every((a) => a.to === 1));
+    assert.ok(room.announcements.some((a) => /não encontrado/i.test(a.msg)));
+    assert.equal(cmd.handleWhisper(room._players[0], "oi @Spec"), false);
+    afk.stop();
+  });
+
   it("!afk é bloqueado no 4v4 oficial", async () => {
     const room = mockRoom();
     room.getScores = () => ({ red: 0, blue: 0, time: 12, timeLimit: 180 });
@@ -174,6 +224,7 @@ describe("comandos (mock room)", () => {
     assert.equal(msg.includes("!ban"), false);
     assert.equal(msg.includes("!ajudaadm"), false);
     assert.match(msg, /!unis/);
+    assert.match(msg, /@nick/);
     assert.equal(/!uni /.test(msg), false);
     assert.equal(msg.includes("!t "), false);
     afk.stop();
@@ -221,6 +272,8 @@ describe("comandos (mock room)", () => {
     const msg = room.announcements.find((a) => String(a.msg).includes("!ban"))?.msg || "";
     assert.match(msg, /!mute/);
     assert.match(msg, /!unban/);
+    assert.match(msg, /!banauth/);
+    assert.match(msg, /!unbanauth/);
     assert.match(msg, /!unmute/);
     afk.stop();
   });
@@ -295,6 +348,16 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("!site anuncia o Haxbook", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!site");
+    assert.ok(room.announcements.some((a) => /haxbook\.com\.br/i.test(a.msg)));
+    afk.stop();
+  });
+
   it("!stats usa auth em cache se o chat não manda", async () => {
     const room = mockRoom();
     const player = { id: 1, name: "RedCap", team: 1 };
@@ -358,6 +421,25 @@ describe("comandos (mock room)", () => {
         "não anuncia entrada de staff"
       );
     }
+    afk.stop();
+  });
+
+  it("mutado usa !ids e não usa !t", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map([[1, { endsAt: Date.now() + 60_000 }]]),
+      afk,
+    };
+    const cmd = createCommandHandler(room, ctx);
+    assert.ok(cmd.peekMute(room._players[0]));
+    await cmd.handle(room._players[0], "!ids");
+    assert.ok(room.announcements.some((a) => /#1 RedCap/.test(a.msg)));
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!t eae");
+    assert.ok(room.announcements.some((a) => /mutado/i.test(a.msg)));
+    assert.equal(room.announcements.some((a) => /\[TEAM\]/.test(a.msg)), false);
     afk.stop();
   });
 });

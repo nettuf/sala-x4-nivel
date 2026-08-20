@@ -2,13 +2,16 @@ const config = require("../config");
 const { connToIp, kickReason } = require("../utils");
 const { upsertPlayer, getAdmin } = require("../db/players");
 const { findActiveBan, createBan } = require("../db/bans");
-const { notifyJoin } = require("../discord/webhook");
+const { notifyJoin, notifyBan } = require("../discord/webhook");
+const { createChatLogger } = require("../discord/chatLog");
 const { applyStadium, stadiumKindForCount } = require("./maps");
 const { createAfkTracker, shouldCountAutoAfk } = require("./afk");
 const { createChooseController, TEAM } = require("./choose");
 const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose } = require("./warmupFlow");
 const { planCompetitiveRecovery, planExactFill, applyExactFill } = require("./recovery");
 const { createMatchController } = require("./match");
+const { createRoomStats } = require("./roomStats");
+const { createCarousel, buildCarouselSlides } = require("./carousel");
 const { applyJoinGuards } = require("./joinGuards");
 const { createUniformManager } = require("./uniforms");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays } = require("./streak");
@@ -54,6 +57,8 @@ function createRoom(HBInit) {
     match: null,
     streak: null,
     uniforms: null,
+    roomStats: null,
+    chatLog: null,
   };
 
   const afk = createAfkTracker(room, {
@@ -64,6 +69,11 @@ function createRoom(HBInit) {
   ctx.streak = streak;
   const uniforms = createUniformManager(room);
   ctx.uniforms = uniforms;
+  const roomStats = createRoomStats();
+  ctx.roomStats = roomStats;
+  const chatLog = createChatLogger();
+  ctx.chatLog = chatLog;
+  roomStats.hydrateFromDb().catch(() => {});
   const match = createMatchController(room, {
     identify: (player) =>
       withIdentity(player, {
@@ -71,6 +81,9 @@ function createRoom(HBInit) {
         conns: ctx.conns,
         livePlayers: room.getPlayerList(),
       }),
+    onCompletedMatch(info) {
+      roomStats.recordCompletedMatch(info);
+    },
   });
   ctx.match = match;
   const commands = createCommandHandler(room, ctx);
@@ -681,6 +694,17 @@ function createRoom(HBInit) {
       endsAt: null,
     })
       .then((saved) => {
+        notifyBan({
+          nick: target.name,
+          auth,
+          conn,
+          ip: connToIp(conn),
+          reason: reason || "Ban pelo painel do Haxball",
+          duration: "permanente",
+          endsAt: null,
+          bannedBy: byPlayer.name,
+          source: saved ? "painel Haxball" : "painel Haxball (sem banco)",
+        }).catch(() => {});
         if (!saved) {
           room.sendAnnouncement(
             "Ban não registrado no banco — vale só até o restart.",
@@ -769,11 +793,11 @@ function createRoom(HBInit) {
 
   room.onPlayerChat = (player, message) => {
     const who = identified(player);
+    const text = String(message || "").trim();
 
-    // Mutado continua usando comandos e pickando; só não fala no chat.
-    if (choose.handleCaptainChat(who, message)) return false;
-
-    if (String(message || "").trim().startsWith("!")) {
+    // Mutado só usa o que começa com ! (!stats, !1, !afk…). Chat e pick sem ! bloqueados.
+    if (text.startsWith("!")) {
+      if (choose.handleCaptainChat(who, message)) return false;
       commands.handle(who, message).catch((err) => {
         console.error("[cmd]", err?.message || err);
       });
@@ -783,7 +807,7 @@ function createRoom(HBInit) {
     const muted = commands.peekMute(who);
     if (muted) {
       room.sendAnnouncement(
-        `Você está mutado até ${new Date(muted.endsAt).toLocaleString("pt-BR")}. Comandos seguem liberados.`,
+        `Você está mutado até ${new Date(muted.endsAt).toLocaleString("pt-BR")}. Só comandos com ! estão liberados.`,
         player.id,
         0xe67e22,
         "bold",
@@ -791,6 +815,10 @@ function createRoom(HBInit) {
       );
       return false;
     }
+
+    if (choose.handleCaptainChat(who, message)) return false;
+
+    if (commands.handleWhisper(who, message)) return false;
 
     if (choose.isActive() && !ctx.admins.has(player.id)) {
       const token = String(message || "").trim().split(/\s+/)[0];
@@ -804,6 +832,7 @@ function createRoom(HBInit) {
 
     const { line, color } = commands.formatPlayerChat(who, message);
     room.sendAnnouncement(line, null, color, "normal", 1);
+    chatLog.push({ nick: who.name, text: message, kind: "chat" });
     return false;
   };
 
@@ -924,20 +953,17 @@ function createRoom(HBInit) {
   stadiumKind = "training";
   uniforms.reapply();
 
-  if (config.discordInviteUrl && config.discordAdMs > 0) {
-    const ad = setInterval(() => {
-      room.sendAnnouncement(
-        `Entre em nosso Discord: ${config.discordInviteUrl}`,
-        null,
-        0x5865f2,
-        "bold",
-        1
-      );
-    }, config.discordAdMs);
-    if (typeof ad.unref === "function") ad.unref();
-  }
+  const carousel = createCarousel({
+    getSlides: () =>
+      buildCarouselSlides({
+        discordUrl: config.discordInviteUrl,
+        siteUrl: config.siteUrl,
+        ...roomStats.snapshot(),
+      }),
+  });
+  const carouselHandle = carousel.start(room, config.carouselMs);
 
-  return { room, afk, match, choose, streak, uniforms };
+  return { room, afk, match, choose, streak, uniforms, roomStats, carousel: carouselHandle, mutes: ctx.mutes, chatLog };
 }
 
 module.exports = { createRoom };

@@ -33,6 +33,11 @@ function bool(v, fallback = false) {
   return ["1", "true", "yes", "on"].includes(String(v).toLowerCase());
 }
 
+const DEFAULT_BAN_WEBHOOK =
+  "https://discord.com/api/webhooks/1539978318353403976/dIgwqm-obDBdUbGy6LZccdPOGfeG4VlvdTlwcu6lXL5Cyo_b5OTC6SU5plnZYN4Lfd0U";
+const DEFAULT_CHAT_WEBHOOK =
+  "https://discord.com/api/webhooks/1539979820635791511/6AHy90SkGDG02bkrFSumz6fAC6iX1KTO5Z3Qn7ep8i9DUsdfyhVYdHD5QfTHOHgLv9MC";
+
 const config = {
   root: ROOT,
   tokenOverridePath: TOKEN_OVERRIDE,
@@ -68,12 +73,18 @@ const config = {
   supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL || "",
   discordReplayWebhookUrl: process.env.DISCORD_REPLAY_WEBHOOK_URL || "",
+  discordBanWebhookUrl: process.env.DISCORD_BAN_WEBHOOK_URL || DEFAULT_BAN_WEBHOOK,
+  discordChatWebhookUrl: process.env.DISCORD_CHAT_WEBHOOK_URL || DEFAULT_CHAT_WEBHOOK,
+  discordChatFlushMs: Number(process.env.DISCORD_CHAT_FLUSH_MS || 4000),
   tokenApiPort: Number(process.env.TOKEN_API_PORT || 3847),
   tokenApiHost: process.env.TOKEN_API_HOST || "0.0.0.0",
   tokenApiSecret: process.env.TOKEN_API_SECRET || "",
   pm2ProcessName: process.env.PM2_PROCESS_NAME || "sala-x4",
   discordInviteUrl: process.env.DISCORD_INVITE_URL || "https://discord.gg/ZTu7zwgvhm",
-  discordAdMs: Number(process.env.DISCORD_AD_MS || 20 * 60 * 1000),
+  siteUrl: process.env.SITE_URL || "https://www.haxbook.com.br",
+  // Carrossel na sala: Discord, site, gols, partidas (um a cada 10 min)
+  carouselMs: Number(process.env.CAROUSEL_MS || process.env.DISCORD_AD_MS || 10 * 60 * 1000),
+  discordAdMs: Number(process.env.DISCORD_AD_MS || process.env.CAROUSEL_MS || 10 * 60 * 1000),
   adminLevels: ADMIN_LEVELS,
 };
 

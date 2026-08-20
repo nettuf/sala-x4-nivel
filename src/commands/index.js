@@ -1,8 +1,10 @@
 const config = require("../config");
-const { findPlayer, parseDurationToMs, formatDuration, connToIp, kickReason } = require("../utils");
+const { findPlayer, parseDurationToMs, formatDuration, connToIp, kickReason, parseWhisper } = require("../utils");
 const { resolvePlayerAuth } = require("../room/playerAuth");
 const { isRandomKitArg, parseTeamRef } = require("../room/uniforms");
 const { createBan, deactivateBan } = require("../db/bans");
+const { getAdmin } = require("../db/players");
+const { notifyBan } = require("../discord/webhook");
 const { createMute, unmute, findActiveMute } = require("../db/mutes");
 const { getPlayerStats, setSelectedTitle, formatStatusCard, emptyPlayerStats } = require("../db/stats");
 const {
@@ -29,6 +31,7 @@ function playerHelpLines({
     "!ajuda — lista de comandos",
     "!bb — sair da sala",
     "!discord — convite do Discord",
+    "!site — stats e rankings no Haxbook",
     "!status / !stats — estatísticas (jogos, gols, CS, MVP, WR, cargo)",
     "!cargos — emblemas desbloqueados",
     "!cargo <id|n> — escolher emblema",
@@ -39,6 +42,7 @@ function playerHelpLines({
   if (onField) lines.push("!t <msg> — chat do time");
   lines.push(
     "!ids — lista id dos jogadores",
+    "@nick msg — mensagem privada (ou @#id)",
     "!streak — sequência de vitórias atual",
     "!unis — uniformes disponíveis"
   );
@@ -63,7 +67,10 @@ function adminHelpText() {
   return [
     "!ajudaadm — comandos de admin",
     "!ban <#id|nick> [tempo] [motivo] — tempo: 30m, 2h, 1d, perm",
+    "!banauth <auth> [tempo] [motivo] — bane pela auth (mesmo fora da sala)",
     "!unban <auth|conn>",
+    "!unbanauth <auth>",
+    "Staff na sala também vê os PVs (@nick)",
     "!mute <#id|nick> <tempo> [motivo]",
     "!unmute <#id|nick|auth>",
     "!uni red|blue <kit> — troca o uniforme de um time",
@@ -114,6 +121,71 @@ function createCommandHandler(room, ctx) {
       line: `${formatChatPrefix(title)}${player.name}: ${message}`,
       color: chatColor(title),
     };
+  }
+
+  /** @returns {boolean} true se consumiu a mensagem (era PV) */
+  function handleWhisper(player, message) {
+    const parsed = parseWhisper(message);
+    if (!parsed) return false;
+
+    if (!parsed.body) {
+      room.sendAnnouncement(
+        "Uso: @nick mensagem  ·  ou @#id mensagem (veja !ids)",
+        player.id,
+        0xe74c3c,
+        "normal",
+        1
+      );
+      return true;
+    }
+
+    const target = findPlayer(room, parsed.mention);
+    if (!target) {
+      room.sendAnnouncement(
+        "Jogador não encontrado para o PV. Use nick único ou @#id.",
+        player.id,
+        0xe74c3c,
+        "normal",
+        1
+      );
+      return true;
+    }
+    if (target.id === player.id) {
+      room.sendAnnouncement("Não dá para mandar PV para você mesmo.", player.id, 0xe74c3c, "normal", 1);
+      return true;
+    }
+
+    const title = ctx.titles.get(player.id);
+    const prefix = formatChatPrefix(title);
+    const color = chatColor(title);
+    room.sendAnnouncement(
+      `📩 PV de ${prefix}${player.name}: ${parsed.body}`,
+      target.id,
+      color,
+      "bold",
+      1
+    );
+    room.sendAnnouncement(
+      `📩 PV para ${target.name}: ${parsed.body}`,
+      player.id,
+      color,
+      "bold",
+      1
+    );
+    ctx.chatLog?.push({
+      nick: player.name,
+      text: parsed.body,
+      kind: "pv",
+      to: target.name,
+    });
+
+    const spy = `📩 PV ${prefix}${player.name} → ${target.name}: ${parsed.body}`;
+    const online = new Set(room.getPlayerList().map((p) => p.id));
+    for (const adminId of ctx.admins?.keys?.() || []) {
+      if (adminId === player.id || adminId === target.id || !online.has(adminId)) continue;
+      room.sendAnnouncement(spy, adminId, color, "bold", 1);
+    }
+    return true;
   }
 
   async function handle(player, message) {
@@ -170,6 +242,12 @@ function createCommandHandler(room, ctx) {
     if (cmd === "discord" || cmd === "dc") {
       const url = config.discordInviteUrl;
       room.sendAnnouncement(`Entre em nosso Discord: ${url}`, null, 0x5865f2, "bold", 1);
+      return true;
+    }
+
+    if (cmd === "site" || cmd === "haxbook" || cmd === "statsweb") {
+      const url = config.siteUrl;
+      room.sendAnnouncement(`🌐 Stats, rankings e mais: ${url}`, null, 0x1abc9c, "bold", 1);
       return true;
     }
 
@@ -234,6 +312,16 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "t" || cmd === "team") {
+      if (peekMute(player)) {
+        room.sendAnnouncement(
+          "Você está mutado — !t também está bloqueado. Outros comandos com ! seguem liberados.",
+          player.id,
+          0xe67e22,
+          "bold",
+          2
+        );
+        return true;
+      }
       if (player.team === 0) {
         room.sendAnnouncement("Chat de time só em campo.", player.id, 0xe74c3c, "normal", 1);
         return true;
@@ -250,6 +338,7 @@ function createCommandHandler(room, ctx) {
           room.sendAnnouncement(`${emoji} [TEAM] ${player.name}: ${body}`, p.id, color, "bold", 1);
         }
       }
+      ctx.chatLog?.push({ nick: player.name, text: body, kind: "team" });
       return true;
     }
 
@@ -471,7 +560,7 @@ function createCommandHandler(room, ctx) {
     }
 
     if (!admin) {
-      if (["ban", "unban", "mute", "unmute"].includes(cmd)) {
+      if (["ban", "unban", "banauth", "unbanauth", "mute", "unmute"].includes(cmd)) {
         room.sendAnnouncement("Sem permissão.", player.id, 0xe74c3c, "bold", 2);
         return true;
       }
@@ -498,15 +587,30 @@ function createCommandHandler(room, ctx) {
       }
       const reason = reasonParts.join(" ") || "Sem motivo";
       const endsAt = ms == null ? null : new Date(Date.now() + ms).toISOString();
+      const auth = resolveAuth(target);
+      const conn = target.conn || ctx.conns?.get(target.id) || null;
+      const ip = connToIp(conn);
+      const bannedBy = resolveAuth(player) || player.name;
       const saved = await createBan({
-        auth: resolveAuth(target),
-        conn: target.conn || ctx.conns?.get(target.id) || null,
-        ip: connToIp(target.conn || ctx.conns?.get(target.id)),
+        auth,
+        conn,
+        ip,
         nick: target.name,
         reason,
-        bannedBy: resolveAuth(player) || player.name,
+        bannedBy,
         endsAt,
       });
+      notifyBan({
+        nick: target.name,
+        auth,
+        conn,
+        ip,
+        reason,
+        duration: formatDuration(ms),
+        endsAt,
+        bannedBy: player.name,
+        source: saved ? "!ban" : "!ban (sem banco)",
+      }).catch(() => {});
       if (!saved) {
         // Banco fora: tira o jogador agora, mas avisa que o ban não vai persistir.
         room.sendAnnouncement(
@@ -530,6 +634,99 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
+    if (cmd === "banauth") {
+      const auth = String(args[0] || "").trim();
+      if (!auth) {
+        room.sendAnnouncement(
+          "Uso: !banauth <auth> [tempo] [motivo] — tempo: 30m, 2h, 1d, perm",
+          player.id,
+          0xe74c3c,
+          "normal",
+          1
+        );
+        return true;
+      }
+      let durationRaw = args[1];
+      let reasonParts = args.slice(2);
+      let ms = parseDurationToMs(durationRaw);
+      if (durationRaw && ms === null && durationRaw !== "perm" && durationRaw !== "permanente") {
+        reasonParts = args.slice(1);
+        durationRaw = "perm";
+        ms = null;
+      }
+      const reason = reasonParts.join(" ") || "Sem motivo";
+      const endsAt = ms == null ? null : new Date(Date.now() + ms).toISOString();
+      const target =
+        room.getPlayerList().find((p) => p.id !== 0 && resolveAuth(p) === auth) || null;
+      if (target && !canModerate(admin, target)) {
+        room.sendAnnouncement("Você não pode banir esse cargo.", player.id, 0xe74c3c, "bold", 2);
+        return true;
+      }
+      if (!target) {
+        const targetAdmin = await getAdmin(auth);
+        if (targetAdmin && (admin.level || 0) <= (targetAdmin.level || 0)) {
+          room.sendAnnouncement("Você não pode banir esse cargo.", player.id, 0xe74c3c, "bold", 2);
+          return true;
+        }
+      }
+      const conn = target ? target.conn || ctx.conns?.get(target.id) || null : null;
+      const ip = connToIp(conn);
+      const nick = target?.name || null;
+      const saved = await createBan({
+        auth,
+        conn,
+        ip,
+        nick,
+        reason,
+        bannedBy: resolveAuth(player) || player.name,
+        endsAt,
+      });
+      notifyBan({
+        nick: nick || "fora da sala",
+        auth,
+        conn,
+        ip,
+        reason,
+        duration: formatDuration(ms),
+        endsAt,
+        bannedBy: player.name,
+        source: saved ? "!banauth" : "!banauth (sem banco)",
+      }).catch(() => {});
+      if (!saved) {
+        if (target) {
+          room.sendAnnouncement(
+            "Ban não registrado (banco fora) — apliquei só o kick. Repita quando voltar.",
+            player.id,
+            0xe74c3c,
+            "bold",
+            2
+          );
+          room.kickPlayer(target.id, kickReason(`Kick: ${reason}`), false);
+        } else {
+          room.sendAnnouncement(
+            "Ban por auth não registrado (banco fora).",
+            player.id,
+            0xe74c3c,
+            "bold",
+            2
+          );
+        }
+        return true;
+      }
+      if (target) {
+        room.kickPlayer(target.id, kickReason(`Ban (${formatDuration(ms)}): ${reason}`), false);
+      }
+      room.sendAnnouncement(
+        `${nick || "Jogador"} banido por auth por ${player.name} (${formatDuration(ms)})`,
+        null,
+        0xe74c3c,
+        "bold",
+        2
+      );
+      room.sendAnnouncement("Ban por auth registrado.", player.id, 0x2ecc71, "normal", 1);
+      return true;
+    }
+
     if (cmd === "unban") {
       const key = args[0];
       if (!key) {
@@ -547,6 +744,23 @@ function createCommandHandler(room, ctx) {
           : await deactivateBan({ conn: key });
       }
       room.sendAnnouncement(n ? `Unban ok (${n}).` : "Nenhum ban ativo.", player.id, 0x2ecc71, "normal", 1);
+      return true;
+    }
+
+    if (cmd === "unbanauth") {
+      const auth = String(args[0] || "").trim();
+      if (!auth) {
+        room.sendAnnouncement("Uso: !unbanauth <auth>", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const n = await deactivateBan({ auth });
+      room.sendAnnouncement(
+        n ? `Unban por auth ok (${n}).` : "Nenhum ban ativo para essa auth.",
+        player.id,
+        0x2ecc71,
+        "normal",
+        1
+      );
       return true;
     }
 
@@ -645,6 +859,7 @@ function createCommandHandler(room, ctx) {
     applyAdminLook,
     loadTitleForPlayer,
     formatPlayerChat,
+    handleWhisper,
     playerHelpText,
     adminHelpText,
     playerHelpLines,

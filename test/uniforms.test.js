@@ -302,12 +302,18 @@ describe("uniformes: emoji do kit", () => {
     return room;
   }
 
-  it("kits com emoji fixo: baleio, rato, gordo, tigre e jalin", () => {
+  it("kits com emoji fixo: baleio, copas, gordo, jalin, palhacada, rato e tigre", () => {
     const comEmoji = KITS.filter((k) => k.emoji).map((k) => k.id).sort();
-    assert.deepEqual(comEmoji, ["baleio", "gordo", "jalin", "rato", "tigre"]);
+    assert.deepEqual(comEmoji, ["baleio", "copas", "gordo", "jalin", "palhacada", "rato", "tigre"]);
     assert.equal(findKit("baleio").emoji, "🐋");
     assert.equal(findKit("rato").emoji, "🐀");
     assert.equal(findKit("gordo").emoji, "🍔");
+    assert.equal(findKit("copas").emoji, "❤️");
+    assert.equal(findKit("palhacada").emoji, "🤡");
+    assert.equal(findKit("palhacada").name, "Palhaçada FC");
+    assert.equal(findKit("palhacada").angle, 60);
+    assert.equal(findKit("palhacada").text, 0xffffff);
+    assert.deepEqual(findKit("palhacada").colors, [0x00ff6e, 0x0810ff, 0x002033]);
     assert.equal(findKit("tigre").emoji, "👑");
     assert.equal(findKit("tigre").name, "Amigos do Rei Tigre");
     assert.equal(findKit("tigre").angle, 59);

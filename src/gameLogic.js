@@ -32,9 +32,19 @@ function isValidMatchScores(scores, { scoreLimit = 3, timeLimitMin = 4, endByVic
   return hitScore || (enoughTime && hasWinner) || endByVictory;
 }
 
+/** Capitão manda `1` / `top` / `!1` / `!top` — o `!` é opcional. */
+function chooseTokenKey(token) {
+  let mode = String(token || "")
+    .trim()
+    .split(/\s+/)[0]
+    .toLowerCase();
+  if (mode.startsWith("!")) mode = mode.slice(1);
+  return mode;
+}
+
 function pickFromSpecList(spec, token) {
   if (!spec?.length) return null;
-  const mode = String(token || "").toLowerCase();
+  const mode = chooseTokenKey(token);
   if (mode === "top" || mode === "auto") return spec[0];
   if (mode === "bottom" || mode === "bot") return spec[spec.length - 1];
   if (mode === "random" || mode === "rand") {
@@ -46,11 +56,11 @@ function pickFromSpecList(spec, token) {
 }
 
 function isChooseToken(token) {
-  return /^(top|auto|bottom|bot|random|rand|\d+)$/i.test(String(token || ""));
+  return /^(top|auto|bottom|bot|random|rand|\d+)$/i.test(chooseTokenKey(token));
 }
 
 function rememberedChooseMode(token) {
-  const mode = String(token || "").toLowerCase();
+  const mode = chooseTokenKey(token);
   if (mode === "top" || mode === "auto") return "top";
   if (mode === "bottom" || mode === "bot") return "bottom";
   if (mode === "random" || mode === "rand") return "random";
@@ -92,8 +102,8 @@ function canJoinMatchStats(scores) {
 }
 
 /**
- * Ragequit (Wazarr/Fazendão): após saída, times desiguais, placar com
- * diferença de 2+ gols a favor do time maior, e tempo ≥ 5/6 do limite.
+ * Ragequit clássico (Wazarr): depois da saída ficou 4v3, o time maior
+ * está ganhando por 2+, e já estamos nos 5/6 finais do relógio.
  * @returns {null | { winner: 1|2 }}
  */
 function detectRageQuit({ redCount, blueCount, scores }) {
@@ -108,6 +118,24 @@ function detectRageQuit({ redCount, blueCount, scores }) {
     return { winner: 1 };
   }
   return null;
+}
+
+/** 1 gol de diferença só pune no último minuto (gol de ouro conta como fim). */
+const RAGEQUIT_ONE_GOAL_REMAINING_SEC = 60;
+
+function remainingMatchSeconds(scores) {
+  const limit = Number(scores?.timeLimit) || 0;
+  const t = Number(scores?.time) || 0;
+  if (limit <= 0) return 0;
+  return Math.max(0, limit - t);
+}
+
+/** Diff 2+ sempre; diff 1 só no fim da partida. */
+function isDecidedLosingScore(scores) {
+  if (!scores) return false;
+  const diff = Math.abs((scores.red || 0) - (scores.blue || 0));
+  if (diff >= 2) return true;
+  return diff === 1 && remainingMatchSeconds(scores) <= RAGEQUIT_ONE_GOAL_REMAINING_SEC;
 }
 
 function rageQuitMessages(name, reason) {
@@ -137,6 +165,9 @@ module.exports = {
   possessionPercents,
   canJoinMatchStats,
   detectRageQuit,
+  isDecidedLosingScore,
+  remainingMatchSeconds,
+  RAGEQUIT_ONE_GOAL_REMAINING_SEC,
   rageQuitMessages,
   targetTeamSize,
 };

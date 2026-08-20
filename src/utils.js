@@ -74,4 +74,15 @@ function findPlayer(room, ref) {
   return partial.length === 1 ? partial[0] : null;
 }
 
-module.exports = { connToIp, parseDurationToMs, formatDuration, findPlayer, kickReason };
+/** `@nick oi` / `@#12 oi` no começo da mensagem. `oi @nick` continua público. */
+function parseWhisper(message) {
+  const text = String(message || "").trim();
+  const match = text.match(/^@(\S+)(?:\s+([\s\S]+))?$/);
+  if (!match) return null;
+  return {
+    mention: match[1],
+    body: String(match[2] || "").trim(),
+  };
+}
+
+module.exports = { connToIp, parseDurationToMs, formatDuration, findPlayer, parseWhisper, kickReason };

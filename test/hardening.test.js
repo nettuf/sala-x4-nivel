@@ -193,6 +193,74 @@ describe("moderação", () => {
     assert.ok(r.announcements.some((a) => a.to === 1 && /não registrado/i.test(a.msg)));
   });
 
+  it("!banauth sem admin é recusado", async () => {
+    const r = room([{ id: 1, name: "Jogador", team: 0, auth: "a1" }]);
+    const ctx = { admins: new Map(), mutes: new Map(), auths: new Map(), conns: new Map(), titles: new Map() };
+    const cmd = createCommandHandler(r, ctx);
+    await cmd.handle(r._players[0], "!banauth abc 30m x");
+    assert.equal(r.kicks.length, 0);
+    assert.ok(r.announcements.some((a) => /Sem permissão/i.test(a.msg)));
+  });
+
+  it("!banauth kicka quem está na sala com aquela auth", async () => {
+    const r = room([
+      { id: 1, name: "Chefe", team: 0, auth: "a1" },
+      { id: 2, name: "Trollzao", team: 0, auth: "AUTH-TROLL" },
+    ]);
+    const ctx = {
+      admins: new Map([[1, { level: 4 }]]),
+      mutes: new Map(),
+      auths: new Map(),
+      conns: new Map(),
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(r, ctx);
+    await cmd.handle(r._players[0], "!banauth AUTH-TROLL 30m spam");
+    assert.equal(r.kicks.length, 1);
+    assert.equal(r.kicks[0].id, 2);
+    assert.ok(!r.announcements.some((a) => a.to == null && String(a.msg).includes("AUTH-TROLL")));
+  });
+
+  it("!banauth não bane staff de cargo igual ou maior", async () => {
+    const r = room([
+      { id: 1, name: "Estagiario", team: 0, auth: "a1" },
+      { id: 2, name: "Chefe", team: 0, auth: "CHEFE-AUTH" },
+    ]);
+    const ctx = {
+      admins: new Map([
+        [1, { level: 1 }],
+        [2, { level: 4 }],
+      ]),
+      mutes: new Map(),
+      auths: new Map(),
+      conns: new Map(),
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(r, ctx);
+    await cmd.handle(r._players[0], "!banauth CHEFE-AUTH perm x");
+    assert.equal(r.kicks.length, 0);
+    assert.ok(r.announcements.some((a) => /não pode banir/i.test(a.msg)));
+  });
+
+  it("!unbanauth pede auth e não joga a chave no chat público", async () => {
+    const r = room([{ id: 1, name: "Mod", team: 0, auth: "a1" }]);
+    const ctx = {
+      admins: new Map([[1, { level: 3 }]]),
+      mutes: new Map(),
+      auths: new Map(),
+      conns: new Map(),
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(r, ctx);
+    await cmd.handle(r._players[0], "!unbanauth");
+    assert.ok(r.announcements.some((a) => a.to === 1 && /Uso: !unbanauth/i.test(a.msg)));
+    r.announcements.length = 0;
+    await cmd.handle(r._players[0], "!unbanauth SEGREDO_AUTH");
+    const publicMsgs = r.announcements.filter((a) => a.to == null);
+    assert.ok(!publicMsgs.some((a) => a.msg.includes("SEGREDO_AUTH")));
+    assert.ok(r.announcements.some((a) => a.to === 1 && /unban por auth|nenhum ban/i.test(a.msg)));
+  });
+
   it("unmute por auth não expõe a auth no chat público", async () => {
     const r = room([{ id: 1, name: "Mod", team: 0, auth: "a1" }]);
     const ctx = {

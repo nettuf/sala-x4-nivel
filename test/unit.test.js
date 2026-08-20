@@ -8,6 +8,7 @@ const {
   parseDurationToMs,
   formatDuration,
   findPlayer,
+  parseWhisper,
 } = require("../src/utils");
 const {
   attributeGoal,
@@ -20,6 +21,7 @@ const {
   possessionPercents,
   canJoinMatchStats,
   detectRageQuit,
+  isDecidedLosingScore,
   rageQuitMessages,
   targetTeamSize,
 } = require("../src/gameLogic");
@@ -64,6 +66,14 @@ describe("utils", () => {
     assert.equal(findPlayer(room, "bale").name, "Baleio");
     assert.equal(findPlayer(room, "#99"), null);
   });
+
+  it("parseWhisper só no começo da mensagem", () => {
+    assert.deepEqual(parseWhisper("@Netto eae"), { mention: "Netto", body: "eae" });
+    assert.deepEqual(parseWhisper("@#3 bora"), { mention: "#3", body: "bora" });
+    assert.deepEqual(parseWhisper("@Netto"), { mention: "Netto", body: "" });
+    assert.equal(parseWhisper("oi @Netto"), null);
+    assert.equal(parseWhisper("!t bola"), null);
+  });
 });
 
 describe("gameLogic", () => {
@@ -95,11 +105,21 @@ describe("gameLogic", () => {
   it("pickFromSpecList top/bottom/numero", () => {
     const spec = [{ name: "a" }, { name: "b" }, { name: "c" }];
     assert.equal(pickFromSpecList(spec, "top").name, "a");
+    assert.equal(pickFromSpecList(spec, "auto").name, "a");
     assert.equal(pickFromSpecList(spec, "bottom").name, "c");
+    assert.equal(pickFromSpecList(spec, "bot").name, "c");
     assert.equal(pickFromSpecList(spec, "2").name, "b");
+    assert.equal(pickFromSpecList(spec, "!2").name, "b");
+    assert.equal(pickFromSpecList(spec, "!top").name, "a");
+    assert.equal(pickFromSpecList(spec, "TOP").name, "a");
+    assert.equal(pickFromSpecList(spec, "  3  extra").name, "c");
+    assert.equal(pickFromSpecList(spec, "0"), null);
     assert.equal(pickFromSpecList(spec, "9"), null);
     assert.equal(isChooseToken("top"), true);
+    assert.equal(isChooseToken("!1"), true);
+    assert.equal(isChooseToken("!top"), true);
     assert.equal(isChooseToken("!help"), false);
+    assert.equal(isChooseToken("oi"), false);
   });
 
   it("targetTeamSize: 7→3v3, 5→2v2, 3→1v1, 8+→4v4", () => {
@@ -116,7 +136,9 @@ describe("gameLogic", () => {
     assert.equal(rememberedChooseMode("auto"), "top");
     assert.equal(rememberedChooseMode("bot"), "bottom");
     assert.equal(rememberedChooseMode("rand"), "random");
+    assert.equal(rememberedChooseMode("!top"), "top");
     assert.equal(rememberedChooseMode("2"), null);
+    assert.equal(rememberedChooseMode("!2"), null);
   });
 
   it("formatMatchClock e posse", () => {
@@ -152,6 +174,15 @@ describe("gameLogic", () => {
       detectRageQuit({ redCount: 4, blueCount: 3, scores: { ...scores, time: 10 } }),
       null
     );
+  });
+
+  it("isDecidedLosingScore: 2+ sempre; 1 gol só no último minuto", () => {
+    assert.equal(isDecidedLosingScore({ red: 2, blue: 0, time: 10, timeLimit: 240 }), true);
+    assert.equal(isDecidedLosingScore({ red: 3, blue: 1, time: 20, timeLimit: 240 }), true);
+    assert.equal(isDecidedLosingScore({ red: 1, blue: 0, time: 40, timeLimit: 240 }), false);
+    assert.equal(isDecidedLosingScore({ red: 1, blue: 0, time: 170, timeLimit: 240 }), false);
+    assert.equal(isDecidedLosingScore({ red: 1, blue: 0, time: 185, timeLimit: 240 }), true);
+    assert.equal(isDecidedLosingScore({ red: 1, blue: 1, time: 200, timeLimit: 240 }), false);
   });
 
   it("rageQuitMessages menciona o nick no público e no PV", () => {
