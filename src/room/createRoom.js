@@ -159,6 +159,10 @@ function createRoom(HBInit) {
     onPickFromSpec() {
       // AFK não aparece na lista: quem é escolhido aqui já está ativo.
     },
+    onCaptainTimeout(player) {
+      // Só marca AFK: o choose já mandou pro spec e passa o pick.
+      afk.noteAfk(player.id);
+    },
     onAborted() {
       // Choose sem candidatos: volta ao lobby em vez de ficar ativo para sempre.
       if (!match.isCompetitive()) refreshLobby();

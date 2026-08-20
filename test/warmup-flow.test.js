@@ -339,7 +339,7 @@ describe("escolha de reposição", () => {
     assert.equal(ready, 1);
   });
 
-  it("lembra top/random/bottom e repete no próximo pick do mesmo capitão", () => {
+  it("top/bottom só valem para um pick; com gente sobrando o capitão escolhe de novo", () => {
     const players = [
       p(1, TEAM.RED), p(11, TEAM.RED), p(12, TEAM.RED), p(13, TEAM.RED),
       p(2, TEAM.BLUE),
@@ -363,12 +363,11 @@ describe("escolha de reposição", () => {
     choose.continueFromField();
     const blueCap = players.find((player) => player.id === 2);
     assert.equal(choose.handleCaptainChat(blueCap, "top"), true);
-    assert.equal(choose.bothFull(), true);
-    assert.equal(ready, 1);
-    assert.deepEqual(
-      choose.list().blue.map((player) => player.id).sort((a, b) => a - b),
-      [2, 4, 5, 6]
-    );
+    assert.equal(choose.bothFull(), false);
+    assert.equal(ready, 0);
+    assert.equal(choose.isActive(), true);
+    assert.equal(choose.list().blue.length, 2);
+    assert.equal(players.find((player) => player.id === 4).team, TEAM.BLUE);
   });
 
   it("sem streak, diff 2 no choose devolve o último escolhido ao spec", () => {

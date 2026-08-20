@@ -261,7 +261,7 @@ describe("choose: pick do capitão", () => {
     host.cleanup();
   });
 
-  it("bottom/top/random valem como pick e o modo fica lembrado", async () => {
+  it("bottom/top/random valem como pick; com gente sobrando o capitão escolhe de novo", async () => {
     const host = bootRoom();
     startChoose(host);
     const specs = host.handles.choose.list().specReady;
@@ -272,7 +272,29 @@ describe("choose: pick do capitão", () => {
     await settle();
 
     assert.equal(host.find(ultimo.id).team, TEAM.BLUE, "bottom pega o último da lista");
-    assert.equal(host.teamCount(TEAM.BLUE), 4, "o modo lembrado fecha o time sozinho");
+    assert.equal(host.teamCount(TEAM.BLUE), 2, "só um pick por vez");
+    assert.equal(host.handles.choose.isActive(), true, "ainda tem vaga e sobra no spec → escolhe de novo");
+    host.cleanup();
+  });
+
+  it("3 vagas e 7 specs: capitão escolhe; 3 vagas e 3 specs: completa sozinho", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+    host.addPlayer(TEAM.BLUE);
+    for (let i = 0; i < 7; i++) host.addPlayer(TEAM.SPEC);
+    host.handles.choose.continueFromField();
+
+    assert.equal(host.handles.choose.isActive(), true);
+    assert.equal(host.teamCount(TEAM.BLUE), 1, "não puxa os 3 primeiros com gente sobrando");
+    assert.ok(host.lastSpecList(), "manda a lista para o capitão escolher");
+
+    // Reduz para exatamente 3 specs → 3 vagas.
+    const extras = host.handles.choose.list().specReady.slice(3);
+    for (const s of extras) host.handles.afk.setAfk(host.find(s.id), true);
+    await settle();
+
+    assert.equal(host.teamCount(TEAM.BLUE), 4);
+    assert.ok(host.said(/bot completou os times/i));
     host.cleanup();
   });
 
@@ -350,17 +372,77 @@ describe("choose: pick do capitão", () => {
     host.cleanup();
   });
 
-  it("capitão que não escolhe a tempo é kickado", async () => {
+  it("capitão que não escolhe a tempo vai AFK e o próximo picka", async () => {
     const host = bootRoom();
     const anterior = config.chooseTimeSec;
     config.chooseTimeSec = 0.2;
     try {
-      startChoose(host);
-      const cap = host.handles.choose.currentCaptain();
-      await new Promise((r) => setTimeout(r, 400));
+      // 4v2 para o time que picka ter um 2º que herda o capitão.
+      for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+      const cap = host.addPlayer(TEAM.BLUE);
+      const segundo = host.addPlayer(TEAM.BLUE);
+      for (let i = 0; i < 4; i++) host.addPlayer(TEAM.SPEC);
+      host.handles.choose.continueFromField();
 
-      assert.ok(host.kicks.some((k) => k.id === cap.id), "capitão parado no choose sai");
-      assert.match(host.kicks[0].reason, /não escolheu a tempo/i);
+      assert.equal(host.handles.choose.currentCaptain().id, cap.id);
+      await new Promise((r) => setTimeout(r, 250));
+
+      assert.equal(host.kicks.length, 0, "não kicka mais por timeout no choose");
+      assert.equal(host.handles.afk.isAfk(cap.id), true);
+      assert.equal(host.find(cap.id).team, TEAM.SPEC, "foi pro fim da fila (spec AFK)");
+      assert.ok(!host.handles.choose.list().specReady.some((p) => p.id === cap.id));
+      assert.equal(host.handles.choose.isActive(), true);
+      assert.equal(host.handles.choose.currentCaptain()?.id, segundo.id, "o 2º do time herda o pick");
+    } finally {
+      config.chooseTimeSec = anterior;
+      host.cleanup();
+    }
+  });
+
+  it("timeout no 4v3 com gente sobrando: próximo picka, não auto-completa", async () => {
+    const host = bootRoom();
+    const anterior = config.chooseTimeSec;
+    config.chooseTimeSec = 0.2;
+    try {
+      for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+      host.addPlayer(TEAM.BLUE);
+      host.addPlayer(TEAM.BLUE);
+      host.addPlayer(TEAM.BLUE);
+      const s1 = host.addPlayer(TEAM.SPEC);
+      for (let i = 0; i < 4; i++) host.addPlayer(TEAM.SPEC); // sobra > vagas
+      host.handles.choose.continueFromField();
+
+      assert.equal(host.handles.choose.currentCaptain().team, TEAM.BLUE);
+      await new Promise((r) => setTimeout(r, 250));
+
+      assert.equal(host.find(s1.id).team, TEAM.SPEC, "com gente sobrando ninguém entra sozinho");
+      assert.equal(host.teamCount(TEAM.BLUE), 2, "time azul perdeu o capitão AFK");
+      assert.equal(host.handles.choose.isActive(), true);
+      assert.equal(host.live(), null);
+      assert.ok(host.handles.choose.currentCaptain(), "próximo capitão ainda picka");
+    } finally {
+      config.chooseTimeSec = anterior;
+      host.cleanup();
+    }
+  });
+
+  it("timeout que deixa vagas = specs completa sozinho", async () => {
+    const host = bootRoom();
+    const anterior = config.chooseTimeSec;
+    config.chooseTimeSec = 0.2;
+    try {
+      for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+      host.addPlayer(TEAM.BLUE);
+      host.addPlayer(TEAM.BLUE);
+      host.addPlayer(TEAM.BLUE);
+      host.addPlayer(TEAM.SPEC);
+      host.addPlayer(TEAM.SPEC); // após AFK do cap: 2 vagas e 2 specs
+      host.handles.choose.continueFromField();
+      await new Promise((r) => setTimeout(r, 250));
+
+      assert.equal(host.teamCount(TEAM.BLUE), 4);
+      assert.ok(host.said(/bot completou os times|AFK no fim da fila/i));
+      assert.equal(host.handles.choose.isActive(), false);
     } finally {
       config.chooseTimeSec = anterior;
       host.cleanup();

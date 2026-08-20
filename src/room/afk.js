@@ -285,6 +285,9 @@ function createAfkTracker(room, opts = {}) {
     touch,
     remove,
     isAfk,
+    noteAfk(playerId) {
+      markAfk(playerId);
+    },
     setAfk,
     ensureReserveSlots,
     sampleMovement,

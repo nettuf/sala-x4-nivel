@@ -24,6 +24,9 @@ function setup(players, { excluded = new Set(), scores = null, streak = 0 } = {}
     onReadyToStart: () => {},
     isExcluded: (player) => excluded.has(player.id),
     getStreak: () => streak,
+    onCaptainTimeout(player) {
+      excluded.add(player.id);
+    },
   });
   return { room, choose, announcements, excluded, kicks };
 }
@@ -443,7 +446,7 @@ describe("capitão e lista de pick", () => {
     assert.equal(choose.handleCaptainChat(players[0], "1"), false);
   });
 
-  it("4v3: timeout kicka o azul, não o vermelho cheio", async () => {
+  it("4v3: timeout manda o azul AFK; com specs sobrando o próximo picka", async () => {
     const prev = config.chooseTimeSec;
     config.chooseTimeSec = 0.05;
     const players = [
@@ -456,15 +459,19 @@ describe("capitão e lista de pick", () => {
       p(23, TEAM.BLUE),
       p(4),
       p(5),
+      p(6),
+      p(7),
+      p(8),
     ];
-    const { choose, kicks } = setup(players);
+    const { choose, kicks, excluded } = setup(players);
     choose.continueFromField();
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    assert.ok(
-      kicks.some((k) => k.id === 2 && /tempo|AFK/i.test(k.reason)),
-      `kick do azul esperado, got ${JSON.stringify(kicks)}`
-    );
-    assert.ok(kicks.every((k) => ![1, 11, 12, 13].includes(k.id)));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(kicks.length, 0, "timeout não kicka");
+    assert.equal(players.find((row) => row.id === 2).team, TEAM.SPEC);
+    assert.equal(excluded.has(2), true);
+    assert.equal(choose.isActive(), true);
+    assert.equal(choose.currentCaptain()?.id, 22, "2º do azul herda o pick");
+    assert.ok(players.filter((row) => row.team === TEAM.RED).every((row) => [1, 11, 12, 13].includes(row.id)));
     config.chooseTimeSec = prev;
   });
 });
@@ -560,35 +567,31 @@ describe("matriz de pick do capitão", () => {
     assert.equal(choose.isActive(), true);
   });
 
-  it("top / auto / TOP / !top pegam o 1º e repetem sozinhos até fechar", () => {
+  it("top / auto / TOP / !top pegam o 1º; o próximo pick o capitão escolhe de novo", () => {
     for (const token of ["top", "auto", "TOP", "!top"]) {
       const players = winnersAndSpecs(4);
       const { choose } = setup(players);
       choose.continueFromField();
       const cap = blueCap(choose);
-      const firstThree = choose.list().specReady.slice(0, 3).map((row) => row.id);
+      const first = choose.list().specReady[0].id;
       assert.equal(choose.handleCaptainChat(cap, token), true, token);
-      assert.equal(choose.isActive(), false, token);
-      assert.deepEqual(
-        choose.list().blue.slice(1).map((row) => row.id),
-        firstThree
-      );
+      assert.equal(choose.isActive(), true, token);
+      assert.equal(choose.list().blue.length, 2, token);
+      assert.equal(players.find((row) => row.id === first).team, TEAM.BLUE, token);
     }
   });
 
-  it("bottom / bot / !bottom pegam o último e repetem sozinhos", () => {
+  it("bottom / bot / !bottom pegam o último; o próximo pick o capitão escolhe de novo", () => {
     const players = winnersAndSpecs(4);
     const { choose } = setup(players);
     choose.continueFromField();
     const cap = blueCap(choose);
     const ready = choose.list().specReady.map((row) => row.id);
     assert.equal(choose.handleCaptainChat(cap, "bottom"), true);
-    assert.equal(choose.isActive(), false);
-    assert.deepEqual(
-      choose.list().blue.slice(1).map((row) => row.id).sort((a, b) => a - b),
-      [ready[3], ready[2], ready[1]].sort((a, b) => a - b)
-    );
+    assert.equal(choose.isActive(), true, "com specs sobrando não fecha sozinho");
+    assert.equal(players.find((row) => row.id === ready[3]).team, TEAM.BLUE);
     assert.equal(players.find((row) => row.id === ready[0]).team, TEAM.SPEC);
+    assert.equal(choose.list().blue.length, 2);
   });
 
   it("bottom com AFK no spec pega o último pronto, não o AFK", () => {

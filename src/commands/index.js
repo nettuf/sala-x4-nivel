@@ -317,7 +317,7 @@ function createCommandHandler(room, ctx) {
       const list = room
         .getPlayerList()
         .filter((p) => p.id !== 0 && ctx.afk?.isAfk(p.id))
-        .map((p) => `#${p.id} ${p.name}`);
+        .map((p) => p.name);
       room.sendAnnouncement(
         list.length ? `😴 AFKs (${list.length}): ${list.join(" · ")}` : "Ninguém está AFK.",
         player.id,

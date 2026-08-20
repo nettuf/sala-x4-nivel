@@ -9,7 +9,7 @@ const {
   canJoinMatchStats,
   isDecidedLosingScore,
 } = require("../gameLogic");
-const { pickMatchMvps } = require("../titles");
+const { pickMatchMvps, pickMatchWorst } = require("../titles");
 
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
@@ -346,6 +346,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     match.goals = goals;
     const players = buildPlayersPayload(finalScores, winner, lineupRed, lineupBlue);
     const mvps = valid ? pickMatchMvps(players) : [];
+    const worst = valid ? pickMatchWorst(players) : [];
     const poss = possessionPercents(redPoss, bluePoss);
 
     const snapshot = {
@@ -378,6 +379,10 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       if (mvps.length) {
         const names = mvps.map((p) => p.nick).join(", ");
         room.sendAnnouncement(`⭐ MVP: ${names}`, null, 0xf1c40f, "bold", 2);
+      }
+      if (worst.length) {
+        const names = worst.map((p) => p.nick).join(", ");
+        room.sendAnnouncement(`💩 Pior: ${names}`, null, 0xe67e22, "bold", 2);
       }
 
       try {

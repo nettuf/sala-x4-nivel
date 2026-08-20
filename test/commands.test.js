@@ -292,7 +292,8 @@ describe("comandos (mock room)", () => {
     room.announcements.length = 0;
     await cmd.handle(room._players[0], "!afks");
     const msg = room.announcements.find((a) => /AFKs/i.test(a.msg))?.msg || "";
-    assert.match(msg, /#3 Spec/);
+    assert.match(msg, /Spec/);
+    assert.equal(/#\d+/.test(msg), false, "não mostra #id");
     assert.equal(msg.includes("RedCap"), false);
     afk.stop();
   });

@@ -86,6 +86,9 @@ function createMockRoomHost() {
     onPickFromSpec(p) {
       voluntaryAfk.delete(p.id);
     },
+    onCaptainTimeout(player) {
+      voluntaryAfk.add(player.id);
+    },
     onReadyToStart() {
       readyStarts += 1;
       const eligible = players.filter((p) => p.id !== 0 && !voluntaryAfk.has(p.id));
@@ -1263,17 +1266,18 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("capitão AFK no choose → kick por tempo", async () => {
+  it("capitão AFK no choose → vai pro spec; se sobrar gente o próximo picka", async () => {
     const host = createMockRoomHost();
     const prev = config.chooseTimeSec;
     config.chooseTimeSec = 0.05;
-    await host.enterChoose();
+    await host.enterChoose({ extra: 4 }); // 4 vagas azuis? 4 red + 1 blue + 8 specs
     const capId = host.currentCaptain().id;
-    await new Promise((r) => setTimeout(r, 120));
-    assert.ok(
-      host.kicks.some((k) => k.id === capId && /tempo|AFK/i.test(k.reason)),
-      `kick esperado, got ${JSON.stringify(host.kicks)}`
-    );
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(host.kicks.some((k) => k.id === capId), false, "não kicka");
+    const parked = host.players.find((p) => p.id === capId);
+    assert.equal(parked?.team, TEAM.SPEC);
+    assert.equal(host.snapshot().chooseActive, true, "com specs sobrando o choose segue");
+    assert.notEqual(host.currentCaptain()?.id, capId);
     config.chooseTimeSec = prev;
     host.cleanup();
   });

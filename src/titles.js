@@ -232,6 +232,11 @@ function chatColor(title) {
   return title?.color ?? 0xecf0f1;
 }
 
+/** Contribuição: gols*2 + assists − GC*2. */
+function matchContribution(p) {
+  return (p.goals || 0) * 2 + (p.assists || 0) - (p.own_goals || 0) * 2;
+}
+
 /**
  * MVP da partida: maior (gols*2 + assists), mínimo 1 ponto.
  * Empate: todos com a pontuação máxima.
@@ -244,6 +249,21 @@ function pickMatchMvps(players) {
   const max = Math.max(0, ...scored.map((p) => p.score));
   if (max < 1) return [];
   return scored.filter((p) => p.score === max);
+}
+
+/**
+ * Pior da partida: menor contribuição (gols/assist − GC).
+ * Sem anúncio se todo mundo empatou. MVP da partida não pode ser pior.
+ */
+function pickMatchWorst(players) {
+  const list = players || [];
+  if (list.length < 2) return [];
+  const scored = list.map((p) => ({ ...p, score: matchContribution(p) }));
+  const min = Math.min(...scored.map((p) => p.score));
+  const max = Math.max(...scored.map((p) => p.score));
+  if (min === max) return [];
+  const mvpAuths = new Set(pickMatchMvps(list).map((p) => p.auth).filter(Boolean));
+  return scored.filter((p) => p.score === min && (!p.auth || !mvpAuths.has(p.auth)));
 }
 
 function reqLabel(req, title) {
@@ -273,5 +293,7 @@ module.exports = {
   formatChatPrefix,
   chatColor,
   pickMatchMvps,
+  pickMatchWorst,
+  matchContribution,
   reqLabel,
 };

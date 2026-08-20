@@ -1,12 +1,11 @@
 const config = require("../config");
-const { kickReason } = require("../utils");
-const { pickFromSpecList, isChooseToken, rememberedChooseMode, targetTeamSize } = require("../gameLogic");
+const { pickFromSpecList, isChooseToken, targetTeamSize } = require("../gameLogic");
 
 const TEAM = { SPEC: 0, RED: 1, BLUE: 2 };
 
 /**
  * Choose mode x4: capitães (1º de cada time) escolhem specs até 4v4.
- * @param {{ onReadyToStart: Function, isExcluded?: (player: object) => boolean, getStreakLabel?: () => string, getStreak?: () => number, deferAfterTeamChange?: (callback: Function) => void }} opts
+ * @param {{ onReadyToStart: Function, isExcluded?: (player: object) => boolean, getStreakLabel?: () => string, getStreak?: () => number, deferAfterTeamChange?: (callback: Function) => void, onCaptainTimeout?: (player: object) => void }} opts
  */
 function createChooseController(room, {
   onReadyToStart,
@@ -16,13 +15,13 @@ function createChooseController(room, {
   deferAfterTeamChange,
   onPickFromSpec,
   onAborted,
+  onCaptainTimeout,
 }) {
   let active = false;
   let timeout = null;
   let replacement = null;
   let lockedSize = 0;
   const pendingTeams = new Map();
-  const lastMode = { [TEAM.RED]: "", [TEAM.BLUE]: "" };
 
   function excluded(p) {
     return typeof isExcluded === "function" ? !!isExcluded(p) : false;
@@ -168,8 +167,9 @@ function createChooseController(room, {
   }
 
   /**
-   * Spec pronto fecha exatamente as vagas (2 ou 3, etc.): puxa na ordem, sem pick.
-   * AFKs ficam de fora. Reposição só auto-puxa quando resta 1 candidato.
+   * Só completa sozinho quando sobra exatamente o número de vagas no spec
+   * (ex.: 3 vagas e 3 specs). Se tem mais gente que vaga (3 vagas, 7 specs),
+   * o capitão escolhe sempre. AFKs não contam. Na reposição: auto só com 1 candidato.
    */
   function tryFillExactHoles() {
     if (!active) return false;
@@ -185,6 +185,7 @@ function createChooseController(room, {
 
     const holes = holesByTeam();
     const need = holes.red + holes.blue;
+    // Mais specs que vagas → pick. Menos → abort em outro lugar. Igual → puxa todos.
     if (need <= 0 || specReady.length !== need) return false;
 
     let i = 0;
@@ -220,11 +221,11 @@ function createChooseController(room, {
     else if (typeof onAborted === "function") afterTeamChange(onAborted);
   }
 
-  function promptCaptain() {
+  function promptCaptain({ allowExactFill = true } = {}) {
     clearCapTimeout();
     if (!active) return;
     if (tryFinishChoose()) return;
-    if (tryFillExactHoles()) return;
+    if (allowExactFill && tryFillExactHoles()) return;
 
     const cap = currentCaptain();
     const team = teamForCaptain(cap);
@@ -236,6 +237,8 @@ function createChooseController(room, {
     if (!replacement && !teamHasHole(team)) return;
 
     const { specReady, spec } = list();
+    // Única opção restante: entra sozinho. Com 2+ specs o capitão escolhe sempre
+    // (mesmo se já tiver usado top/bottom antes — não encadear no automático).
     if (specReady.length === 1 && teamHasHole(team)) {
       applyCaptainPick(cap, specReady[0], team, "");
       return;
@@ -247,15 +250,6 @@ function createChooseController(room, {
           : "Sem jogadores no spec — voltando ao lobby."
       );
       return;
-    }
-
-    const remembered = !replacement && lastMode[team];
-    if (remembered && specReady.length) {
-      const chosen = pickSpec(remembered);
-      if (chosen) {
-        applyCaptainPick(cap, chosen, team, remembered);
-        return;
-      }
     }
 
     announceSpecList(cap.id);
@@ -280,11 +274,40 @@ function createChooseController(room, {
           return;
         }
         if (tryFinishChoose()) return;
-        room.kickPlayer(capId, kickReason("Não escolheu a tempo (AFK no choose)"), false);
+        // Antes kickava e o onPlayerLeave às vezes preenchia as vagas
+        // sozinho ("pegou os primeiros"). Agora: AFK no fim da fila e o
+        // próximo do time picka.
+        parkTimedOutCaptain(cap);
       }, (chooseTime / 2) * 1000);
       if (typeof timeout.unref === "function") timeout.unref();
     }, (chooseTime / 2) * 1000);
     if (typeof timeout.unref === "function") timeout.unref();
+  }
+
+  /**
+   * Capitão não escolheu a tempo: AFK no spec (fim da fila) e o próximo picka.
+   * Se depois disso sobrar exatamente N vagas e N specs, aí sim completa sozinho.
+   */
+  function parkTimedOutCaptain(cap) {
+    if (!cap) return;
+    clearCapTimeout();
+    const team = cap.team;
+    setTeam(cap.id, TEAM.SPEC);
+    if (typeof onCaptainTimeout === "function") onCaptainTimeout(cap);
+    room.sendAnnouncement(
+      `${cap.name} não escolheu a tempo — AFK no fim da fila.`,
+      null,
+      0xe67e22,
+      "bold",
+      1
+    );
+
+    const side = team === TEAM.RED ? list().red : list().blue;
+    if (side.length) {
+      promptCaptain();
+      return;
+    }
+    onPlayerLeave({ skipId: cap.id });
   }
 
   function bothFull() {
@@ -329,8 +352,6 @@ function createChooseController(room, {
     lockedSize = 0;
     clearCapTimeout();
     replacement = null;
-    lastMode[TEAM.RED] = "";
-    lastMode[TEAM.BLUE] = "";
   }
 
   function activate() {
@@ -530,9 +551,6 @@ function createChooseController(room, {
     }
 
     clearCapTimeout();
-    if (!replacement) {
-      lastMode[team] = rememberedChooseMode(token) || lastMode[team];
-    }
     if (excluded(chosen)) {
       promptCaptain();
       return true;
@@ -598,7 +616,7 @@ function createChooseController(room, {
     return applyCaptainPick(player, chosen, team, token);
   }
 
-  function onPlayerLeave({ skipId = null } = {}) {
+  function onPlayerLeave({ skipId = null, allowExactFill = true } = {}) {
     if (!active) return;
     if (replacement) {
       const cap = currentCaptain();
@@ -659,7 +677,7 @@ function createChooseController(room, {
       }
     }
 
-    if (tryFillExactHoles()) return;
+    if (allowExactFill && tryFillExactHoles()) return;
 
     // Times iguais e quase sem spec pronto → se 4v4 pronto, inicia
     if (red.length === blue.length && specReady.length < 2 && bothFull()) {
@@ -668,7 +686,7 @@ function createChooseController(room, {
       return;
     }
 
-    promptCaptain();
+    promptCaptain({ allowExactFill });
   }
 
   return {

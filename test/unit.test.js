@@ -30,6 +30,7 @@ const {
   isUnlocked,
   resolveTitle,
   pickMatchMvps,
+  pickMatchWorst,
   formatChatPrefix,
   applyUnlockUpgrade,
   reqLabel,
@@ -333,6 +334,32 @@ describe("titles / cargos", () => {
     ]);
     assert.equal(mvps.length, 1);
     assert.equal(mvps[0].auth, "a");
+  });
+
+  it("pickMatchWorst: menor contribuição e GC piora", () => {
+    const worst = pickMatchWorst([
+      { auth: "a", nick: "A", goals: 2, assists: 0, own_goals: 0 },
+      { auth: "b", nick: "B", goals: 0, assists: 0, own_goals: 0 },
+      { auth: "c", nick: "C", goals: 0, assists: 0, own_goals: 1 },
+    ]);
+    assert.equal(worst.length, 1);
+    assert.equal(worst[0].auth, "c");
+  });
+
+  it("pickMatchWorst: empate total não anuncia; MVP não é pior", () => {
+    assert.deepEqual(
+      pickMatchWorst([
+        { auth: "a", nick: "A", goals: 0, assists: 0 },
+        { auth: "b", nick: "B", goals: 0, assists: 0 },
+      ]),
+      []
+    );
+    const worst = pickMatchWorst([
+      { auth: "a", nick: "A", goals: 1, assists: 0 },
+      { auth: "b", nick: "B", goals: 0, assists: 0 },
+    ]);
+    assert.equal(worst.length, 1);
+    assert.equal(worst[0].auth, "b");
   });
 
   it("formatChatPrefix é um único emoji, sem nomes", () => {
