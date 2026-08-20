@@ -988,6 +988,10 @@ describe("fluxo por estágios da sala", () => {
     host.match.onBallKick(a);
     host.match.onTeamGoal(TEAM.RED);
 
+    const goalMsg = host.announcements.map((a) => a.msg).join("\n");
+    assert.match(goalMsg, /Gol de .*Assist:/);
+    assert.equal(/km\/h/.test(goalMsg), false);
+
     const attr = attributeGoal(
       [
         { name: a.name, auth: a.auth, team: 1 },
@@ -1424,11 +1428,12 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("choose mostra streak na mensagem de pick", async () => {
+  it("choose mostra streak na mensagem de pick, sem anúncio público", async () => {
     const host = createMockRoomHost();
     await host.enterChoose();
+    assert.equal(host.announcements.some((a) => /Choose ativado/i.test(a.msg)), false);
     assert.ok(
-      host.announcements.some((a) => /Choose.*streak/i.test(a.msg)),
+      host.announcements.some((a) => /Escolha em .*streak/i.test(a.msg)),
       `msgs: ${host.announcements.map((a) => a.msg).join(" | ")}`
     );
     host.cleanup();

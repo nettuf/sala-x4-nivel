@@ -1,145 +1,14 @@
-process.env.HAXBALL_TOKEN = process.env.HAXBALL_TOKEN || "thr-test";
-
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 
-const config = require("../src/config");
-const { createRoom } = require("../src/room/createRoom");
-const { TEAM } = require("../src/room/choose");
-
-/**
- * Sala real (createRoom) rodando sobre um Haxball de mentira.
- *
- * Só as ações feitas pelo teste (admin/jogador) disparam eventos — movimentos
- * internos do bot apenas mudam o estado, como no headless, evitando recursão.
- */
-function bootRoom() {
-  const players = [];
-  const announcements = [];
-  const kicks = [];
-  const pauses = [];
-  let scores = null;
-  let nextId = 1;
-
-  const snapshot = (p) => ({ ...p });
-
-  const room = {
-    getPlayerList: () => players.map(snapshot),
-    getScores: () => scores,
-    getBallPosition: () => ({ x: 0, y: 0 }),
-    getDiscProperties: () => ({ xspeed: 0, yspeed: 0 }),
-    getPlayerDiscProperties: (id) => discs.get(id) || null,
-    setPlayerTeam: (id, team) => {
-      const p = players.find((x) => x.id === id);
-      if (p) p.team = team;
-    },
-    setPlayerAdmin: () => {},
-    sendAnnouncement: (msg, to, color) => announcements.push({ msg, to, color }),
-    kickPlayer: (id, reason) => {
-      kicks.push({ id, reason });
-      const i = players.findIndex((p) => p.id === id);
-      if (i >= 0) players.splice(i, 1);
-    },
-    clearBan: () => {},
-    setCustomStadium: () => {},
-    setDefaultStadium: () => {},
-    setTeamColors: () => {},
-    setScoreLimit: () => {},
-    setTimeLimit: () => {},
-    setTeamsLock: () => {},
-    setKickRateLimit: () => {},
-    startRecording: () => {},
-    stopRecording: () => new Uint8Array([1]),
-    startGame: () => {
-      scores = { red: 0, blue: 0, time: 0, scoreLimit: config.scoreLimit, timeLimit: config.timeLimit * 60 };
-    },
-    stopGame: () => {
-      scores = null;
-    },
-    pauseGame: (on) => {
-      pauses.push(!!on);
-      if (on) room.onGamePause?.();
-      else room.onGameUnpause?.();
-    },
-  };
-
-  /** @type {Map<number, {x:number,y:number}>} */
-  const discs = new Map();
-  const handles = createRoom(() => room);
-
-  function addPlayer(team = TEAM.SPEC, name) {
-    const id = nextId++;
-    const player = { id, name: name || `P${id}`, team, auth: `auth${id}`, conn: `conn${id}` };
-    players.push(player);
-    discs.set(id, { x: id * 10, y: 0 });
-    return player;
-  }
-
-  function startMatch({ competitive = true } = {}) {
-    handles.match.start({ competitive });
-  }
-
-  return {
-    room,
-    handles,
-    players,
-    announcements,
-    kicks,
-    pauses,
-    discs,
-    addPlayer,
-    startMatch,
-    live: () => scores,
-    find: (id) => players.find((p) => p.id === id),
-    /** Admin arrastou alguém para outro time pelo painel do Haxball. */
-    adminMove(target, team, admin) {
-      const p = players.find((x) => x.id === target.id);
-      p.team = team;
-      room.onPlayerTeamChange(snapshot(p), snapshot(admin));
-    },
-    adminPause(on) {
-      pauses.push(!!on);
-      if (on) room.onGamePause();
-      else room.onGameUnpause();
-    },
-    adminKick(target, admin) {
-      const i = players.findIndex((p) => p.id === target.id);
-      const gone = players[i];
-      if (i >= 0) players.splice(i, 1);
-      room.onPlayerLeave(snapshot(gone));
-      room.onPlayerKicked(snapshot(gone), "expulso", false, snapshot(admin));
-    },
-    lastSpecList() {
-      return [...announcements].reverse().find((a) => /^Specs:/.test(a.msg));
-    },
-    cleanup() {
-      handles.afk.stop();
-      handles.chatLog?.stop();
-    },
-  };
-}
-
-function fill4v4(host) {
-  const team = [];
-  for (let i = 0; i < 4; i++) team.push(host.addPlayer(TEAM.RED));
-  for (let i = 0; i < 4; i++) team.push(host.addPlayer(TEAM.BLUE));
-  return team;
-}
-
-/**
- * Choose ligado com um jogador sobrando: assim a sala continua com gente
- * suficiente para o 4v4 mesmo que alguém fique AFK ou saia no meio.
- */
-function startChoose(host) {
-  const all = [];
-  for (let i = 0; i < 4; i++) all.push(host.addPlayer(TEAM.RED));
-  all.push(host.addPlayer(TEAM.BLUE));
-  for (let i = 0; i < 5; i++) all.push(host.addPlayer(TEAM.SPEC));
-  host.handles.choose.continueFromField();
-  return all;
-}
-
-const settle = () => new Promise((r) => setTimeout(r, 150));
+const {
+  bootRoom,
+  fill4v4,
+  startChoose,
+  settle,
+  TEAM,
+  config,
+} = require("./helpers/roomHost");
 
 describe("AFK do jogador parado", () => {
   it("parado em campo cai pro spec e fica AFK; quem mexe continua jogando", () => {
@@ -148,7 +17,7 @@ describe("AFK do jogador parado", () => {
     const parado = all[0];
     host.startMatch();
 
-    // Todos parados há 21s; em seguida só os outros movem o boneco.
+    // Todos parados além do limite; em seguida só os outros movem o boneco.
     const past = Date.now() - config.afkActionMs - 1000;
     for (const p of all) host.handles.afk.touch(p.id, past);
     host.handles.afk.sampleMovement(past);
@@ -162,6 +31,29 @@ describe("AFK do jogador parado", () => {
     assert.equal(host.handles.afk.isAfk(all[1].id), false, "quem mexeu continua ativo");
     assert.equal(host.kicks.length, 0, "sala com vaga não kicka por AFK");
     assert.ok(host.announcements.some((a) => /parado/i.test(a.msg)));
+    host.cleanup();
+  });
+
+  it("dois parados na partida: o primeiro AFK não zera o timer do segundo", () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch();
+    const a = all[0];
+    const b = all[1];
+    const past = Date.now() - config.afkActionMs - 1000;
+    for (const p of all) host.handles.afk.touch(p.id, past);
+    host.handles.afk.sampleMovement(past);
+    for (const p of all.slice(2)) host.discs.set(p.id, { x: p.id * 10 + 80, y: 0 });
+    host.handles.afk.sampleMovement(Date.now());
+
+    const pausesBefore = host.pauses.length;
+    host.handles.afk.tick(Date.now());
+
+    assert.equal(host.find(a.id).team, TEAM.SPEC);
+    assert.equal(host.find(b.id).team, TEAM.SPEC);
+    assert.equal(host.handles.afk.isAfk(a.id), true);
+    assert.equal(host.handles.afk.isAfk(b.id), true);
+    assert.equal(host.pauses.length, pausesBefore, "auto-AFK não pode pausar e zerar os outros");
     host.cleanup();
   });
 
@@ -231,6 +123,92 @@ describe("AFK do jogador parado", () => {
 
     assert.equal(host.handles.afk.isAfk(jogador.id), false);
     assert.ok(host.lastSpecList().msg.includes(`${jogador.name}[`), "volta para a lista");
+    host.cleanup();
+  });
+});
+
+describe("sala se destrava sem admin", () => {
+  it("partida rodando com choose aberto: o capitão ainda consegue pickar", async () => {
+    const host = bootRoom();
+    startChoose(host);
+    host.startMatch();
+    assert.ok(host.live(), "cenário do bug: jogo rodando com choose aberto");
+
+    const cap = host.handles.choose.currentCaptain();
+    const antes = host.handles.choose.list().blue.length;
+    await host.room.onPlayerChat(host.find(cap.id), "1");
+
+    assert.equal(host.handles.choose.list().blue.length, antes + 1);
+    host.cleanup();
+  });
+
+  it("watchdog encerra a partida que ficou rodando incompleta", () => {
+    const host = bootRoom();
+    startChoose(host);
+    host.startMatch();
+
+    assert.equal(host.handles.health.check(), null, "um sintoma só não age");
+    const acted = host.handles.health.check();
+
+    assert.equal(acted.action, "stop-game");
+    assert.equal(host.live(), null, "jogo parado para o lobby remontar");
+    assert.equal(host.handles.choose.isActive(), false);
+    host.cleanup();
+  });
+
+  it("4v1 no campo nunca vira partida rodando", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+    host.addPlayer(TEAM.BLUE);
+    host.handles.choose.deactivate();
+
+    host.handles.health.check();
+    host.handles.health.check();
+    await new Promise((r) => setTimeout(r, 500));
+
+    const red = host.players.filter((p) => p.team === TEAM.RED).length;
+    const blue = host.players.filter((p) => p.team === TEAM.BLUE).length;
+    if (host.live()) {
+      assert.equal(red, blue, `partida começou desigual (${red}v${blue})`);
+    }
+    host.cleanup();
+  });
+
+  it("admin tirando um do 4v4 abre reposição na hora e despausa depois", async () => {
+    const host = bootRoom();
+    fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+
+    const admin = host.players[0];
+    const saiu = host.players.filter((p) => p.team === TEAM.RED)[1];
+    host.adminMove(saiu, TEAM.SPEC, admin);
+
+    assert.equal(host.handles.choose.isActive(), true);
+    assert.equal(host.handles.choose.isReplacement(), true);
+
+    const cap = host.handles.choose.currentCaptain();
+    await host.room.onPlayerChat(host.find(cap.id), "1");
+    await new Promise((r) => setTimeout(r, 200));
+
+    assert.equal(host.players.filter((p) => p.team === TEAM.RED).length, 4);
+    assert.equal(host.pauses[host.pauses.length - 1], false, "o jogo volta sozinho");
+    host.cleanup();
+  });
+
+  it("pausa esquecida é desfeita pelo watchdog, mas não na hora", () => {
+    const host = bootRoom();
+    fill4v4(host);
+    host.startMatch();
+    host.adminPause(true);
+
+    host.handles.health.check();
+    host.handles.health.check();
+    assert.equal(host.pauses[host.pauses.length - 1], true, "admin tem tempo de falar");
+
+    for (let i = 0; i < 4; i++) host.handles.health.check();
+    assert.equal(host.pauses[host.pauses.length - 1], false, "pausa longa é desfeita");
     host.cleanup();
   });
 });
@@ -356,6 +334,31 @@ describe("mute no chat", () => {
     host.announcements.length = 0;
     await host.room.onPlayerChat(host.find(cap.id), "!1");
     assert.equal(host.handles.choose.list().blue.length, 2);
+    host.cleanup();
+  });
+
+  it("4 msgs em 5s muta 30s e bloqueia a 4ª", async () => {
+    const host = bootRoom();
+    const p = host.addPlayer(TEAM.SPEC, "Flood");
+    host.announcements.length = 0;
+    for (let i = 1; i <= 3; i++) {
+      await host.room.onPlayerChat(host.find(p.id), `msg${i}`);
+    }
+    assert.equal(host.handles.mutes.has(p.id), false);
+    assert.equal(host.announcements.filter((a) => /msg[123]/.test(a.msg)).length, 3);
+
+    host.announcements.length = 0;
+    await host.room.onPlayerChat(host.find(p.id), "msg4");
+    const mute = host.handles.mutes.get(p.id);
+    assert.ok(mute);
+    assert.ok(mute.endsAt - Date.now() > 25_000);
+    assert.ok(host.announcements.some((a) => a.to == null && /flood/i.test(a.msg)));
+    assert.equal(host.announcements.some((a) => /msg4/.test(a.msg) && a.to == null), false);
+
+    host.announcements.length = 0;
+    await host.room.onPlayerChat(host.find(p.id), "ainda fala");
+    assert.ok(host.announcements.some((a) => a.to === p.id && /mutado/i.test(a.msg)));
+    assert.equal(host.announcements.some((a) => /ainda fala/.test(a.msg)), false);
     host.cleanup();
   });
 });

@@ -139,8 +139,8 @@ describe("AFK: ações e pausa", () => {
     room.getPlayerDiscProperties = (id) => discs.get(id) || null;
     const afk = createAfkTracker(room);
     const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
-    config.afkWarnMs = 15000;
-    config.afkActionMs = 20000;
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
     const at = Date.now();
 
     afk.touch(1, at);
@@ -153,7 +153,7 @@ describe("AFK: ações e pausa", () => {
       afk.sampleMovement(at + i * 1000);
     }
 
-    afk.tick(at + 21000);
+    afk.tick(at + 13000);
 
     assert.equal(players.find((p) => p.id === 1).team, 0, "parado devia ir pro spec");
     assert.equal(afk.isAfk(1), true);
@@ -178,6 +178,35 @@ describe("AFK: ações e pausa", () => {
     afk.tick();
 
     assert.equal(players.find((p) => p.id === 1).team, 0);
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("empurrão pequeno não zera o AFK; andar de verdade zera", () => {
+    const { room, players } = afkSetup(4);
+    const discs = new Map([
+      [1, { x: 0, y: 0 }],
+      [2, { x: 0, y: 0 }],
+    ]);
+    room.getPlayerDiscProperties = (id) => discs.get(id) || null;
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const at = Date.now();
+    afk.touch(1, at);
+    afk.touch(2, at);
+    afk.sampleMovement(at);
+
+    discs.set(1, { x: 3, y: 1 });
+    afk.sampleMovement(at + 4000);
+    discs.set(2, { x: 40, y: 0 });
+    afk.sampleMovement(at + 4000);
+
+    afk.tick(at + 13000);
+    assert.equal(players.find((p) => p.id === 1).team, 0, "empurrão não conta como atividade");
+    assert.equal(players.find((p) => p.id === 2).team, 2, "quem andou segue em campo");
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();
@@ -286,28 +315,28 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("15s parado avisa; 20s manda para o spec", () => {
+  it("8s parado avisa; 12s manda para o spec", () => {
     const { room, players } = afkSetup(4);
     const afk = createAfkTracker(room);
     const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
-    config.afkWarnMs = 15000;
-    config.afkActionMs = 20000;
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
 
     afk.touch(1);
     const at = Date.now();
 
-    afk.tick(at + 14000);
+    afk.tick(at + 7000);
     assert.equal(players.find((p) => p.id === 1).team, 1);
-    assert.ok(!room.announcements.some((a) => /faltam 5s/i.test(a.msg)));
+    assert.ok(!room.announcements.some((a) => /faltam 4s/i.test(a.msg)));
 
-    afk.tick(at + 16000);
-    assert.ok(room.announcements.some((a) => /faltam 5s/i.test(a.msg)));
-    assert.equal(players.find((p) => p.id === 1).team, 1);
-
-    afk.tick(at + 19000);
+    afk.tick(at + 9000);
+    assert.ok(room.announcements.some((a) => /faltam 4s/i.test(a.msg)));
     assert.equal(players.find((p) => p.id === 1).team, 1);
 
-    afk.tick(at + 21000);
+    afk.tick(at + 11000);
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+
+    afk.tick(at + 13000);
     assert.equal(players.find((p) => p.id === 1).team, 0);
 
     config.afkWarnMs = prev.warn;
@@ -453,6 +482,7 @@ describe("AFK: ações e pausa", () => {
   it("ocioso só conta se o boneco andou de verdade", () => {
     assert.equal(hasMoved(null, { x: 0, y: 0 }), false);
     assert.equal(hasMoved({ x: 0, y: 0 }, { x: 0.1, y: 0 }), false);
-    assert.equal(hasMoved({ x: 0, y: 0 }, { x: 3, y: 0 }), true);
+    assert.equal(hasMoved({ x: 0, y: 0 }, { x: 3, y: 0 }), false);
+    assert.equal(hasMoved({ x: 0, y: 0 }, { x: 10, y: 0 }), true);
   });
 });

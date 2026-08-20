@@ -338,13 +338,6 @@ function createChooseController(room, {
     active = true;
     lockedSize = computeTeamSize();
     if (tryFillExactHoles()) return;
-    room.sendAnnouncement(
-      `🎮 Choose ativado — ${config.chooseTimeSec}s por pick · até ${currentTeamSize()}v${currentTeamSize()}${streakSuffix()}`,
-      null,
-      0x9b59b6,
-      "bold",
-      2
-    );
     promptCaptain();
   }
 
@@ -467,7 +460,8 @@ function createChooseController(room, {
     }
     const { red, blue } = list();
     if (!red.length || !blue.length) {
-      onPlayerLeave();
+      // Quem o admin acabou de mandar pro spec não volta na hora como capitão.
+      onPlayerLeave({ skipId: movedPlayer?.team === TEAM.SPEC ? movedPlayer.id : null });
       return;
     }
     promptCaptain();
@@ -573,8 +567,9 @@ function createChooseController(room, {
   }
 
   function handleCaptainChat(player, message) {
-    // Reposição pode acontecer com o jogo pausado (getScores() != null).
-    if (!active || (room.getScores() && !replacement)) return false;
+    // Choose ativo manda, mesmo com o jogo rolando ou pausado: era esse guard
+    // que deixava o capitão sem pick quando a partida começava incompleta.
+    if (!active) return false;
     const { red, blue } = list();
     const cap = currentCaptain();
     if (!cap || player.id !== cap.id) return false;
@@ -603,7 +598,7 @@ function createChooseController(room, {
     return applyCaptainPick(player, chosen, team, token);
   }
 
-  function onPlayerLeave() {
+  function onPlayerLeave({ skipId = null } = {}) {
     if (!active) return;
     if (replacement) {
       const cap = currentCaptain();
@@ -639,7 +634,7 @@ function createChooseController(room, {
 
     // Time vazio → sobe o 1º do spec pronto (AFK não sobe)
     if (!red.length || !blue.length) {
-      const next = specReady[0];
+      const next = (skipId ? specReady.find((p) => p.id !== skipId) : null) || specReady[0];
       if (next) {
         const empty = !red.length ? TEAM.RED : TEAM.BLUE;
         if (typeof onPickFromSpec === "function") onPickFromSpec(next);

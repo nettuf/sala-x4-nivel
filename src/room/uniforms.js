@@ -39,6 +39,8 @@ const KITS = [
   { id: "tigre", name: "Amigos do Rei Tigre", angle: 59, text: 0xfff5f5, colors: [0xf1ff30, 0x000000, 0xf1ff30], emoji: "👑" },
   { id: "jalin", name: "Amigos do Jalin", angle: 857, text: 0xe2ff26, colors: [0xe2ff26, 0x770c69, 0x23cf29], emoji: "🐒" },
   { id: "vrum", name: "Amigos do Vrum", angle: 60, text: 0x5005ff, colors: [0x000000] },
+  { id: "gh", name: "GH FC", angle: 80, text: 0x03050a, colors: [0x757575, 0xf0f6ff, 0x7e8b8f], emoji: "><" },
+  { id: "cyq", name: "Amigos do Cyq", angle: 60, text: 0x02ccc5, colors: [0x800066, 0x800066, 0x02a6a0] },
 ];
 
 function defaultKit(team) {

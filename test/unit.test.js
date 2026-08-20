@@ -207,6 +207,30 @@ describe("streak / winner stays", () => {
     assert.equal(s.recordWin(0), 0);
   });
 
+  it("guarda o maior streak e chama onBest", () => {
+    const hits = [];
+    const s = createStreakTracker({
+      best: 2,
+      onBest(n) {
+        hits.push(n);
+      },
+    });
+    assert.equal(s.getBest(), 2);
+    s.recordWin(TEAM.RED);
+    s.recordWin(TEAM.RED);
+    assert.equal(s.getBest(), 2);
+    assert.deepEqual(hits, []);
+    s.recordWin(TEAM.RED);
+    assert.equal(s.get(), 3);
+    assert.equal(s.getBest(), 3);
+    assert.deepEqual(hits, [3]);
+    s.recordWin(TEAM.BLUE);
+    assert.equal(s.get(), 1);
+    assert.equal(s.getBest(), 3);
+    s.hydrateBest(8);
+    assert.equal(s.getBest(), 8);
+  });
+
   it("azul vence → move para vermelho", () => {
     const players = [
       { id: 1, name: "R1", team: TEAM.RED },

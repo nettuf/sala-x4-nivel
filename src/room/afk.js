@@ -10,11 +10,19 @@ function shouldCountAutoAfk(players) {
   return fieldPlayerCount(players) >= 2;
 }
 
-function hasMoved(prev, next, eps = 0.5) {
+/** Distância mínima (unidades do mapa) para contar como o jogador andando, não empurrão. */
+const MOVE_EPS = 8;
+
+function hasMoved(prev, next, eps = MOVE_EPS) {
   if (!prev || !next) return false;
   const dx = next.x - prev.x;
   const dy = next.y - prev.y;
   return dx * dx + dy * dy >= eps * eps;
+}
+
+function afkRemainSec() {
+  const remain = Number(config.afkActionMs) - Number(config.afkWarnMs);
+  return Math.max(1, Math.ceil(remain / 1000));
 }
 
 /**
@@ -113,8 +121,14 @@ function createAfkTracker(room, opts = {}) {
       if (!disc || typeof disc.x !== "number") continue;
       const next = { x: disc.x, y: disc.y };
       const prev = positions.get(p.id);
-      positions.set(p.id, next);
-      if (hasMoved(prev, next)) touch(p.id, now);
+      if (!prev) {
+        positions.set(p.id, next);
+        continue;
+      }
+      if (hasMoved(prev, next)) {
+        positions.set(p.id, next);
+        touch(p.id, now);
+      }
     }
   }
 
@@ -160,7 +174,7 @@ function createAfkTracker(room, opts = {}) {
     const previousTeam = player.team;
     if (on) {
       markAfk(player.id);
-      if (player.team !== 0) sendToSpec(player.id);
+      if (player.team !== 0) sendToSpec(player.id, { pause: false });
       room.sendAnnouncement(`${player.name} está AFK (!afk)`, null, 0xbdc3c7, "normal", 1);
     } else {
       afks.delete(player.id);
@@ -231,7 +245,7 @@ function createAfkTracker(room, opts = {}) {
       if (idleMs >= config.afkWarnMs && !st.warned) {
         st.warned = true;
         room.sendAnnouncement(
-          `⚠️ ${p.name}, mexa-se — faltam 5s para AFK.`,
+          `⚠️ ${p.name}, mexa-se — faltam ${afkRemainSec()}s para AFK.`,
           p.id,
           0xf1c40f,
           "bold",
@@ -248,7 +262,8 @@ function createAfkTracker(room, opts = {}) {
       } else if (p.team !== 0) {
         const previousTeam = p.team;
         markAfk(p.id);
-        sendToSpec(p.id);
+        // Sem pausar: pause/unpause dispara setPaused(false) e zera o timer de todo mundo.
+        sendToSpec(p.id, { pause: false });
         room.sendAnnouncement(
           `${p.name} parado — está AFK no spec (!afk para voltar).`,
           null,
@@ -287,4 +302,4 @@ function createAfkTracker(room, opts = {}) {
   };
 }
 
-module.exports = { createAfkTracker, fieldPlayerCount, shouldCountAutoAfk, hasMoved };
+module.exports = { createAfkTracker, fieldPlayerCount, shouldCountAutoAfk, hasMoved, MOVE_EPS };

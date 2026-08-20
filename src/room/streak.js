@@ -8,15 +8,31 @@ const config = require("../config");
  * - Empate não existe no 4v4 (gol de ouro); os times nunca zeram.
  */
 
-function createStreakTracker() {
+function createStreakTracker({ best = 0, onBest } = {}) {
   let streak = 0;
+  let bestStreak = Math.max(0, Math.floor(Number(best) || 0));
 
   function get() {
     return streak;
   }
 
+  function getBest() {
+    return bestStreak;
+  }
+
+  function hydrateBest(n) {
+    const v = Math.max(0, Math.floor(Number(n) || 0));
+    if (v > bestStreak) bestStreak = v;
+  }
+
   function reset() {
     streak = 0;
+  }
+
+  function maybeRecordBest() {
+    if (streak <= bestStreak) return;
+    bestStreak = streak;
+    if (typeof onBest === "function") onBest(bestStreak);
   }
 
   /**
@@ -31,6 +47,7 @@ function createStreakTracker() {
     } else {
       streak = 0;
     }
+    maybeRecordBest();
     return streak;
   }
 
@@ -39,7 +56,20 @@ function createStreakTracker() {
     return `streak ${streak}`;
   }
 
-  return { get, reset, recordWin, label };
+  return { get, getBest, hydrateBest, reset, recordWin, label };
+}
+
+function formatCurrentStreak(n) {
+  const v = Math.max(0, Math.floor(Number(n) || 0));
+  return v > 0 ? `🔁 Streak atual: ${v} (vencedores no vermelho)` : "🔁 Sem streak no momento.";
+}
+
+function formatBestStreak(best, current = 0) {
+  const rec = Math.max(0, Math.floor(Number(best) || 0));
+  const now = Math.max(0, Math.floor(Number(current) || 0));
+  if (rec <= 0) return "🏆 Sem recorde de streak ainda.";
+  const live = now > 0 && now >= rec ? " (em andamento)" : "";
+  return `🏆 Maior streak da sala: ${rec}${live}`;
 }
 
 /**
@@ -105,4 +135,6 @@ module.exports = {
   createStreakTracker,
   applyWinnerStays,
   shouldUseWinnerStays,
+  formatCurrentStreak,
+  formatBestStreak,
 };

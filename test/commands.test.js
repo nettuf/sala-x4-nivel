@@ -225,6 +225,8 @@ describe("comandos (mock room)", () => {
     assert.equal(msg.includes("!ajudaadm"), false);
     assert.match(msg, /!unis/);
     assert.match(msg, /@nick/);
+    assert.match(msg, /!gols/);
+    assert.match(msg, /!topstreak/);
     assert.equal(/!uni /.test(msg), false);
     assert.equal(msg.includes("!t "), false);
     afk.stop();
@@ -355,6 +357,53 @@ describe("comandos (mock room)", () => {
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!site");
     assert.ok(room.announcements.some((a) => /haxbook\.com\.br/i.test(a.msg)));
+    afk.stop();
+  });
+
+  it("!gols !assists !golcontra !cs mostram top 5", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const boards = {
+      goals: [{ nick: "Netto", value: 12 }],
+      assists: [{ nick: "Ana", value: 8 }],
+      own_goals: [{ nick: "Caio", value: 3 }],
+      cs: [{ nick: "Goleiro", value: 5 }],
+    };
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      getLeaderboard: async (stat) => ({ unavailable: false, rows: boards[stat] }),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!gols");
+    await cmd.handle(room._players[0], "!assists");
+    await cmd.handle(room._players[0], "!golcontra");
+    await cmd.handle(room._players[0], "!cs");
+    const msg = room.announcements.map((a) => a.msg).join("\n");
+    assert.match(msg, /Top 5 gols/);
+    assert.match(msg, /1\. Netto — 12/);
+    assert.match(msg, /Top 5 assistências/);
+    assert.match(msg, /1\. Ana — 8/);
+    assert.match(msg, /Top 5 gols contra/);
+    assert.match(msg, /1\. Caio — 3/);
+    assert.match(msg, /Top 5 clean sheets/);
+    assert.match(msg, /1\. Goleiro — 5/);
+    afk.stop();
+  });
+
+  it("!topstreak mostra recorde da sala", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      streak: { get: () => 2, getBest: () => 9 },
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!topstreak");
+    assert.ok(room.announcements.some((a) => /Maior streak da sala: 9/.test(a.msg)));
     afk.stop();
   });
 

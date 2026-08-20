@@ -6,7 +6,15 @@ const { createBan, deactivateBan } = require("../db/bans");
 const { getAdmin } = require("../db/players");
 const { notifyBan } = require("../discord/webhook");
 const { createMute, unmute, findActiveMute } = require("../db/mutes");
-const { getPlayerStats, setSelectedTitle, formatStatusCard, emptyPlayerStats } = require("../db/stats");
+const {
+  getPlayerStats,
+  setSelectedTitle,
+  formatStatusCard,
+  emptyPlayerStats,
+  getLeaderboard,
+  formatTop5,
+} = require("../db/stats");
+const { formatCurrentStreak, formatBestStreak } = require("../room/streak");
 const {
   TITLES,
   STAFF_TITLES,
@@ -18,6 +26,23 @@ const {
   chatColor,
   formatChatPrefix,
 } = require("../titles");
+
+const RANKING_CMDS = {
+  gols: { stat: "goals", title: "⚽ Top 5 gols" },
+  gol: { stat: "goals", title: "⚽ Top 5 gols" },
+  goals: { stat: "goals", title: "⚽ Top 5 gols" },
+  topgols: { stat: "goals", title: "⚽ Top 5 gols" },
+  assists: { stat: "assists", title: "🎯 Top 5 assistências" },
+  assist: { stat: "assists", title: "🎯 Top 5 assistências" },
+  assistencias: { stat: "assists", title: "🎯 Top 5 assistências" },
+  golcontra: { stat: "own_goals", title: "🤦 Top 5 gols contra" },
+  gc: { stat: "own_goals", title: "🤦 Top 5 gols contra" },
+  owngoal: { stat: "own_goals", title: "🤦 Top 5 gols contra" },
+  owngoals: { stat: "own_goals", title: "🤦 Top 5 gols contra" },
+  cs: { stat: "cs", title: "🧤 Top 5 clean sheets" },
+  cleansheet: { stat: "cs", title: "🧤 Top 5 clean sheets" },
+  cleansheets: { stat: "cs", title: "🧤 Top 5 clean sheets" },
+};
 
 function playerHelpLines({
   isAdmin = false,
@@ -43,7 +68,8 @@ function playerHelpLines({
   lines.push(
     "!ids — lista id dos jogadores",
     "@nick msg — mensagem privada (ou @#id)",
-    "!streak — sequência de vitórias atual",
+    "!gols !assists !golcontra !cs — top 5",
+    "!streak — streak atual · !topstreak — recorde da sala",
     "!unis — uniformes disponíveis"
   );
   if (canChangeUni) {
@@ -444,13 +470,25 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "streak" || cmd === "streaks") {
       const n = ctx.streak?.get?.() ?? 0;
-      room.sendAnnouncement(
-        n > 0 ? `🔁 Streak atual: ${n} (vencedores no vermelho)` : "🔁 Sem streak no momento.",
-        player.id,
-        0xf1c40f,
-        "bold",
-        1
-      );
+      room.sendAnnouncement(formatCurrentStreak(n), player.id, 0xf1c40f, "bold", 1);
+      return true;
+    }
+
+    if (cmd === "topstreak" || cmd === "recordstreak" || cmd === "melhorstreak" || cmd === "maxstreak") {
+      const best = ctx.streak?.getBest?.() ?? ctx.roomStats?.snapshot?.()?.bestStreak ?? 0;
+      const current = ctx.streak?.get?.() ?? 0;
+      room.sendAnnouncement(formatBestStreak(best, current), player.id, 0xf1c40f, "bold", 1);
+      return true;
+    }
+
+    const ranking = RANKING_CMDS[cmd];
+    if (ranking) {
+      const fetchTop = ctx.getLeaderboard || getLeaderboard;
+      const board = await fetchTop(ranking.stat);
+      const text = board?.unavailable
+        ? "Rankings indisponíveis no momento."
+        : formatTop5(ranking.title, board?.rows);
+      room.sendAnnouncement(text, player.id, 0xf1c40f, "bold", 1);
       return true;
     }
 

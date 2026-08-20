@@ -302,9 +302,9 @@ describe("uniformes: emoji do kit", () => {
     return room;
   }
 
-  it("kits com emoji fixo: baleio, copas, gordo, jalin, palhacada, rato e tigre", () => {
+  it("kits com emoji fixo: baleio, copas, gh, gordo, jalin, palhacada, rato e tigre", () => {
     const comEmoji = KITS.filter((k) => k.emoji).map((k) => k.id).sort();
-    assert.deepEqual(comEmoji, ["baleio", "copas", "gordo", "jalin", "palhacada", "rato", "tigre"]);
+    assert.deepEqual(comEmoji, ["baleio", "copas", "gh", "gordo", "jalin", "palhacada", "rato", "tigre"]);
     assert.equal(findKit("baleio").emoji, "🐋");
     assert.equal(findKit("rato").emoji, "🐀");
     assert.equal(findKit("gordo").emoji, "🍔");
@@ -329,6 +329,16 @@ describe("uniformes: emoji do kit", () => {
     assert.equal(findKit("vrum").text, 0x5005ff);
     assert.deepEqual(findKit("vrum").colors, [0x000000]);
     assert.equal(findKit("vrum").emoji, undefined);
+    assert.equal(findKit("gh").name, "GH FC");
+    assert.equal(findKit("gh").angle, 80);
+    assert.equal(findKit("gh").text, 0x03050a);
+    assert.deepEqual(findKit("gh").colors, [0x757575, 0xf0f6ff, 0x7e8b8f]);
+    assert.equal(findKit("gh").emoji, "><");
+    assert.equal(findKit("cyq").name, "Amigos do Cyq");
+    assert.equal(findKit("cyq").angle, 60);
+    assert.equal(findKit("cyq").text, 0x02ccc5);
+    assert.deepEqual(findKit("cyq").colors, [0x800066, 0x800066, 0x02a6a0]);
+    assert.equal(findKit("cyq").emoji, undefined);
   });
 
   it("kit com emoji marca o time inteiro e deixa o resto livre", () => {

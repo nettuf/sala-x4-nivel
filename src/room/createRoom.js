@@ -6,6 +6,8 @@ const { notifyJoin, notifyBan } = require("../discord/webhook");
 const { createChatLogger } = require("../discord/chatLog");
 const { applyStadium, stadiumKindForCount } = require("./maps");
 const { createAfkTracker, shouldCountAutoAfk } = require("./afk");
+const { createChatFloodGuard } = require("./chatFlood");
+const { diagnoseRoom, createHealthMonitor } = require("./health");
 const { createChooseController, TEAM } = require("./choose");
 const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose } = require("./warmupFlow");
 const { planCompetitiveRecovery, planExactFill, applyExactFill } = require("./recovery");
@@ -65,15 +67,23 @@ function createRoom(HBInit) {
     shouldAutoAfk: () => shouldCountAutoAfk(room.getPlayerList()),
   });
   ctx.afk = afk;
-  const streak = createStreakTracker();
-  ctx.streak = streak;
   const uniforms = createUniformManager(room);
   ctx.uniforms = uniforms;
   const roomStats = createRoomStats();
   ctx.roomStats = roomStats;
+  const streak = createStreakTracker({
+    best: roomStats.snapshot().bestStreak,
+    onBest(n) {
+      roomStats.setBestStreak(n);
+    },
+  });
+  ctx.streak = streak;
   const chatLog = createChatLogger();
   ctx.chatLog = chatLog;
-  roomStats.hydrateFromDb().catch(() => {});
+  roomStats
+    .hydrateFromDb()
+    .then((snap) => streak.hydrateBest(snap.bestStreak))
+    .catch(() => {});
   const match = createMatchController(room, {
     identify: (player) =>
       withIdentity(player, {
@@ -168,6 +178,11 @@ function createRoom(HBInit) {
 
   let lobbyRevision = 0;
   const slowChat = new Set();
+  const chatFlood = createChatFloodGuard({
+    limit: config.chatFloodLimit,
+    windowMs: config.chatFloodWindowMs,
+    muteMs: config.chatFloodMuteMs,
+  });
   let stadiumKind = "training";
 
   /**
@@ -185,6 +200,16 @@ function createRoom(HBInit) {
     if (botPaused) room.pauseGame(false);
   }
 
+  /** Reposição resolvida: o jogo volta mesmo se a pausa foi de um admin. */
+  function forceResume() {
+    if (!room.getScores()) return;
+    try {
+      room.pauseGame(false);
+    } catch {
+      /* ignore */
+    }
+  }
+
   function stopCurrentGame({ preserveMatch = false } = {}) {
     if (!preserveMatch) match.cancelRecordingOnly();
     if (room.getScores()) room.stopGame();
@@ -200,6 +225,7 @@ function createRoom(HBInit) {
 
   function startWarmupIfPossible() {
     if (room.getScores() || match.isRunning()) return;
+    parkAfkOnField();
     const players = room.getPlayerList().filter((p) => p.id !== 0);
     const plan = planWarmup(players, {
       isExcluded: (p) => afk.isAfk(p.id),
@@ -331,15 +357,25 @@ function createRoom(HBInit) {
     startFromCurrentField();
   }
 
+  /** AFK nunca entra em campo: fora da partida o tick do AFK não corrige isso. */
+  function parkAfkOnField() {
+    for (const p of room.getPlayerList()) {
+      if (p.id === 0 || p.team === TEAM.SPEC) continue;
+      if (afk.isAfk(p.id)) room.setPlayerTeam(p.id, TEAM.SPEC);
+    }
+  }
+
   function startFromCurrentField() {
     if (room.getScores() || match.isRunning()) return;
+    parkAfkOnField();
     const eligible = room
       .getPlayerList()
       .filter((p) => p.id !== 0 && !afk.isAfk(p.id));
     const size = targetTeamSize(eligible.length, config.teamSize);
     const red = eligible.filter((p) => p.team === TEAM.RED);
     const blue = eligible.filter((p) => p.team === TEAM.BLUE);
-    if (red.length < size || blue.length < size) {
+    // Times desiguais nunca iniciam: era assim que saía um 4v1 rodando.
+    if (red.length !== blue.length || red.length < size || blue.length < size) {
       refreshLobby();
       return;
     }
@@ -438,7 +474,7 @@ function createRoom(HBInit) {
           }
           match.addToLineup(chosen, plan.targetTeam);
           if (live) {
-            resumeFromBot(botPaused);
+            forceResume();
             return;
           }
           laterForCurrentLobby(startCompetitiveFromCurrentField);
@@ -558,6 +594,7 @@ function createRoom(HBInit) {
     ctx.auths.delete(player.id);
     ctx.conns.delete(player.id);
     slowChat.delete(player.id);
+    chatFlood.forget(player.id);
     commands.forgetPlayer(player.id);
   }
 
@@ -761,6 +798,8 @@ function createRoom(HBInit) {
     // Admin mexeu nos times no choose → reavalia sem resetar o que já foi escolhido
     if (byPlayer && choose.isActive()) choose.onTeamChange(changedPlayer);
     else if (byPlayer && !match.isCompetitive()) refreshLobby();
+    // Admin tirou alguém do 4v4 oficial: repõe sozinho, sem depender dele.
+    else if (byPlayer && match.isCompetitive()) recoverCompetitiveLineup();
   };
 
   room.onPlayerBallKick = (player) => {
@@ -819,6 +858,28 @@ function createRoom(HBInit) {
     if (choose.handleCaptainChat(who, message)) return false;
 
     if (commands.handleWhisper(who, message)) return false;
+
+    if (!ctx.admins.has(player.id)) {
+      const flood = chatFlood.note(player.id);
+      if (flood) {
+        ctx.mutes.set(player.id, { endsAt: flood.endsAt, reason: "flood" });
+        room.sendAnnouncement(
+          `${who.name} mutado 30s por flood (4 msgs em 5s).`,
+          null,
+          0xf39c12,
+          "bold",
+          2
+        );
+        room.sendAnnouncement(
+          "Você foi mutado 30s por flood. Só comandos com ! estão liberados.",
+          player.id,
+          0xe67e22,
+          "bold",
+          2
+        );
+        return false;
+      }
+    }
 
     if (choose.isActive() && !ctx.admins.has(player.id)) {
       const token = String(message || "").trim().split(/\s+/)[0];
@@ -949,6 +1010,48 @@ function createRoom(HBInit) {
     setTimeout(refreshLobby, 1200);
   }
 
+  const health = createHealthMonitor({
+    diagnose() {
+      const { red, blue, specReady } = choose.list();
+      return diagnoseRoom({
+        live: !!room.getScores(),
+        paused: afk.isPaused(),
+        chooseActive: choose.isActive(),
+        replacement: choose.isReplacement(),
+        hasCaptain: !!choose.currentCaptain(),
+        redCount: red.length,
+        blueCount: blue.length,
+        specReadyCount: specReady.length,
+        teamSize: config.teamSize,
+      });
+    },
+    apply({ action, reason }) {
+      console.warn(`[health] ${action}: ${reason}`);
+      if (action === "stop-game") {
+        choose.deactivate();
+        lobbyRevision += 1;
+        forceResume();
+        stopCurrentGame();
+        laterForCurrentLobby(refreshLobby, 600);
+        return;
+      }
+      if (action === "recover") {
+        recoverCompetitiveLineup();
+        return;
+      }
+      if (action === "unpause") {
+        forceResume();
+        return;
+      }
+      if (action === "prompt-choose") {
+        choose.promptCaptain();
+        return;
+      }
+      if (action === "refresh-lobby") refreshLobby();
+    },
+  });
+  const healthHandle = health.start();
+
   applyStadium(room, 0);
   stadiumKind = "training";
   uniforms.reapply();
@@ -963,7 +1066,19 @@ function createRoom(HBInit) {
   });
   const carouselHandle = carousel.start(room, config.carouselMs);
 
-  return { room, afk, match, choose, streak, uniforms, roomStats, carousel: carouselHandle, mutes: ctx.mutes, chatLog };
+  return {
+    room,
+    afk,
+    match,
+    choose,
+    streak,
+    uniforms,
+    roomStats,
+    carousel: carouselHandle,
+    mutes: ctx.mutes,
+    chatLog,
+    health: { stop: healthHandle.stop, check: health.check },
+  };
 }
 
 module.exports = { createRoom };

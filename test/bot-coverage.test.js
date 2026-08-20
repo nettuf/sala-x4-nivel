@@ -370,6 +370,18 @@ describe("comandos extras", () => {
     host.afk.stop();
   });
 
+  it("!topstreak mostra recorde", async () => {
+    const host = mockCmd();
+    await host.cmd.handle(host.players[0], "!topstreak");
+    assert.ok(host.announcements.some((a) => /Sem recorde/i.test(a.msg)));
+    host.streak.recordWin(TEAM.RED);
+    host.streak.recordWin(TEAM.RED);
+    host.streak.recordWin(TEAM.BLUE);
+    await host.cmd.handle(host.players[0], "!topstreak");
+    assert.ok(host.announcements.some((a) => /Maior streak da sala: 2/.test(a.msg)));
+    host.afk.stop();
+  });
+
   it("!unis lista kits e o atual", async () => {
     const host = mockCmd();
     await host.cmd.handle(host.players[0], "!unis");

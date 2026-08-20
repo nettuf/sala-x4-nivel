@@ -63,10 +63,23 @@ describe("totais da sala", () => {
     const a = createRoomStats({ filePath: file });
     a.recordCompletedMatch({ goals: 5 });
     a.recordCompletedMatch({ goals: 2 });
-    assert.deepEqual(a.snapshot(), { goals: 7, games: 2 });
+    assert.deepEqual(a.snapshot(), { goals: 7, games: 2, bestStreak: 0 });
 
     const b = createRoomStats({ filePath: file });
-    assert.deepEqual(b.snapshot(), { goals: 7, games: 2 });
+    assert.deepEqual(b.snapshot(), { goals: 7, games: 2, bestStreak: 0 });
+    fs.unlinkSync(file);
+  });
+
+  it("persiste recorde de streak", () => {
+    const file = path.join(os.tmpdir(), `sala-x4-best-${Date.now()}.json`);
+    const a = createRoomStats({ filePath: file });
+    a.setBestStreak(3);
+    a.setBestStreak(2);
+    a.setBestStreak(5);
+    assert.equal(a.snapshot().bestStreak, 5);
+
+    const b = createRoomStats({ filePath: file });
+    assert.equal(b.snapshot().bestStreak, 5);
     fs.unlinkSync(file);
   });
 });

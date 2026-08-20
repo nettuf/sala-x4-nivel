@@ -5,7 +5,6 @@ const {
   attributeGoal,
   isValidMatchScores,
   formatMatchClock,
-  ballSpeedKmh,
   possessionPercents,
   canJoinMatchStats,
   isDecidedLosingScore,
@@ -26,8 +25,6 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
   let match = null;
   let endByVictory = false;
   let lastScores = null;
-  let prevBall = null;
-  let ballSpeed = 0;
   let goldenGoal = false;
   let timeExpiryHandled = false;
   let activePlay = false;
@@ -46,14 +43,6 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
   function playersOf(team) {
     return room.getPlayerList().filter((p) => p.team === team).map((p) => who(p));
-  }
-
-  function ballPosition() {
-    try {
-      return typeof room.getBallPosition === "function" ? room.getBallPosition() : null;
-    } catch {
-      return null;
-    }
   }
 
   function rememberScores(s) {
@@ -79,12 +68,6 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
   function onTick() {
     const s = room.getScores();
     rememberScores(s);
-
-    const pos = ballPosition();
-    if (pos && prevBall) {
-      ballSpeed = ballSpeedKmh(prevBall, pos);
-    }
-    if (pos) prevBall = pos;
 
     if (match && activePlay) {
       const last = match.touches[0];
@@ -131,8 +114,6 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
   function start({ competitive = false } = {}) {
     endByVictory = false;
     lastScores = null;
-    prevBall = null;
-    ballSpeed = 0;
     goldenGoal = false;
     timeExpiryHandled = false;
     activePlay = false;
@@ -176,10 +157,8 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     const time = scores?.time ?? 0;
     const { scorer, assist, isOwnGoal } = attributeGoal(match.touches, team);
     const clock = formatMatchClock(time);
-    const speed = Number.isFinite(ballSpeed) && ballSpeed > 0
-      ? ` · ${ballSpeed.toPrecision(3)} km/h`
-      : "";
     const side = team === 1 ? "🔴" : "🔵";
+    const assistText = assist?.name ? ` · Assist: ${assist.name}` : "";
 
     const goal = {
       team,
@@ -197,23 +176,15 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
     if (isOwnGoal) {
       room.sendAnnouncement(
-        `😂 [${clock}] GC de ${scorer?.name || "?"}${speed} ${side}`,
+        `😂 [${clock}] GC de ${scorer?.name || "?"} ${side}`,
         null,
         0xe67e22,
         "bold",
         2
       );
-    } else if (assist) {
-      room.sendAnnouncement(
-        `⚽ [${clock}] Gol de ${scorer.name}! Assistência: ${assist.name}${speed} ${side}`,
-        null,
-        0x2ecc71,
-        "bold",
-        2
-      );
     } else if (scorer) {
       room.sendAnnouncement(
-        `⚽ [${clock}] Gol de ${scorer.name}!${speed} ${side}`,
+        `⚽ [${clock}] Gol de ${scorer.name}${assistText} ${side}`,
         null,
         0x2ecc71,
         "bold",
@@ -221,7 +192,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       );
     } else {
       room.sendAnnouncement(
-        `⚽ [${clock}] Gol time ${team === 1 ? "vermelho" : "azul"}!${speed} ${side}`,
+        `⚽ [${clock}] Gol time ${team === 1 ? "vermelho" : "azul"}! ${side}`,
         null,
         0x2ecc71,
         "bold",
@@ -257,7 +228,6 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
   }
 
   function notePositionsReset() {
-    prevBall = null;
     activePlay = false;
   }
 

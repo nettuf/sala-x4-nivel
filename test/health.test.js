@@ -1,0 +1,119 @@
+const { describe, it } = require("node:test");
+const assert = require("node:assert/strict");
+const { diagnoseRoom, createHealthMonitor } = require("../src/room/health");
+
+describe("diagnóstico da sala", () => {
+  it("4v4 rolando está saudável", () => {
+    const d = diagnoseRoom({ live: true, redCount: 4, blueCount: 4, specReadyCount: 3 });
+    assert.equal(d.action, "none");
+  });
+
+  it("choose aberto com jogo rolando para o jogo", () => {
+    const d = diagnoseRoom({
+      live: true,
+      chooseActive: true,
+      redCount: 4,
+      blueCount: 1,
+      specReadyCount: 3,
+    });
+    assert.equal(d.action, "stop-game");
+  });
+
+  it("reposição com jogo pausado é estado normal", () => {
+    const d = diagnoseRoom({
+      live: true,
+      paused: true,
+      chooseActive: true,
+      replacement: true,
+      hasCaptain: true,
+      redCount: 3,
+      blueCount: 4,
+      specReadyCount: 2,
+    });
+    assert.equal(d.action, "none");
+  });
+
+  it("3v4 rolando sem choose pede reposição", () => {
+    const d = diagnoseRoom({ live: true, redCount: 3, blueCount: 4, specReadyCount: 2 });
+    assert.equal(d.action, "recover");
+  });
+
+  it("pausado com times iguais e sem reposição despausa", () => {
+    const d = diagnoseRoom({ live: true, paused: true, redCount: 4, blueCount: 4 });
+    assert.equal(d.action, "unpause");
+  });
+
+  it("time vazio com jogo rolando para o jogo", () => {
+    const d = diagnoseRoom({ live: true, redCount: 4, blueCount: 0, specReadyCount: 4 });
+    assert.equal(d.action, "stop-game");
+  });
+
+  it("choose sem capitão é reavaliado; com capitão fica quieto", () => {
+    assert.equal(
+      diagnoseRoom({ chooseActive: true, hasCaptain: false, redCount: 4, specReadyCount: 2 }).action,
+      "prompt-choose"
+    );
+    assert.equal(
+      diagnoseRoom({ chooseActive: true, hasCaptain: true, redCount: 4, blueCount: 1, specReadyCount: 2 }).action,
+      "none"
+    );
+  });
+
+  it("sem jogo e sem choose com gente suficiente volta ao lobby", () => {
+    assert.equal(diagnoseRoom({ specReadyCount: 4 }).action, "refresh-lobby");
+    assert.equal(diagnoseRoom({ specReadyCount: 1 }).action, "none");
+  });
+});
+
+describe("monitor de saúde", () => {
+  it("só age depois de duas checagens com o mesmo problema", () => {
+    const applied = [];
+    let state = { action: "recover", reason: "teste" };
+    const monitor = createHealthMonitor({
+      diagnose: () => state,
+      apply: (r) => applied.push(r.action),
+    });
+
+    assert.equal(monitor.check(), null);
+    assert.deepEqual(applied, []);
+    assert.equal(monitor.check().action, "recover");
+    assert.deepEqual(applied, ["recover"]);
+
+    // Depois de agir, o contador zera.
+    assert.equal(monitor.check(), null);
+
+    state = { action: "none" };
+    assert.equal(monitor.check(), null);
+    assert.deepEqual(applied, ["recover"]);
+  });
+
+  it("pausa exige mais checagens do que os outros problemas", () => {
+    const applied = [];
+    const monitor = createHealthMonitor({
+      diagnose: () => ({ action: "unpause", reason: "pausa" }),
+      apply: (r) => applied.push(r.action),
+    });
+    for (let i = 0; i < 5; i++) monitor.check();
+    assert.deepEqual(applied, []);
+    monitor.check();
+    assert.deepEqual(applied, ["unpause"]);
+  });
+
+  it("problema que muda no meio não dispara", () => {
+    const applied = [];
+    const seq = [
+      { action: "recover", reason: "a" },
+      { action: "unpause", reason: "b" },
+      { action: "recover", reason: "c" },
+    ];
+    let i = 0;
+    const monitor = createHealthMonitor({
+      diagnose: () => seq[i++] || { action: "none" },
+      apply: (r) => applied.push(r.action),
+    });
+    monitor.check();
+    monitor.check();
+    monitor.check();
+    assert.deepEqual(applied, []);
+  });
+});

@@ -134,6 +134,8 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
     }
   }
 
+  if (valid && players?.length) invalidateLeaderboards();
+
   return { match, mvpAuths: [...mvpAuths], titleUnlocks };
 }
 
@@ -255,6 +257,121 @@ async function setSelectedTitle(auth, titleId) {
   return true;
 }
 
+function emptyBoards() {
+  return { goals: [], assists: [], own_goals: [], cs: [] };
+}
+
+function mapLeaderboardRows(data, col, nickMap) {
+  return (data || [])
+    .map((r) => ({
+      auth: r.auth,
+      nick: (nickMap && nickMap[r.auth]) || "sem nick",
+      value: Math.max(0, Math.floor(Number(r[col]) || 0)),
+    }))
+    .filter((r) => r.auth && r.value > 0);
+}
+
+function formatTop5(title, rows) {
+  if (!rows?.length) return `${title}\nNinguém no ranking ainda.`;
+  const lines = rows.map((r, i) => `${i + 1}. ${r.nick} — ${r.value}`);
+  return `${title}\n${lines.join("\n")}`;
+}
+
+function createLeaderboardStore({ ttlMs = 60_000, load } = {}) {
+  let cache = { at: 0, payload: null };
+  let inflight = null;
+
+  function invalidate() {
+    cache = { at: 0, payload: null };
+    inflight = null;
+  }
+
+  function slice(payload, stat) {
+    if (!payload || payload.unavailable) return { unavailable: true, rows: [] };
+    return { unavailable: false, rows: payload.boards?.[stat] || [] };
+  }
+
+  async function get(stat) {
+    const now = Date.now();
+    if (cache.payload && now - cache.at < ttlMs) return slice(cache.payload, stat);
+    if (typeof load !== "function") return { unavailable: true, rows: [] };
+    if (!inflight) {
+      inflight = Promise.resolve()
+        .then(() => load())
+        .then((raw) => {
+          if (!raw || raw.unavailable) {
+            return { unavailable: true, boards: emptyBoards() };
+          }
+          const payload = { unavailable: false, boards: { ...emptyBoards(), ...raw.boards } };
+          cache = { at: Date.now(), payload };
+          return payload;
+        })
+        .catch((err) => {
+          console.error("[stats] leaderboard", err?.message || err);
+          return cache.payload || { unavailable: true, boards: emptyBoards() };
+        })
+        .finally(() => {
+          inflight = null;
+        });
+    }
+    return slice(await inflight, stat);
+  }
+
+  return { get, invalidate };
+}
+
+async function queryLeaderboards(sb) {
+  const cols = ["goals", "assists", "own_goals", "cs"];
+  const results = await Promise.all(
+    cols.map(async (col) => {
+      const { data, error } = await sb
+        .from("player_stats")
+        .select(`auth, ${col}`)
+        .order(col, { ascending: false })
+        .gt(col, 0)
+        .limit(5);
+      if (error) {
+        console.error("[stats] top", col, error.message);
+        return [];
+      }
+      return data || [];
+    })
+  );
+
+  const auths = [
+    ...new Set(results.flatMap((rows) => rows.map((r) => r.auth).filter(Boolean))),
+  ];
+  const nickMap = {};
+  if (auths.length) {
+    const { data: people, error } = await sb.from("players").select("auth, nick").in("auth", auths);
+    if (error) console.error("[stats] top nicks", error.message);
+    for (const p of people || []) nickMap[p.auth] = p.nick || "sem nick";
+  }
+
+  const boards = emptyBoards();
+  cols.forEach((col, i) => {
+    boards[col] = mapLeaderboardRows(results[i], col, nickMap);
+  });
+  return boards;
+}
+
+const leaderboardStore = createLeaderboardStore({
+  ttlMs: 60_000,
+  async load() {
+    const sb = getSupabase();
+    if (!sb) return { unavailable: true };
+    return { unavailable: false, boards: await queryLeaderboards(sb) };
+  },
+});
+
+function invalidateLeaderboards() {
+  leaderboardStore.invalidate();
+}
+
+function getLeaderboard(stat) {
+  return leaderboardStore.get(stat);
+}
+
 module.exports = {
   saveMatch,
   getPlayerStats,
@@ -264,4 +381,9 @@ module.exports = {
   emptyPlayerStats,
   formatStatusCard,
   winratePct,
+  formatTop5,
+  mapLeaderboardRows,
+  createLeaderboardStore,
+  getLeaderboard,
+  invalidateLeaderboards,
 };
