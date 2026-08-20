@@ -15,7 +15,7 @@ const {
   formatTop5,
 } = require("../db/stats");
 const { formatCurrentStreak, formatBestStreak } = require("../room/streak");
-const { pickBetLine, resolveBetTarget } = require("../room/bet");
+const { formatBetLine, pickTeaseLine, resolveTeaseTarget } = require("../room/bet");
 const {
   TITLES,
   STAFF_TITLES,
@@ -71,7 +71,8 @@ function playerHelpLines({
     "@nick msg — mensagem privada (ou @#id)",
     "!gols !assists !golcontra !cs — top 5",
     "!streak — streak atual · !topstreak — recorde da sala",
-    "!bet [nick] — zoação de quem entregou",
+    "!bet — aposta na Haxbooket",
+    "!provocar [#id|nick] — zoação de quem entregou",
     "!unis — uniformes disponíveis"
   );
   if (canChangeUni) {
@@ -113,7 +114,9 @@ function createCommandHandler(room, ctx) {
   const lastAfkCommandAt = new Map();
   /** @type {Map<number, number>} */
   const lastBetAt = new Map();
+  const lastTeaseAt = new Map();
   const BET_COOLDOWN_MS = 8000;
+  const TEASE_COOLDOWN_MS = 8000;
 
   function resolveAuth(player) {
     return resolvePlayerAuth(player, ctx.auths, room.getPlayerList());
@@ -131,6 +134,7 @@ function createCommandHandler(room, ctx) {
   function forgetPlayer(playerId) {
     lastAfkCommandAt.delete(playerId);
     lastBetAt.delete(playerId);
+    lastTeaseAt.delete(playerId);
   }
 
   async function loadTitleForPlayer(player) {
@@ -187,18 +191,16 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
-    const title = ctx.titles.get(player.id);
-    const prefix = formatChatPrefix(title);
-    const color = chatColor(title);
+    const color = chatColor(ctx.titles.get(player.id));
     room.sendAnnouncement(
-      `📩 PV de ${prefix}${player.name}: ${parsed.body}`,
+      `📩 PV de @${player.name}: ${parsed.body}`,
       target.id,
       color,
       "bold",
       1
     );
     room.sendAnnouncement(
-      `📩 PV para ${target.name}: ${parsed.body}`,
+      `📩 PV para @${target.name}: ${parsed.body}`,
       player.id,
       color,
       "bold",
@@ -211,7 +213,7 @@ function createCommandHandler(room, ctx) {
       to: target.name,
     });
 
-    const spy = `📩 PV ${prefix}${player.name} → ${target.name}: ${parsed.body}`;
+    const spy = `📩 PV @${player.name} → @${target.name}: ${parsed.body}`;
     const online = new Set(room.getPlayerList().map((p) => p.id));
     for (const adminId of ctx.admins?.keys?.() || []) {
       if (adminId === player.id || adminId === target.id || !online.has(adminId)) continue;
@@ -483,7 +485,11 @@ function createCommandHandler(room, ctx) {
     if (cmd === "topstreak" || cmd === "recordstreak" || cmd === "melhorstreak" || cmd === "maxstreak") {
       const best = ctx.streak?.getBest?.() ?? ctx.roomStats?.snapshot?.()?.bestStreak ?? 0;
       const current = ctx.streak?.get?.() ?? 0;
-      room.sendAnnouncement(formatBestStreak(best, current), player.id, 0xf1c40f, "bold", 1);
+      const holders =
+        ctx.streak?.getBestHolders?.() ??
+        ctx.roomStats?.snapshot?.()?.bestStreakHolders ??
+        [];
+      room.sendAnnouncement(formatBestStreak(best, current, holders), player.id, 0xf1c40f, "bold", 1);
       return true;
     }
 
@@ -498,11 +504,31 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
-    if (cmd === "bet" || cmd === "aposta" || cmd === "entregou") {
+    if (cmd === "bet" || cmd === "aposta") {
       const now = Date.now();
       const elapsed = now - (lastBetAt.get(player.id) || 0);
       if (elapsed < BET_COOLDOWN_MS) {
         const left = Math.ceil((BET_COOLDOWN_MS - elapsed) / 1000);
+        room.sendAnnouncement(
+          `Espere ${left}s para apostar de novo.`,
+          player.id,
+          0xf1c40f,
+          "normal",
+          1
+        );
+        return true;
+      }
+      lastBetAt.set(player.id, now);
+      const count = ctx.roomStats?.recordBet?.()?.bets ?? 1;
+      room.sendAnnouncement(formatBetLine(count), null, 0xe67e22, "bold", 1);
+      return true;
+    }
+
+    if (cmd === "provocar" || cmd === "provoca" || cmd === "entregou") {
+      const now = Date.now();
+      const elapsed = now - (lastTeaseAt.get(player.id) || 0);
+      if (elapsed < TEASE_COOLDOWN_MS) {
+        const left = Math.ceil((TEASE_COOLDOWN_MS - elapsed) / 1000);
         room.sendAnnouncement(
           `Espere ${left}s para zoar de novo.`,
           player.id,
@@ -513,11 +539,11 @@ function createCommandHandler(room, ctx) {
         return true;
       }
       const mention = args.join(" ").trim();
-      const target = resolveBetTarget(room, player, mention || null);
+      const target = resolveTeaseTarget(room, player, mention || null);
       if (!target) {
         room.sendAnnouncement(
           mention
-            ? "Jogador não encontrado. Uso: !bet ou !bet <nick>"
+            ? "Jogador não encontrado. Uso: !provocar ou !provocar <#id|nick>"
             : "Ninguém na sala pra zoar.",
           player.id,
           0xe74c3c,
@@ -526,8 +552,8 @@ function createCommandHandler(room, ctx) {
         );
         return true;
       }
-      lastBetAt.set(player.id, now);
-      room.sendAnnouncement(pickBetLine(target.name), null, 0xe67e22, "bold", 1);
+      lastTeaseAt.set(player.id, now);
+      room.sendAnnouncement(pickTeaseLine(target.name), null, 0xe67e22, "bold", 1);
       return true;
     }
 

@@ -237,17 +237,32 @@ function matchContribution(p) {
   return (p.goals || 0) * 2 + (p.assists || 0) - (p.own_goals || 0) * 2;
 }
 
-/**
- * MVP da partida: maior (gols*2 + assists), mínimo 1 ponto.
- * Sempre 1 só: em empate desempata por mais gols, depois assists, depois menos GC.
- */
-function pickMatchMvps(players) {
-  const scored = (players || []).map((p) => ({
+function withMatchStats(p) {
+  return {
     ...p,
     goals: Math.max(0, Math.floor(Number(p.goals) || 0)),
     assists: Math.max(0, Math.floor(Number(p.assists) || 0)),
     own_goals: Math.max(0, Math.floor(Number(p.own_goals) || 0)),
-    score: (Number(p.goals) || 0) * 2 + (Number(p.assists) || 0),
+  };
+}
+
+function byAuthNick(a, b) {
+  return String(a.auth || a.nick || "").localeCompare(String(b.auth || b.nick || ""));
+}
+
+/**
+ * MVP da partida: sempre 1.
+ * Com vencedor → só no time que ganhou; empate → qualquer time.
+ * Critério: gols*2 + assists (mín. 1 pt); empate → mais gols → assists → menos GC.
+ */
+function pickMatchMvps(players) {
+  const list = players || [];
+  const winners = list.filter((p) => p.result === "win").map(withMatchStats);
+  const pool = (winners.length ? winners : list.map(withMatchStats));
+  if (!pool.length) return [];
+  const scored = pool.map((p) => ({
+    ...p,
+    score: p.goals * 2 + p.assists,
   }));
   const max = Math.max(0, ...scored.map((p) => p.score));
   if (max < 1) return [];
@@ -256,24 +271,39 @@ function pickMatchMvps(players) {
     if (b.goals !== a.goals) return b.goals - a.goals;
     if (b.assists !== a.assists) return b.assists - a.assists;
     if (a.own_goals !== b.own_goals) return a.own_goals - b.own_goals;
-    return String(a.auth || a.nick || "").localeCompare(String(b.auth || b.nick || ""));
+    return byAuthNick(a, b);
   });
   return [tied[0]];
 }
 
 /**
- * Pior da partida: menor contribuição (gols/assist − GC).
- * Sem anúncio se todo mundo empatou. MVP da partida não pode ser pior.
+ * Pior da partida: sempre 1.
+ * Com perdedor → só no time que perdeu; empate → qualquer time.
+ * Critério: menor contribuição (gols*2 + assists − GC*2);
+ * empate → mais GC → menos gols → menos assists.
  */
 function pickMatchWorst(players) {
   const list = players || [];
-  if (list.length < 2) return [];
-  const scored = list.map((p) => ({ ...p, score: matchContribution(p) }));
-  const min = Math.min(...scored.map((p) => p.score));
-  const max = Math.max(...scored.map((p) => p.score));
-  if (min === max) return [];
-  const mvpAuths = new Set(pickMatchMvps(list).map((p) => p.auth).filter(Boolean));
-  return scored.filter((p) => p.score === min && (!p.auth || !mvpAuths.has(p.auth)));
+  const losers = list.filter((p) => p.result === "loss").map(withMatchStats);
+  const pool = losers.length ? losers : list.map(withMatchStats);
+  if (!pool.length) return [];
+  const scored = pool.map((p) => ({ ...p, score: matchContribution(p) }));
+  scored.sort((a, b) => {
+    if (a.score !== b.score) return a.score - b.score;
+    if (b.own_goals !== a.own_goals) return b.own_goals - a.own_goals;
+    if (a.goals !== b.goals) return a.goals - b.goals;
+    if (a.assists !== b.assists) return a.assists - b.assists;
+    return byAuthNick(a, b);
+  });
+  // Em empate de placar, evita MVP e pior serem a mesma pessoa quando dá.
+  if (!losers.length) {
+    const mvpAuth = pickMatchMvps(list)[0]?.auth;
+    if (mvpAuth && scored.length > 1) {
+      const notMvp = scored.find((p) => p.auth !== mvpAuth);
+      if (notMvp) return [notMvp];
+    }
+  }
+  return [scored[0]];
 }
 
 function reqLabel(req, title) {

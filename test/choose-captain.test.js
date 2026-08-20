@@ -58,10 +58,12 @@ describe("capitão e lista de pick", () => {
     assert.equal(redCap.id, 1);
     assert.equal(blueCap.id, 2);
     assert.equal(choose.currentCaptain().id, 2);
-    assert.equal(choose.handleCaptainChat(redCap, "1"), false);
+    const blueBefore = choose.list().blue.length;
+    assert.equal(choose.handleCaptainChat(redCap, "1"), true, "consome o chat sem pickar");
+    assert.equal(choose.list().blue.length, blueBefore);
     assert.equal(choose.handleCaptainChat(blueCap, "1"), true);
     assert.equal(choose.currentCaptain().id, 2);
-    assert.equal(choose.handleCaptainChat(redCap, "1"), false);
+    assert.equal(choose.handleCaptainChat(redCap, "1"), true);
   });
 
   it("quem entra no spec entra na lista na hora, com número novo", () => {
@@ -363,7 +365,8 @@ describe("capitão e lista de pick", () => {
     const { choose, announcements } = setup(players);
     choose.continueFromField();
     assert.equal(choose.currentCaptain().id, 2);
-    assert.equal(choose.handleCaptainChat(players[0], "1"), false);
+    assert.equal(choose.handleCaptainChat(players[0], "1"), true);
+    assert.equal(players.find((row) => row.id === 4).team, TEAM.SPEC);
     assert.equal(lastSpecs(announcements).to, 2);
     assert.equal(choose.handleCaptainChat(players.find((row) => row.id === 2), "1"), true);
     assert.equal(players.find((row) => row.id === 4).team, TEAM.BLUE);
@@ -443,7 +446,8 @@ describe("capitão e lista de pick", () => {
     assert.equal(choose.list().blue.length, 1);
     assert.equal(choose.list().blue[0].id, 4);
     assert.equal(choose.currentCaptain().id, 4);
-    assert.equal(choose.handleCaptainChat(players[0], "1"), false);
+    assert.equal(choose.handleCaptainChat(players[0], "1"), true);
+    assert.equal(players.find((row) => row.id === 5).team, TEAM.SPEC);
   });
 
   it("4v3: timeout manda o azul AFK; com specs sobrando o próximo picka", async () => {
@@ -472,6 +476,53 @@ describe("capitão e lista de pick", () => {
     assert.equal(choose.isActive(), true);
     assert.equal(choose.currentCaptain()?.id, 22, "2º do azul herda o pick");
     assert.ok(players.filter((row) => row.team === TEAM.RED).every((row) => [1, 11, 12, 13].includes(row.id)));
+    config.chooseTimeSec = prev;
+  });
+
+  it("reposição 3v4: timeout do cap e o próximo picka as duas vagas (não começa 3v4)", async () => {
+    const prev = config.chooseTimeSec;
+    config.chooseTimeSec = 0.05;
+    const players = [
+      p(1, TEAM.RED),
+      p(11, TEAM.RED),
+      p(12, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(3, TEAM.BLUE),
+      p(4, TEAM.BLUE),
+      p(5, TEAM.BLUE),
+      p(6),
+      p(7),
+      p(8),
+    ];
+    const ready = [];
+    const { choose, announcements } = setup(players, {
+      scores: { red: 1, blue: 0, time: 30, timeLimit: 180 },
+    });
+    choose.startReplacement(TEAM.RED, (result) => ready.push(result));
+    assert.equal(choose.currentCaptain().id, 1);
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(players.find((row) => row.id === 1).team, TEAM.SPEC);
+    assert.equal(choose.isActive(), true);
+    assert.equal(choose.isReplacement(), true);
+    assert.equal(choose.currentCaptain()?.id, 11);
+    assert.ok(announcements.some((row) => /novo capitão/i.test(row.msg)));
+
+    const cap2 = players.find((row) => row.id === 11);
+    assert.equal(choose.handleCaptainChat(cap2, "1"), true);
+    assert.equal(choose.list().red.length, 3, "ainda falta uma vaga");
+    assert.equal(choose.isActive(), true, "não fecha a reposição no 3v4");
+    assert.equal(ready.length, 0);
+    assert.equal(
+      choose.handleCaptainChat(players.find((row) => row.id === 12), "1"),
+      true,
+      "só o cap da vez picka"
+    );
+    assert.equal(choose.list().red.length, 3);
+    assert.equal(choose.handleCaptainChat(cap2, "1"), true);
+    assert.equal(choose.list().red.length, 4);
+    assert.equal(choose.isActive(), false);
+    assert.equal(ready.length, 1);
     config.chooseTimeSec = prev;
   });
 });
@@ -562,6 +613,10 @@ describe("matriz de pick do capitão", () => {
     assert.equal(choose.isActive(), true);
     assert.equal(choose.list().blue.length, 2);
     assert.ok(announcements.some((row) => /^Specs:/.test(row.msg) && /\[3\]/.test(row.msg)));
+    const afterPick = lastSpecs(announcements);
+    assert.equal(afterPick.to, cap.id);
+    assert.match(afterPick.msg, /\[3\]/);
+    assert.ok(!/\[4\]/.test(afterPick.msg));
     assert.equal(choose.handleCaptainChat(cap, "1"), true);
     assert.equal(choose.list().blue.length, 3);
     assert.equal(choose.isActive(), true);
@@ -646,11 +701,47 @@ describe("matriz de pick do capitão", () => {
     const redSecond = choose.list().red[1];
     const redCap = choose.list().red[0];
     const cap = blueCap(choose);
-    assert.equal(choose.handleCaptainChat(spec, "1"), false);
-    assert.equal(choose.handleCaptainChat(redSecond, "1"), false);
-    assert.equal(choose.handleCaptainChat(redCap, "1"), false);
+    const specTeam = spec.team;
+    assert.equal(choose.handleCaptainChat(spec, "1"), true);
+    assert.equal(spec.team, specTeam);
+    assert.equal(choose.handleCaptainChat(redSecond, "1"), true);
+    assert.equal(choose.handleCaptainChat(redCap, "1"), true);
     assert.equal(choose.handleCaptainChat(cap, "oi"), false);
     assert.equal(choose.handleCaptainChat(cap, "!help"), false);
+  });
+
+  it("lista e instrução de pick só aparecem para o capitão", () => {
+    const players = winnersAndSpecs(4);
+    const { choose, announcements } = setup(players);
+    choose.continueFromField();
+    const cap = choose.currentCaptain();
+    const privateMsgs = announcements.filter(
+      (row) => /^Specs:/.test(row.msg) || /^Escolha em/.test(row.msg) || /Sem jogadores no spec/.test(row.msg)
+    );
+    assert.ok(privateMsgs.length, "manda a ordem de pick");
+    assert.ok(
+      privateMsgs.every((row) => row.to === cap.id),
+      "ninguém além do capitão vê Specs/Escolha"
+    );
+    assert.equal(
+      announcements.some((row) => row.to == null && (/^Specs:/.test(row.msg) || /^Escolha em/.test(row.msg))),
+      false
+    );
+  });
+
+  it("não-capitão que manda 1 não picka e só ele vê o aviso", () => {
+    const players = winnersAndSpecs(4);
+    const { choose, announcements } = setup(players);
+    choose.continueFromField();
+    const spec = players.find((row) => row.team === TEAM.SPEC);
+    const beforeBlue = choose.list().blue.length;
+    announcements.length = 0;
+
+    assert.equal(choose.handleCaptainChat(spec, "1"), true);
+    assert.equal(spec.team, TEAM.SPEC);
+    assert.equal(choose.list().blue.length, beforeBlue);
+    assert.ok(announcements.some((row) => row.to === spec.id && /Só o capitão/.test(row.msg)));
+    assert.equal(announcements.some((row) => row.to == null && /Só o capitão|Specs:/.test(row.msg)), false);
   });
 
   it("3v3: escolhe 2 de 3 por número; 2v2: escolhe 1 de 2", () => {

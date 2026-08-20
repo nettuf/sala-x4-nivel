@@ -11,24 +11,18 @@ const {
 } = require("./helpers/roomHost");
 
 describe("AFK do jogador parado", () => {
-  it("parado em campo cai pro spec e fica AFK; quem mexe continua jogando", () => {
+  it("parado em campo cai pro spec e fica AFK; quem tecla continua jogando", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     const parado = all[0];
     host.startMatch();
 
-    // Todos parados além do limite; em seguida só os outros movem o boneco.
-    const past = Date.now() - config.afkActionMs - 1000;
-    for (const p of all) host.handles.afk.touch(p.id, past);
-    host.handles.afk.sampleMovement(past);
-    for (const p of all.slice(1)) host.discs.set(p.id, { x: p.id * 10 + 60, y: 0 });
-    host.handles.afk.sampleMovement(Date.now());
-
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 1000 });
     host.handles.afk.tick(Date.now());
 
     assert.equal(host.find(parado.id).team, TEAM.SPEC, "parado devia ir pro spec");
     assert.equal(host.handles.afk.isAfk(parado.id), true);
-    assert.equal(host.handles.afk.isAfk(all[1].id), false, "quem mexeu continua ativo");
+    assert.equal(host.handles.afk.isAfk(all[1].id), false, "quem teclou continua ativo");
     assert.equal(host.kicks.length, 0, "sala com vaga não kicka por AFK");
     assert.ok(host.announcements.some((a) => /parado/i.test(a.msg)));
     host.cleanup();
@@ -40,11 +34,7 @@ describe("AFK do jogador parado", () => {
     host.startMatch();
     const a = all[0];
     const b = all[1];
-    const past = Date.now() - config.afkActionMs - 1000;
-    for (const p of all) host.handles.afk.touch(p.id, past);
-    host.handles.afk.sampleMovement(past);
-    for (const p of all.slice(2)) host.discs.set(p.id, { x: p.id * 10 + 80, y: 0 });
-    host.handles.afk.sampleMovement(Date.now());
+    host.idle(all, { moving: all.slice(2), idleMs: config.afkActionMs + 1000 });
 
     const pausesBefore = host.pauses.length;
     host.handles.afk.tick(Date.now());

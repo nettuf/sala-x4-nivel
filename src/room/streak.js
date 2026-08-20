@@ -8,9 +8,23 @@ const config = require("../config");
  * - Empate não existe no 4v4 (gol de ouro); os times nunca zeram.
  */
 
-function createStreakTracker({ best = 0, onBest } = {}) {
+function sanitizeHolders(holders) {
+  if (!Array.isArray(holders)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of holders) {
+    const name = String(raw || "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
+function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
   let streak = 0;
   let bestStreak = Math.max(0, Math.floor(Number(best) || 0));
+  let bestStreakHolders = sanitizeHolders(bestHolders);
 
   function get() {
     return streak;
@@ -20,26 +34,37 @@ function createStreakTracker({ best = 0, onBest } = {}) {
     return bestStreak;
   }
 
-  function hydrateBest(n) {
+  function getBestHolders() {
+    return [...bestStreakHolders];
+  }
+
+  function hydrateBest(n, holders) {
     const v = Math.max(0, Math.floor(Number(n) || 0));
-    if (v > bestStreak) bestStreak = v;
+    if (v > bestStreak) {
+      bestStreak = v;
+      bestStreakHolders = sanitizeHolders(holders);
+    } else if (v === bestStreak && bestStreakHolders.length === 0) {
+      bestStreakHolders = sanitizeHolders(holders);
+    }
   }
 
   function reset() {
     streak = 0;
   }
 
-  function maybeRecordBest() {
+  function maybeRecordBest(holders) {
     if (streak <= bestStreak) return;
     bestStreak = streak;
-    if (typeof onBest === "function") onBest(bestStreak);
+    bestStreakHolders = sanitizeHolders(holders);
+    if (typeof onBest === "function") onBest(bestStreak, bestStreakHolders);
   }
 
   /**
    * @param {1|2|0} winner
+   * @param {string[]} [holders] nicks do time que segura o streak
    * @returns {number} streak atual após update
    */
-  function recordWin(winner) {
+  function recordWin(winner, holders = []) {
     if (winner === TEAM.RED) {
       streak += 1;
     } else if (winner === TEAM.BLUE) {
@@ -47,7 +72,7 @@ function createStreakTracker({ best = 0, onBest } = {}) {
     } else {
       streak = 0;
     }
-    maybeRecordBest();
+    maybeRecordBest(holders);
     return streak;
   }
 
@@ -56,7 +81,7 @@ function createStreakTracker({ best = 0, onBest } = {}) {
     return `streak ${streak}`;
   }
 
-  return { get, getBest, hydrateBest, reset, recordWin, label };
+  return { get, getBest, getBestHolders, hydrateBest, reset, recordWin, label };
 }
 
 function formatCurrentStreak(n) {
@@ -64,12 +89,14 @@ function formatCurrentStreak(n) {
   return v > 0 ? `🔁 Streak atual: ${v} (vencedores no vermelho)` : "🔁 Sem streak no momento.";
 }
 
-function formatBestStreak(best, current = 0) {
+function formatBestStreak(best, current = 0, holders = []) {
   const rec = Math.max(0, Math.floor(Number(best) || 0));
   const now = Math.max(0, Math.floor(Number(current) || 0));
   if (rec <= 0) return "🏆 Sem recorde de streak ainda.";
   const live = now > 0 && now >= rec ? " (em andamento)" : "";
-  return `🏆 Maior streak da sala: ${rec}${live}`;
+  const names = sanitizeHolders(holders);
+  const who = names.length ? ` · ${names.join(", ")}` : "";
+  return `🏆 Maior streak da sala: ${rec}${live}${who}`;
 }
 
 /**
@@ -90,7 +117,8 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded } = {}) {
     return { mode: "keep", streak: streakTracker.get() };
   }
 
-  const nextStreak = streakTracker.recordWin(winner);
+  const holders = (winner === TEAM.RED ? red : blue).map((p) => p.name);
+  const nextStreak = streakTracker.recordWin(winner, holders);
 
   if (winner === TEAM.RED) {
     for (const p of blue) room.setPlayerTeam(p.id, TEAM.SPEC);
@@ -137,4 +165,5 @@ module.exports = {
   shouldUseWinnerStays,
   formatCurrentStreak,
   formatBestStreak,
+  sanitizeHolders,
 };

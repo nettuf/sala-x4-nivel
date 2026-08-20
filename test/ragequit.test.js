@@ -268,6 +268,108 @@ describe("stats da partida x4", () => {
     assert.equal(rival.result, "loss");
   });
 
+  it("assist conta o último toque do time mesmo com rival chutando no meio", async () => {
+    const players = [
+      { id: 1, name: "R", auth: "auth-r", team: TEAM.RED },
+      { id: 2, name: "R2", auth: "auth-r2", team: TEAM.RED },
+      { id: 3, name: "B", auth: "auth-b", team: TEAM.BLUE },
+    ];
+    let scores = { red: 0, blue: 0, time: 40, scoreLimit: 3, timeLimit: 240 };
+    const room = {
+      getPlayerList: () => players.map((p) => ({ ...p })),
+      getScores: () => scores,
+      getBallPosition: () => ({ x: 0, y: 0 }),
+      startRecording: () => {},
+      stopRecording: () => new Uint8Array(),
+      startGame: () => {},
+      sendAnnouncement: () => {},
+    };
+    const match = createMatchController(room);
+    match.start({ competitive: true });
+    match.onBallKick(players[1]);
+    match.onBallKick(players[2]);
+    match.onBallKick(players[0]);
+    scores = { ...scores, red: 1 };
+    match.onTeamGoal(TEAM.RED);
+    match.markVictory();
+    const result = await match.finish({ ...scores, red: 3, blue: 0, time: 90 });
+    const scorer = result.players.find((p) => p.auth === "auth-r");
+    const assist = result.players.find((p) => p.auth === "auth-r2");
+    assert.equal(scorer.goals, 1);
+    assert.equal(assist.assists, 1);
+  });
+
+  it("CS só o goleiro do time que não sofreu", async () => {
+    const players = [
+      { id: 1, name: "GkRed", auth: "gk-r", team: TEAM.RED },
+      { id: 2, name: "AtkRed", auth: "atk-r", team: TEAM.RED },
+      { id: 3, name: "GkBlue", auth: "gk-b", team: TEAM.BLUE },
+      { id: 4, name: "AtkBlue", auth: "atk-b", team: TEAM.BLUE },
+    ];
+    const discs = {
+      1: { x: -220, y: 0 },
+      2: { x: -30, y: 0 },
+      3: { x: 220, y: 0 },
+      4: { x: 40, y: 0 },
+    };
+    const scores = { red: 3, blue: 0, time: 90, scoreLimit: 3, timeLimit: 240 };
+    const room = {
+      getPlayerList: () => players.map((p) => ({ ...p })),
+      getScores: () => scores,
+      getBallPosition: () => ({ x: 80, y: 0 }),
+      getPlayerDiscProperties: (id) => discs[id] || null,
+      startRecording: () => {},
+      stopRecording: () => new Uint8Array(),
+      startGame: () => {},
+      sendAnnouncement: () => {},
+    };
+    const match = createMatchController(room);
+    match.start({ competitive: true });
+    for (let i = 0; i < 20; i++) match.onTick();
+    match.markVictory();
+    const result = await match.finish(scores);
+    const gkRed = result.players.find((p) => p.auth === "gk-r");
+    const atkRed = result.players.find((p) => p.auth === "atk-r");
+    const gkBlue = result.players.find((p) => p.auth === "gk-b");
+    assert.equal(gkRed.cleanSheet, true);
+    assert.equal(atkRed.cleanSheet, false);
+    assert.equal(gkBlue.cleanSheet, false);
+  });
+
+  it("toque perto da bola (sem chute) também vira assistência", async () => {
+    const players = [
+      { id: 1, name: "R", auth: "auth-r", team: TEAM.RED },
+      { id: 2, name: "R2", auth: "auth-r2", team: TEAM.RED },
+      { id: 3, name: "B", auth: "auth-b", team: TEAM.BLUE },
+    ];
+    const discs = {
+      1: { x: 80, y: 0 },
+      2: { x: 8, y: 0 },
+      3: { x: -80, y: 0 },
+    };
+    let scores = { red: 0, blue: 0, time: 40, scoreLimit: 3, timeLimit: 240 };
+    const room = {
+      getPlayerList: () => players.map((p) => ({ ...p })),
+      getScores: () => scores,
+      getBallPosition: () => ({ x: 0, y: 0 }),
+      getPlayerDiscProperties: (id) => discs[id] || null,
+      startRecording: () => {},
+      stopRecording: () => new Uint8Array(),
+      startGame: () => {},
+      sendAnnouncement: () => {},
+    };
+    const match = createMatchController(room);
+    match.start({ competitive: true });
+    match.onTick();
+    match.onBallKick(players[0]);
+    scores = { ...scores, red: 1 };
+    match.onTeamGoal(TEAM.RED);
+    match.markVictory();
+    const result = await match.finish({ ...scores, red: 3, blue: 0, time: 90 });
+    assert.equal(result.players.find((p) => p.auth === "auth-r").goals, 1);
+    assert.equal(result.players.find((p) => p.auth === "auth-r2").assists, 1);
+  });
+
   it("sem identify e sem auth no getPlayerList não inventa stats", async () => {
     const players = [
       { id: 1, name: "R", team: TEAM.RED },

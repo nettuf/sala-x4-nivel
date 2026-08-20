@@ -302,7 +302,7 @@ describe("uniformes: emoji do kit", () => {
     return room;
   }
 
-  it("kits com emoji fixo: baleio, cacadores, copas, gh, gigachads, gordo, jalin, marconhados, moggadores, palhacada, rato, tigre, tulio e zebrados", () => {
+  it("kits com emoji fixo: baleio, cacadores, copas, gh, gigachads, gordo, jalin, marconhados, moggadores, palhacada, rato, tigre, tulio, zebra family e zebrados", () => {
     const comEmoji = KITS.filter((k) => k.emoji).map((k) => k.id).sort();
     assert.deepEqual(comEmoji, [
       "baleio",
@@ -319,6 +319,7 @@ describe("uniformes: emoji do kit", () => {
       "tigre",
       "tulio",
       "zebrados",
+      "zebrafamily",
     ]);
     assert.equal(findKit("baleio").emoji, "🐋");
     assert.equal(findKit("rato").emoji, "🐀");
@@ -389,6 +390,17 @@ describe("uniformes: emoji do kit", () => {
     assert.equal(findKit("marconhados").text, 0x1be329);
     assert.deepEqual(findKit("marconhados").colors, [0x108518, 0x14a81e]);
     assert.equal(findKit("marconhados").emoji, "☘️");
+    assert.equal(findKit("rosinha").name, "Rosinha");
+    assert.equal(findKit("rosinha").angle, 0);
+    assert.equal(findKit("rosinha").text, 0xffffff);
+    assert.deepEqual(findKit("rosinha").colors, [0xffbadd]);
+    assert.equal(findKit("rosinha").emoji, undefined);
+    assert.equal(findKit("zebrafamily").name, "Zebra Family");
+    assert.equal(findKit("zebra family").name, "Zebra Family");
+    assert.equal(findKit("zebrafamily").angle, 90);
+    assert.equal(findKit("zebrafamily").text, 0xffffff);
+    assert.deepEqual(findKit("zebrafamily").colors, [0x21d3ff, 0xff00cc, 0x21d3ff]);
+    assert.equal(findKit("zebrafamily").emoji, "🦓");
   });
 
   it("kit com emoji marca o time inteiro e deixa o resto livre", () => {

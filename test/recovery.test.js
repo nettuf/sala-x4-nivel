@@ -69,9 +69,15 @@ describe("recuperação do 4v4 competitivo", () => {
     assert.equal(plan({ redCount: 3, blueCount: 3, specCount: 0 }).action, "keep-play");
   });
 
-  it("buraco de 2 no mesmo time → rebalanceia mesmo com spec", () => {
-    assert.equal(plan({ redCount: 2, blueCount: 4, specCount: 2 }).action, "rebalance");
-    assert.equal(plan({ redCount: 2, blueCount: 4, specCount: 1 }).action, "rebalance");
+  it("buraco de 2 no mesmo time com spec → capitão escolhe até completar", () => {
+    assert.deepEqual(plan({ redCount: 2, blueCount: 4, specCount: 2 }), {
+      action: "choose",
+      targetTeam: TEAM.RED,
+    });
+    assert.deepEqual(plan({ redCount: 2, blueCount: 4, specCount: 1 }), {
+      action: "fill-one",
+      targetTeam: TEAM.RED,
+    });
   });
 
   it("jogo já parado + 1 spec → preenche e reinicia", () => {

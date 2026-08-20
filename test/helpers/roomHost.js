@@ -120,19 +120,17 @@ function bootRoom() {
       return room.onPlayerChat(snapshot(live), message);
     },
     /**
-     * Deixa os jogadores parados há `idleMs` e mexe o boneco de `moving`,
-     * do jeito que o headless faria pelos ticks. Pode ser chamado várias
-     * vezes: o boneco de quem mexe sempre avança de posição.
+     * Deixa os jogadores parados há `idleMs` e marca atividade (tecla) em `moving`.
+     * Espelha onPlayerActivity do headless — empurrão de posição não conta.
      */
     idle(all, { moving = [], idleMs = config.afkActionMs + 1000 } = {}) {
       const past = Date.now() - idleMs;
       for (const p of all) handles.afk.touch(p.id, past);
-      handles.afk.sampleMovement(past);
-      for (const p of moving) {
-        const at = discs.get(p.id) || { x: p.id * 10, y: 0 };
-        discs.set(p.id, { x: at.x + 80, y: at.y });
-      }
-      handles.afk.sampleMovement(Date.now());
+      for (const p of moving) handles.afk.touch(p.id, Date.now());
+    },
+    /** Simula o jogador apertando tecla (onPlayerActivity). */
+    activity(target) {
+      room.onPlayerActivity?.(snapshot(players.find((p) => p.id === target.id) || target));
     },
     lastSpecList() {
       return [...announcements].reverse().find((a) => /^Specs:/.test(a.msg));

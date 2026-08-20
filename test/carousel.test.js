@@ -63,23 +63,38 @@ describe("totais da sala", () => {
     const a = createRoomStats({ filePath: file });
     a.recordCompletedMatch({ goals: 5 });
     a.recordCompletedMatch({ goals: 2 });
-    assert.deepEqual(a.snapshot(), { goals: 7, games: 2, bestStreak: 0 });
+    assert.deepEqual(a.snapshot(), { goals: 7, games: 2, bets: 0, bestStreak: 0, bestStreakHolders: [] });
 
     const b = createRoomStats({ filePath: file });
-    assert.deepEqual(b.snapshot(), { goals: 7, games: 2, bestStreak: 0 });
+    assert.deepEqual(b.snapshot(), { goals: 7, games: 2, bets: 0, bestStreak: 0, bestStreakHolders: [] });
     fs.unlinkSync(file);
   });
 
   it("persiste recorde de streak", () => {
     const file = path.join(os.tmpdir(), `sala-x4-best-${Date.now()}.json`);
     const a = createRoomStats({ filePath: file });
-    a.setBestStreak(3);
-    a.setBestStreak(2);
-    a.setBestStreak(5);
+    a.setBestStreak(3, ["A", "B"]);
+    a.setBestStreak(2, ["X"]);
+    a.setBestStreak(5, ["C", "D", "E", "F"]);
     assert.equal(a.snapshot().bestStreak, 5);
+    assert.deepEqual(a.snapshot().bestStreakHolders, ["C", "D", "E", "F"]);
 
     const b = createRoomStats({ filePath: file });
     assert.equal(b.snapshot().bestStreak, 5);
+    assert.deepEqual(b.snapshot().bestStreakHolders, ["C", "D", "E", "F"]);
+    fs.unlinkSync(file);
+  });
+
+  it("persiste apostas da Haxbooket", () => {
+    const file = path.join(os.tmpdir(), `sala-x4-bets-${Date.now()}.json`);
+    const a = createRoomStats({ filePath: file });
+    a.recordBet();
+    a.recordBet();
+    a.recordBet();
+    assert.equal(a.snapshot().bets, 3);
+
+    const b = createRoomStats({ filePath: file });
+    assert.equal(b.snapshot().bets, 3);
     fs.unlinkSync(file);
   });
 });

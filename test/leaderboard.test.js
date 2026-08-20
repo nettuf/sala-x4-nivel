@@ -86,5 +86,9 @@ describe("mensagens de streak", () => {
     assert.match(formatBestStreak(0), /Sem recorde/);
     assert.equal(formatBestStreak(7, 2), "🏆 Maior streak da sala: 7");
     assert.match(formatBestStreak(7, 7), /em andamento/);
+    assert.equal(
+      formatBestStreak(5, 1, ["Ana", "Bob", "Cia", "Dan"]),
+      "🏆 Maior streak da sala: 5 · Ana, Bob, Cia, Dan"
+    );
   });
 });

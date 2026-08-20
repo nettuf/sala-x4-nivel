@@ -37,22 +37,24 @@ describe("AFK: relógio, aviso e ação", () => {
     host.cleanup();
   });
 
-  it("empurrão não salva do AFK; andar de verdade salva", () => {
+  it("empurrão na posição não salva do AFK; tecla salva", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     const empurrado = all[0];
+    const ativo = all[1];
     host.startMatch();
 
     const past = Date.now() - config.afkActionMs - 1000;
     for (const p of all) host.handles.afk.touch(p.id, past);
-    host.handles.afk.sampleMovement(past);
-    // Deslocamento menor que o mínimo: foi empurrado, não andou.
+    // Disco voa longe: isso não conta mais como atividade.
     const at = host.discs.get(empurrado.id);
-    host.discs.set(empurrado.id, { x: at.x + 2, y: at.y });
+    host.discs.set(empurrado.id, { x: at.x + 90, y: at.y + 40 });
     host.handles.afk.sampleMovement(Date.now());
+    host.activity(ativo);
     host.handles.afk.tick(Date.now());
 
-    assert.equal(host.handles.afk.isAfk(empurrado.id), true, "2 unidades não contam como andar");
+    assert.equal(host.handles.afk.isAfk(empurrado.id), true, "empurrão não conta");
+    assert.equal(host.handles.afk.isAfk(ativo.id), false, "tecla conta");
     host.cleanup();
   });
 
@@ -100,36 +102,76 @@ describe("AFK: relógio, aviso e ação", () => {
 });
 
 describe("AFK: pausa, gol e kickoff", () => {
-  it("pausa congela o relógio do AFK e despausar dá tempo novo a todos", () => {
+  it("pausa congela o relógio do AFK; despausar continua de onde parou", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.startMatch();
-    host.idle(all, { idleMs: config.afkActionMs * 3 });
 
-    host.adminPause(true);
-    host.handles.afk.tick(Date.now());
+    const at = Date.now();
+    for (const p of all) host.handles.afk.touch(p.id, at);
+    host.handles.afk.tick(at + config.afkWarnMs + 500);
+    assert.ok(host.said(/mexa-se/, all[0].id));
+    assert.equal(host.teamCount(TEAM.SPEC), 0);
+
+    // Timestamps sintéticos: o hold precisa usar o mesmo relógio do tick.
+    host.handles.afk.setPaused(true, at + config.afkWarnMs + 500);
+    host.handles.afk.tick(at + config.afkActionMs * 5);
     assert.equal(host.teamCount(TEAM.SPEC), 0, "pausado ninguém cai pro spec");
     assert.equal(host.kicks.length, 0);
 
-    host.adminPause(false);
-    host.handles.afk.tick(Date.now());
-    assert.equal(host.teamCount(TEAM.SPEC), 0, "despausar zera o relógio de todos");
+    host.handles.afk.setPaused(false, at + config.afkActionMs * 5);
+    host.handles.afk.tick(at + config.afkActionMs * 5);
+    assert.equal(host.teamCount(TEAM.SPEC), 0, "despause mantém o progresso, não zera nem estoura");
+
+    host.handles.afk.tick(at + config.afkActionMs * 5 + (config.afkActionMs - config.afkWarnMs));
+    assert.equal(host.find(all[0].id).team, TEAM.SPEC, "depois do despause o tempo volta a correr");
     host.cleanup();
   });
 
-  it("entre o gol e o kickoff o relógio do AFK não corre", () => {
+  it("entre o gol e o kickoff o relógio do AFK congela (não zera)", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.startMatch();
-    host.idle(all, { idleMs: config.afkActionMs * 3 });
+
+    const at = Date.now();
+    for (const p of all) host.handles.afk.touch(p.id, at);
+    host.handles.afk.tick(at + config.afkWarnMs + 500);
+
+    host.handles.afk.setCounting(false, at + config.afkWarnMs + 500);
+    host.handles.afk.tick(at + config.afkActionMs * 4);
+    assert.equal(host.teamCount(TEAM.SPEC), 0, "comemoração de gol não vira AFK");
+
+    host.handles.afk.setCounting(true, at + config.afkActionMs * 4);
+    host.handles.afk.tick(at + config.afkActionMs * 4);
+    assert.equal(host.teamCount(TEAM.SPEC), 0, "kickoff continua o progresso, ainda abaixo do limite");
+
+    host.handles.afk.tick(at + config.afkActionMs * 4 + (config.afkActionMs - config.afkWarnMs));
+    assert.equal(host.find(all[0].id).team, TEAM.SPEC, "após o kickoff o AFK completa o tempo");
+    host.cleanup();
+  });
+
+  it("gol e kickoff pelos eventos da sala não perdoam quem já estava parado", () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    const parado = all[0];
+    const ativo = all[1];
+    host.startMatch();
+
+    const at = Date.now();
+    for (const p of all) host.handles.afk.touch(p.id, at);
+    host.handles.afk.touch(parado.id, at - config.afkWarnMs - 1000);
 
     host.room.onTeamGoal(TEAM.RED);
     host.handles.afk.tick(Date.now());
-    assert.equal(host.teamCount(TEAM.SPEC), 0, "comemoração de gol não vira AFK");
+    assert.equal(host.find(parado.id).team, TEAM.RED, "durante a comemoração ninguém cai");
 
     host.room.onPositionsReset();
-    host.handles.afk.tick(Date.now());
-    assert.equal(host.teamCount(TEAM.SPEC), 0, "o kickoff dá tempo novo");
+    const restante = config.afkActionMs - config.afkWarnMs;
+    host.handles.afk.tick(Date.now() + restante + 1000);
+
+    assert.equal(host.handles.afk.isAfk(parado.id), true, "o gol congelou o relógio, não zerou");
+    assert.equal(host.find(parado.id).team, TEAM.SPEC);
+    assert.equal(host.handles.afk.isAfk(ativo.id), false, "quem estava ativo não é punido");
     host.cleanup();
   });
 
@@ -261,6 +303,33 @@ describe("choose: pick do capitão", () => {
     host.cleanup();
   });
 
+  it("depois do pick a lista volta atualizada para o capitão", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+    host.addPlayer(TEAM.BLUE);
+    for (let i = 0; i < 10; i++) host.addPlayer(TEAM.SPEC);
+    host.handles.choose.continueFromField();
+
+    const cap = host.handles.choose.currentCaptain();
+    const before = host.lastSpecList();
+    assert.ok(before);
+    assert.equal(before.to, cap.id);
+    assert.match(before.msg, /\[10\]/);
+    const picked = host.handles.choose.list().specReady[0];
+
+    host.announcements.length = 0;
+    await host.chat(cap, "1");
+    await settle();
+
+    const after = host.lastSpecList();
+    assert.ok(after, "depois do pick manda a lista de novo");
+    assert.equal(after.to, host.handles.choose.currentCaptain().id);
+    assert.ok(!after.msg.includes(`${picked.name}[`), "quem entrou sai da lista");
+    assert.match(after.msg, /\[9\]/);
+    assert.equal(host.find(picked.id).team, TEAM.BLUE);
+    host.cleanup();
+  });
+
   it("bottom/top/random valem como pick; com gente sobrando o capitão escolhe de novo", async () => {
     const host = bootRoom();
     startChoose(host);
@@ -324,6 +393,17 @@ describe("choose: pick do capitão", () => {
 
     assert.equal(host.teamCount(TEAM.BLUE), antes, "pick de quem não é capitão é ignorado");
     assert.notEqual(cap.id, outro.id);
+    assert.ok(host.said(/Só o capitão da vez escolhe/, outro.id));
+    assert.equal(
+      host.announcements.some((a) => a.to == null && /Só o capitão|^Specs:|^Escolha em/.test(a.msg)),
+      false,
+      "ordem de pick e recusa não vão para a sala"
+    );
+    assert.equal(
+      host.announcements.some((a) => a.to == null && /: 1$/.test(String(a.msg))),
+      false,
+      "o 1 de quem não é capitão não vaza no chat"
+    );
     host.cleanup();
   });
 
@@ -443,6 +523,50 @@ describe("choose: pick do capitão", () => {
       assert.equal(host.teamCount(TEAM.BLUE), 4);
       assert.ok(host.said(/bot completou os times|AFK no fim da fila/i));
       assert.equal(host.handles.choose.isActive(), false);
+    } finally {
+      config.chooseTimeSec = anterior;
+      host.cleanup();
+    }
+  });
+
+  it("4v4 ao vivo: quit + cap AFK, o próximo picka as duas vagas e não começa 3v4", async () => {
+    const host = bootRoom();
+    const anterior = config.chooseTimeSec;
+    config.chooseTimeSec = 0.2;
+    try {
+      const reds = [];
+      for (let i = 0; i < 4; i++) reds.push(host.addPlayer(TEAM.RED));
+      for (let i = 0; i < 4; i++) host.addPlayer(TEAM.BLUE);
+      for (let i = 0; i < 4; i++) host.addPlayer(TEAM.SPEC);
+      host.startMatch({ competitive: true });
+      assert.ok(host.live());
+
+      host.quit(reds[3]);
+      await new Promise((r) => setTimeout(r, 120));
+      assert.equal(host.handles.choose.isReplacement(), true);
+      assert.equal(host.teamCount(TEAM.RED), 3);
+      assert.equal(host.handles.choose.currentCaptain()?.id, reds[0].id);
+
+      await new Promise((r) => setTimeout(r, 250));
+      assert.equal(host.handles.afk.isAfk(reds[0].id), true);
+      assert.equal(host.find(reds[0].id).team, TEAM.SPEC);
+      assert.equal(host.teamCount(TEAM.RED), 2);
+      const cap2 = host.handles.choose.currentCaptain();
+      assert.ok(cap2, "o 2º do vermelho herda o pick");
+      assert.equal(cap2.id, reds[1].id);
+      assert.ok(host.said(/novo capitão/i));
+
+      host.chat(cap2, "1");
+      await settle();
+      assert.equal(host.teamCount(TEAM.RED), 3);
+      assert.equal(host.handles.choose.isActive(), true, "ainda falta uma vaga");
+      assert.ok(host.live(), "não reinicia a partida no 3v4");
+
+      host.chat(cap2, "1");
+      await settle();
+      assert.equal(host.teamCount(TEAM.RED), 4);
+      assert.equal(host.handles.choose.isActive(), false);
+      assert.ok(host.live());
     } finally {
       config.chooseTimeSec = anterior;
       host.cleanup();

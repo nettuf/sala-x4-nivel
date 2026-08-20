@@ -71,10 +71,12 @@ function createRoom(HBInit) {
   ctx.uniforms = uniforms;
   const roomStats = createRoomStats();
   ctx.roomStats = roomStats;
+  const statsSnap = roomStats.snapshot();
   const streak = createStreakTracker({
-    best: roomStats.snapshot().bestStreak,
-    onBest(n) {
-      roomStats.setBestStreak(n);
+    best: statsSnap.bestStreak,
+    bestHolders: statsSnap.bestStreakHolders,
+    onBest(n, holders) {
+      roomStats.setBestStreak(n, holders);
     },
   });
   ctx.streak = streak;
@@ -82,7 +84,7 @@ function createRoom(HBInit) {
   ctx.chatLog = chatLog;
   roomStats
     .hydrateFromDb()
-    .then((snap) => streak.hydrateBest(snap.bestStreak))
+    .then((snap) => streak.hydrateBest(snap.bestStreak, snap.bestStreakHolders))
     .catch(() => {});
   const match = createMatchController(room, {
     identify: (player) =>
@@ -156,8 +158,10 @@ function createRoom(HBInit) {
       const timer = setTimeout(callback, 100);
       if (typeof timer.unref === "function") timer.unref();
     },
-    onPickFromSpec() {
-      // AFK não aparece na lista: quem é escolhido aqui já está ativo.
+    onPickFromSpec(chosen, team) {
+      if (match.isCompetitive() && chosen && team) {
+        match.addToLineup(chosen, team);
+      }
     },
     onCaptainTimeout(player) {
       // Só marca AFK: o choose já mandou pro spec e passa o pick.
@@ -771,12 +775,18 @@ function createRoom(HBInit) {
       .catch((err) => console.error("[ban nativo]", err?.message || err));
   }
 
-  room.onGamePause = () => {
+  room.onGamePause = (byPlayer) => {
     afk.setPaused(true);
+    if (byPlayer) afk.touch(byPlayer.id);
   };
 
-  room.onGameUnpause = () => {
+  room.onGameUnpause = (byPlayer) => {
     afk.setPaused(false);
+    if (byPlayer) afk.touch(byPlayer.id);
+  };
+
+  room.onPlayerAdminChange = (changedPlayer, byPlayer) => {
+    if (byPlayer) afk.touch(byPlayer.id);
   };
 
   room.onPlayerTeamChange = (changedPlayer, byPlayer) => {
@@ -808,6 +818,11 @@ function createRoom(HBInit) {
     else if (byPlayer && match.isCompetitive()) recoverCompetitiveLineup();
   };
 
+  // Tecla / movimento intencional — não empurrão da bola (API oficial do headless).
+  room.onPlayerActivity = (player) => {
+    if (player?.id) afk.touch(player.id);
+  };
+
   room.onPlayerBallKick = (player) => {
     afk.touch(player.id);
     match.onBallKick(identified(player));
@@ -826,6 +841,7 @@ function createRoom(HBInit) {
   room.onGameStart = () => {
     afk.setCounting(true);
     afk.setPaused(false);
+    afk.resetClocks();
     uniforms.prepareKickoff();
     uniforms.syncAvatars();
     const humans = room.getPlayerList().filter((p) => p.id !== 0);
@@ -910,13 +926,13 @@ function createRoom(HBInit) {
     }, 2500);
   };
 
-  let afkSampleTick = 0;
+  let afkTickCounter = 0;
 
   room.onGameTick = () => {
     match.onTick();
-    // 4x por segundo é suficiente para saber quem mexeu o boneco.
-    afkSampleTick += 1;
-    if (afkSampleTick % 15 === 0) afk.sampleMovement();
+    // Backup do setInterval: se o Node atrasar o timer, o tick do jogo (60Hz) cobre.
+    afkTickCounter += 1;
+    if (afkTickCounter % 60 === 0) afk.tick();
   };
 
   room.onGameStop = async () => {
@@ -1005,7 +1021,11 @@ function createRoom(HBInit) {
 
     if (result?.valid && count >= 2 && count < config.teamSize * 2) {
       if (result.winner === TEAM.RED || result.winner === TEAM.BLUE) {
-        streak.recordWin(result.winner);
+        const holders = room
+          .getPlayerList()
+          .filter((p) => p.id !== 0 && p.team === result.winner)
+          .map((p) => p.name);
+        streak.recordWin(result.winner, holders);
       } else {
         streak.reset();
       }
@@ -1025,6 +1045,7 @@ function createRoom(HBInit) {
         chooseActive: choose.isActive(),
         replacement: choose.isReplacement(),
         hasCaptain: !!choose.currentCaptain(),
+        competitive: match.isCompetitive(),
         redCount: red.length,
         blueCount: blue.length,
         specReadyCount: specReady.length,

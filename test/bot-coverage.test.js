@@ -77,7 +77,7 @@ describe("choose: quem picka", () => {
     const { choose } = chooseRoom(players);
     choose.continueFromField();
     assert.equal(choose.currentCaptain().id, 1);
-    assert.equal(choose.handleCaptainChat(players.find((row) => row.id === 2), "1"), false);
+    assert.equal(choose.handleCaptainChat(players.find((row) => row.id === 2), "1"), true);
     assert.equal(choose.handleCaptainChat(players[0], "1"), true);
     assert.equal(players.find((row) => row.id === 4).team, TEAM.RED);
   });
@@ -133,8 +133,9 @@ describe("choose: quem picka", () => {
     ];
     const { choose } = chooseRoom(players);
     choose.continueFromField();
-    assert.equal(choose.handleCaptainChat(players.find((row) => row.id === 4), "1"), false);
-    assert.equal(choose.handleCaptainChat(players.find((row) => row.id === 11), "1"), false);
+    assert.equal(choose.handleCaptainChat(players.find((row) => row.id === 4), "1"), true);
+    assert.equal(choose.handleCaptainChat(players.find((row) => row.id === 11), "1"), true);
+    assert.equal(players.find((row) => row.id === 4).team, TEAM.SPEC);
   });
 
   it("4v4 completo no continueFromField inicia sem pick", () => {
@@ -260,7 +261,7 @@ describe("warmup e recuperação", () => {
     assert.equal(plan.shouldStart, true);
   });
 
-  it("4v2 ao vivo → rebalanceia", () => {
+  it("4v2 ao vivo com spec → reposição, não RR", () => {
     const plan = planCompetitiveRecovery({
       redCount: 4,
       blueCount: 2,
@@ -268,7 +269,17 @@ describe("warmup e recuperação", () => {
       teamSize: 4,
       live: true,
     });
-    assert.equal(plan.action, "rebalance");
+    assert.equal(plan.action, "fill-one");
+    assert.equal(
+      planCompetitiveRecovery({
+        redCount: 4,
+        blueCount: 2,
+        specCount: 3,
+        teamSize: 4,
+        live: true,
+      }).action,
+      "choose"
+    );
   });
 
   it("pós-vitória 4v1 + 4 spec → choose", () => {
@@ -381,11 +392,11 @@ describe("comandos extras", () => {
     const host = mockCmd();
     await host.cmd.handle(host.players[0], "!topstreak");
     assert.ok(host.announcements.some((a) => /Sem recorde/i.test(a.msg)));
-    host.streak.recordWin(TEAM.RED);
-    host.streak.recordWin(TEAM.RED);
-    host.streak.recordWin(TEAM.BLUE);
+    host.streak.recordWin(TEAM.RED, ["A", "B"]);
+    host.streak.recordWin(TEAM.RED, ["A", "B"]);
+    host.streak.recordWin(TEAM.BLUE, ["C"]);
     await host.cmd.handle(host.players[0], "!topstreak");
-    assert.ok(host.announcements.some((a) => /Maior streak da sala: 2/.test(a.msg)));
+    assert.ok(host.announcements.some((a) => /Maior streak da sala: 2 · A, B/.test(a.msg)));
     host.afk.stop();
   });
 

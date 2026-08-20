@@ -48,16 +48,32 @@ const KITS = [
   { id: "pedro", name: "Amigos do Pedro", angle: 60, text: 0xffffff, colors: [0x000000, 0x776c69] },
   { id: "tulio", name: "Amigos do Tulio", angle: 601, text: 0x851575, colors: [0xc420ae, 0xff29e2], emoji: "🏳️‍🌈" },
   { id: "marconhados", name: "Marconhados", angle: 33, text: 0x1be329, colors: [0x108518, 0x14a81e], emoji: "☘️" },
+  { id: "rosinha", name: "Rosinha", angle: 0, text: 0xffffff, colors: [0xffbadd] },
+  {
+    id: "zebrafamily",
+    name: "Zebra Family",
+    angle: 90,
+    text: 0xffffff,
+    colors: [0x21d3ff, 0xff00cc, 0x21d3ff],
+    emoji: "🦓",
+  },
 ];
 
 function defaultKit(team) {
   return team === TEAM.RED ? KIT_PRETO : KIT_BRANCO;
 }
 
+function kitKey(id) {
+  return String(id || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
 function findKit(id) {
-  const key = String(id || "").trim().toLowerCase();
+  const key = kitKey(id);
   if (!key) return null;
-  return KITS.find((k) => k.id === key) || null;
+  return KITS.find((k) => kitKey(k.id) === key) || null;
 }
 
 function isRandomKitArg(raw) {

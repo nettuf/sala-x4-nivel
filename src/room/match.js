@@ -8,6 +8,8 @@ const {
   possessionPercents,
   canJoinMatchStats,
   isDecidedLosingScore,
+  pickGoalkeeper,
+  sameTouchPlayer,
 } = require("../gameLogic");
 const { pickMatchMvps, pickMatchWorst } = require("../titles");
 
@@ -30,6 +32,12 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
   let activePlay = false;
   let redPoss = 0;
   let bluePoss = 0;
+  let tickN = 0;
+  /** @type {Map<number, { xSum: number, n: number, team: number }>} */
+  let gkSamples = new Map();
+  const TOUCH_RADIUS = 27;
+  const TOUCH_RADIUS_SQ = TOUCH_RADIUS * TOUCH_RADIUS;
+  const TOUCH_HISTORY = 16;
 
   function who(player) {
     if (!player) return player;
@@ -73,6 +81,11 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       const last = match.touches[0];
       if (last?.team === 1) redPoss += 1;
       else if (last?.team === 2) bluePoss += 1;
+    }
+
+    if (match && s) {
+      tickN += 1;
+      sampleField();
     }
 
     if (!match || !s) return;
@@ -119,6 +132,8 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     activePlay = false;
     redPoss = 0;
     bluePoss = 0;
+    tickN = 0;
+    gkSamples = new Map();
     match = {
       competitive,
       everCompetitive: !!competitive,
@@ -138,17 +153,61 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     room.startGame();
   }
 
-  function onBallKick(player) {
-    if (!match || !player) return;
+  function recordTouch(player) {
+    if (!match || !player || player.team === 0) return;
     const p = who(player);
-    activePlay = true;
+    if (!p || p.team === 0) return;
+    const last = match.touches[0];
+    if (last && sameTouchPlayer(last, p)) return;
     match.touches.unshift({
       id: p.id,
       name: p.name,
       auth: p.auth || null,
       team: p.team,
     });
-    if (match.touches.length > 3) match.touches.length = 3;
+    if (match.touches.length > TOUCH_HISTORY) match.touches.length = TOUCH_HISTORY;
+  }
+
+  function sampleField() {
+    const ball = typeof room.getBallPosition === "function" ? room.getBallPosition() : null;
+    const canDisc = typeof room.getPlayerDiscProperties === "function";
+    if (!canDisc) return;
+    const sampleGk = tickN % 15 === 0;
+    let closest = null;
+    let closestD = TOUCH_RADIUS_SQ;
+    for (const raw of room.getPlayerList()) {
+      if (!raw || raw.id === 0 || raw.team === 0) continue;
+      let disc = null;
+      try {
+        disc = room.getPlayerDiscProperties(raw.id);
+      } catch {
+        disc = null;
+      }
+      if (!disc) continue;
+      if (ball && Number.isFinite(disc.x) && Number.isFinite(disc.y)) {
+        const dx = disc.x - (ball.x || 0);
+        const dy = disc.y - (ball.y || 0);
+        const d = dx * dx + dy * dy;
+        if (d <= closestD) {
+          closestD = d;
+          closest = raw;
+        }
+      }
+      if (sampleGk && Number.isFinite(disc.x)) {
+        const cur = gkSamples.get(raw.id) || { xSum: 0, n: 0, team: raw.team };
+        cur.xSum += disc.x;
+        cur.n += 1;
+        cur.team = raw.team;
+        gkSamples.set(raw.id, cur);
+      }
+    }
+    if (closest) recordTouch(closest);
+  }
+
+  function onBallKick(player) {
+    if (!match || !player) return;
+    activePlay = true;
+    recordTouch(player);
   }
 
   function onTeamGoal(team) {
@@ -281,7 +340,22 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     });
   }
 
+  function gkAuths() {
+    const samples = [];
+    for (const [id, s] of gkSamples) {
+      if (!s.n) continue;
+      samples.push({ id, team: s.team, xAvg: s.xSum / s.n });
+    }
+    const red = pickGoalkeeper(samples, 1);
+    const blue = pickGoalkeeper(samples, 2);
+    return {
+      redId: red?.id ?? null,
+      blueId: blue?.id ?? null,
+    };
+  }
+
   function buildPlayersPayload(scores, winner, lineupRed, lineupBlue) {
+    const gk = gkAuths();
     const rows = [];
     for (const p of lineupRed) {
       if (!p.auth) continue;
@@ -292,7 +366,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
         team: 1,
         ...t,
         result: winner === 0 ? "draw" : winner === 1 ? "win" : "loss",
-        cleanSheet: Number(scores?.blue ?? 0) === 0,
+        cleanSheet: Number(scores?.blue ?? 0) === 0 && gk.redId === p.id,
       });
     }
     for (const p of lineupBlue) {
@@ -304,7 +378,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
         team: 2,
         ...t,
         result: winner === 0 ? "draw" : winner === 2 ? "win" : "loss",
-        cleanSheet: Number(scores?.red ?? 0) === 0,
+        cleanSheet: Number(scores?.red ?? 0) === 0 && gk.blueId === p.id,
       });
     }
     return rows;
@@ -366,6 +440,8 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     activePlay = false;
     redPoss = 0;
     bluePoss = 0;
+    tickN = 0;
+    gkSamples = new Map();
 
     let titleUnlocks = [];
 
@@ -378,12 +454,10 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
         1
       );
       if (mvps.length) {
-        const names = mvps.map((p) => p.nick).join(", ");
-        room.sendAnnouncement(`⭐ MVP: ${names}`, null, 0xf1c40f, "bold", 2);
+        room.sendAnnouncement(`⭐ MVP: ${mvps[0].nick}`, null, 0xf1c40f, "bold", 2);
       }
       if (worst.length) {
-        const names = worst.map((p) => p.nick).join(", ");
-        room.sendAnnouncement(`💩 Pior: ${names}`, null, 0xe67e22, "bold", 2);
+        room.sendAnnouncement(`💩 Pior: ${worst[0].nick}`, null, 0xe67e22, "bold", 2);
       }
 
       try {

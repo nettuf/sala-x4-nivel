@@ -1008,8 +1008,9 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(attr.assist.auth, b.auth);
 
     const mvps = pickMatchMvps([
-      { auth: a.auth, nick: a.name, goals: 1, assists: 0 },
-      { auth: b.auth, nick: b.name, goals: 0, assists: 1 },
+      { auth: a.auth, nick: a.name, goals: 1, assists: 0, result: "win" },
+      { auth: b.auth, nick: b.name, goals: 0, assists: 1, result: "win" },
+      { auth: "loser", nick: "L", goals: 3, assists: 0, result: "loss" },
     ]);
     assert.equal(mvps[0].auth, a.auth);
 
@@ -1275,7 +1276,7 @@ describe("fluxo por estágios da sala", () => {
 
     assert.equal(host.snapshot().chooseActive, true);
     assert.equal(host.currentCaptain().id, next.id);
-    assert.equal(host.choose.handleCaptainChat(host.players.find((p) => redIds.includes(p.id)), "1"), false);
+    assert.equal(host.choose.handleCaptainChat(host.players.find((p) => redIds.includes(p.id)), "1"), true);
     assert.equal(host.captainPick("1"), true);
     assert.equal(host.snapshot().blue, 3);
     assert.equal(host.snapshot().red, 4);
@@ -1388,7 +1389,7 @@ describe("fluxo por estágios da sala", () => {
     assert.ok(cap);
     assert.equal(cap.team, TEAM.BLUE);
     const red = host.players.find((p) => p.team === TEAM.RED);
-    assert.equal(host.choose.handleCaptainChat(red, "1"), false);
+    assert.equal(host.choose.handleCaptainChat(red, "1"), true);
     host.cleanup();
   });
 
@@ -1453,9 +1454,13 @@ describe("fluxo por estágios da sala", () => {
     const host = createMockRoomHost();
     await host.enterChoose();
     assert.equal(host.announcements.some((a) => /Choose ativado/i.test(a.msg)), false);
-    assert.ok(
-      host.announcements.some((a) => /Escolha em .*streak/i.test(a.msg)),
-      `msgs: ${host.announcements.map((a) => a.msg).join(" | ")}`
+    const pickHint = host.announcements.filter((a) => /Escolha em .*streak/i.test(a.msg));
+    assert.ok(pickHint.length, `msgs: ${host.announcements.map((a) => a.msg).join(" | ")}`);
+    const cap = host.currentCaptain();
+    assert.ok(pickHint.every((a) => a.to === cap.id), "instrução de pick só para o capitão");
+    assert.equal(
+      host.announcements.some((a) => a.to == null && /^Specs:/.test(a.msg)),
+      false
     );
     host.cleanup();
   });
@@ -1526,7 +1531,7 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(host.match.isCompetitive(), true);
     assert.equal(host.currentCaptain().id, newCap.id);
 
-    assert.equal(host.choose.handleCaptainChat(leftover, "1"), false);
+    assert.equal(host.choose.handleCaptainChat(leftover, "1"), true);
     assert.equal(host.captainPick("2"), true);
 
     const after = host.snapshot();
@@ -1722,11 +1727,14 @@ describe("fluxo por estágios da sala", () => {
     const host = createMockRoomHost();
     await host.enterChoose();
     const spec = host.players.find((p) => p.team === TEAM.SPEC);
-    assert.equal(host.choose.handleCaptainChat(spec, "1"), false);
+    assert.equal(host.choose.handleCaptainChat(spec, "1"), true);
+    assert.equal(spec.team, TEAM.SPEC);
     const otherTeam = host.players.find(
       (p) => p.team !== 0 && p.id !== host.currentCaptain().id
     );
-    assert.equal(host.choose.handleCaptainChat(otherTeam, "1"), false);
+    const otherTeamBefore = otherTeam.team;
+    assert.equal(host.choose.handleCaptainChat(otherTeam, "1"), true);
+    assert.equal(otherTeam.team, otherTeamBefore);
     host.cleanup();
   });
 

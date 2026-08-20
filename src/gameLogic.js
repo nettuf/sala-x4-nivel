@@ -3,21 +3,34 @@
  */
 
 /**
- * @param {{ team: number, auth?: string, name?: string }[]} touches — mais recente primeiro
- * @param {number} scoringTeam — 1 red / 2 blue
+ * Toques mais recente primeiro. Assistência = último toque de um
+ * companheiro do time (pula chute de rival e o próprio goleador).
  */
+function sameTouchPlayer(a, b) {
+  if (!a || !b) return false;
+  if (a.id != null && b.id != null && a.id === b.id) return true;
+  if (a.auth && b.auth && a.auth === b.auth) return true;
+  return false;
+}
+
 function attributeGoal(touches, scoringTeam) {
-  const t0 = touches?.[0] || null;
-  const t1 = touches?.[1] || null;
+  const list = touches || [];
+  const t0 = list[0] || null;
   if (!t0) {
     return { scorer: null, assist: null, isOwnGoal: false };
   }
-  if (t0.team === scoringTeam) {
-    const assist =
-      t1 && t1.team === scoringTeam && t1.auth !== t0.auth ? t1 : null;
-    return { scorer: t0, assist, isOwnGoal: false };
+  if (t0.team !== scoringTeam) {
+    return { scorer: t0, assist: null, isOwnGoal: true };
   }
-  return { scorer: t0, assist: null, isOwnGoal: true };
+  let assist = null;
+  for (let i = 1; i < list.length; i++) {
+    const t = list[i];
+    if (!t || t.team !== scoringTeam) continue;
+    if (sameTouchPlayer(t, t0)) continue;
+    assist = t;
+    break;
+  }
+  return { scorer: t0, assist, isOwnGoal: false };
 }
 
 function isValidMatchScores(scores, { scoreLimit = 3, timeLimitMin = 4, endByVictory = false } = {}) {
@@ -153,8 +166,23 @@ function targetTeamSize(eligibleCount, maxSize = 4) {
   return Math.min(cap, Math.max(1, Math.floor(n / 2)));
 }
 
+/**
+ * Goleiro = mais recuado na média de X. Vermelho defende a esquerda
+ * (menor X); azul a direita (maior X).
+ * @param {{ team: number, xAvg: number }[]} samples
+ */
+function pickGoalkeeper(samples, team) {
+  const side = (samples || []).filter(
+    (p) => p && p.team === team && Number.isFinite(Number(p.xAvg))
+  );
+  if (!side.length) return null;
+  side.sort((a, b) => (team === 1 ? a.xAvg - b.xAvg : b.xAvg - a.xAvg));
+  return side[0];
+}
+
 module.exports = {
   attributeGoal,
+  sameTouchPlayer,
   isValidMatchScores,
   pickFromSpecList,
   isChooseToken,
@@ -170,4 +198,5 @@ module.exports = {
   RAGEQUIT_ONE_GOAL_REMAINING_SEC,
   rageQuitMessages,
   targetTeamSize,
+  pickGoalkeeper,
 };

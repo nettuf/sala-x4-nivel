@@ -39,16 +39,11 @@ function formatStatusCard(name, stats, title) {
 async function countCleanSheets(sb, auth) {
   const { data, error } = await sb
     .from("match_players")
-    .select("team, matches!inner(valid, score_red, score_blue)")
+    .select("clean_sheet")
     .eq("auth", auth)
-    .eq("matches.valid", true);
+    .eq("clean_sheet", true);
   if (error || !Array.isArray(data)) return null;
-  return data.filter((row) => {
-    const m = row.matches;
-    if (!m || m.valid === false) return false;
-    const conceded = Number(row.team) === 1 ? m.score_blue : m.score_red;
-    return Number(conceded) === 0;
-  }).length;
+  return data.length;
 }
 
 async function ensurePlayer(auth, nick) {
@@ -96,9 +91,29 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
         own_goals: p.own_goals || 0,
         result: p.result,
         mvp: mvpAuths.has(p.auth),
+        clean_sheet: !!p.cleanSheet,
       }))
     );
-    if (pe) console.error("[stats] match_players", pe.message);
+    if (pe) {
+      if (/clean_sheet/i.test(pe.message || "")) {
+        const retry = await sb.from("match_players").insert(
+          players.map((p) => ({
+            match_id: match.id,
+            auth: p.auth,
+            nick: p.nick,
+            team: p.team,
+            goals: p.goals || 0,
+            assists: p.assists || 0,
+            own_goals: p.own_goals || 0,
+            result: p.result,
+            mvp: mvpAuths.has(p.auth),
+          }))
+        );
+        if (retry.error) console.error("[stats] match_players", retry.error.message);
+      } else {
+        console.error("[stats] match_players", pe.message);
+      }
+    }
   }
 
   if (goals?.length) {
@@ -193,7 +208,7 @@ async function bumpPlayerStats(p) {
 async function aggregateFromMatches(sb, auth) {
   const { data, error } = await sb
     .from("match_players")
-    .select("goals, assists, own_goals, result, mvp, team, matches!inner(valid, score_red, score_blue)")
+    .select("goals, assists, own_goals, result, mvp, team, clean_sheet, matches!inner(valid, score_red, score_blue)")
     .eq("auth", auth)
     .eq("matches.valid", true);
   if (error || !Array.isArray(data) || !data.length) return null;
@@ -208,11 +223,7 @@ async function aggregateFromMatches(sb, auth) {
     else if (row.result === "draw") acc.draws += 1;
     else if (row.result === "loss") acc.losses += 1;
     if (row.mvp) acc.mvps += 1;
-    const match = row.matches;
-    if (match) {
-      const conceded = Number(row.team) === 1 ? match.score_blue : match.score_red;
-      if (Number(conceded) === 0) acc.cs += 1;
-    }
+    if (row.clean_sheet) acc.cs += 1;
   }
   return acc;
 }

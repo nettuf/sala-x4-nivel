@@ -2,9 +2,12 @@
  * Diagnóstico da sala: estados que antes só um admin destravava.
  *
  * Casos reais:
- * - partida rodando 4v1 com o choose aberto (capitão não conseguia pickar)
+ * - partida oficial rodando 4v1 com o choose aberto
  * - jogo pausado no 3v4 sem reposição em andamento
  * - lobby sem jogo e sem choose com gente suficiente para jogar
+ *
+ * Treino/warmup NÃO entra nas regras de time vazio/desigual: 1 no vermelho
+ * ou 2v1 é estado normal — o watchdog antigo RR a cada ~10s no mapa de treino.
  */
 
 const HEALTH_CHECK_MS = 5000;
@@ -18,6 +21,7 @@ function diagnoseRoom({
   chooseActive = false,
   replacement = false,
   hasCaptain = false,
+  competitive = false,
   redCount = 0,
   blueCount = 0,
   specReadyCount = 0,
@@ -31,6 +35,12 @@ function diagnoseRoom({
     if (chooseActive && !replacement) {
       return { action: "stop-game", reason: "choose aberto com jogo rolando" };
     }
+
+    // Warmup/treino: não para por time vazio nem reequilibra por desigualdade.
+    if (!competitive) {
+      return { action: "none" };
+    }
+
     if (!chooseActive && (redCount === 0 || blueCount === 0)) {
       return { action: "stop-game", reason: "time vazio com jogo rolando" };
     }

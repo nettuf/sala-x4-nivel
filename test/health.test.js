@@ -4,13 +4,20 @@ const { diagnoseRoom, createHealthMonitor } = require("../src/room/health");
 
 describe("diagnóstico da sala", () => {
   it("4v4 rolando está saudável", () => {
-    const d = diagnoseRoom({ live: true, redCount: 4, blueCount: 4, specReadyCount: 3 });
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      redCount: 4,
+      blueCount: 4,
+      specReadyCount: 3,
+    });
     assert.equal(d.action, "none");
   });
 
   it("choose aberto com jogo rolando para o jogo", () => {
     const d = diagnoseRoom({
       live: true,
+      competitive: true,
       chooseActive: true,
       redCount: 4,
       blueCount: 1,
@@ -22,6 +29,7 @@ describe("diagnóstico da sala", () => {
   it("reposição com jogo pausado é estado normal", () => {
     const d = diagnoseRoom({
       live: true,
+      competitive: true,
       paused: true,
       chooseActive: true,
       replacement: true,
@@ -33,19 +41,52 @@ describe("diagnóstico da sala", () => {
     assert.equal(d.action, "none");
   });
 
-  it("3v4 rolando sem choose pede reposição", () => {
-    const d = diagnoseRoom({ live: true, redCount: 3, blueCount: 4, specReadyCount: 2 });
+  it("time vazio / desigual só importa no 4v4 oficial", () => {
+    assert.equal(
+      diagnoseRoom({ live: true, competitive: true, redCount: 4, blueCount: 0, specReadyCount: 4 }).action,
+      "stop-game"
+    );
+    assert.equal(
+      diagnoseRoom({ live: true, competitive: true, redCount: 3, blueCount: 4, specReadyCount: 2 }).action,
+      "recover"
+    );
+  });
+
+  it("treino/warmup com 1 no vermelho ou 2v1 não pede RR", () => {
+    assert.equal(
+      diagnoseRoom({ live: true, competitive: false, redCount: 1, blueCount: 0 }).action,
+      "none"
+    );
+    assert.equal(
+      diagnoseRoom({ live: true, competitive: false, redCount: 2, blueCount: 1 }).action,
+      "none"
+    );
+    assert.equal(
+      diagnoseRoom({ live: true, competitive: false, paused: true, redCount: 1, blueCount: 1 }).action,
+      "none"
+    );
+  });
+
+  it("3v4 oficial rolando sem choose pede reposição", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      redCount: 3,
+      blueCount: 4,
+      specReadyCount: 2,
+    });
     assert.equal(d.action, "recover");
   });
 
-  it("pausado com times iguais e sem reposição despausa", () => {
-    const d = diagnoseRoom({ live: true, paused: true, redCount: 4, blueCount: 4 });
+  it("pausado com times iguais e sem reposição despausa no oficial", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      paused: true,
+      redCount: 4,
+      blueCount: 4,
+    });
     assert.equal(d.action, "unpause");
-  });
-
-  it("time vazio com jogo rolando para o jogo", () => {
-    const d = diagnoseRoom({ live: true, redCount: 4, blueCount: 0, specReadyCount: 4 });
-    assert.equal(d.action, "stop-game");
   });
 
   it("choose sem capitão é reavaliado; com capitão fica quieto", () => {

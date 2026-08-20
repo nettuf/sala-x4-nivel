@@ -1,8 +1,14 @@
 /**
- * !bet — zoação de "entregou / fez besteira" no chat público.
+ * !bet — contador eterno de apostas na Haxbooket.
+ * !provocar — zoação aleatória (o antigo !bet).
  */
 
-const BET_LINES = [
+function formatBetLine(n) {
+  const count = Math.max(1, Math.floor(Number(n) || 1));
+  return `🎲 Alguém apostou na Haxbooket pela ${count}ª vez.`;
+}
+
+const TEASE_LINES = [
   (n) => `🎲 Aposta certa: ${n} ia entregar — e entregou.`,
   (n) => `🎲 ${n} confirmou o flop ao vivo.`,
   (n) => `🎲 Alguém pagou ${n} pra jogar contra o próprio time.`,
@@ -25,16 +31,16 @@ const BET_LINES = [
   (n) => `🎲 ${n} entrou no modo "ajuda o inimigo".`,
 ];
 
-function pickBetLine(name, rng = Math.random) {
+function pickTeaseLine(name, rng = Math.random) {
   const nick = String(name || "?").trim() || "?";
-  const i = Math.min(BET_LINES.length - 1, Math.floor(rng() * BET_LINES.length));
-  return BET_LINES[Math.max(0, i)](nick);
+  const i = Math.min(TEASE_LINES.length - 1, Math.floor(rng() * TEASE_LINES.length));
+  return TEASE_LINES[Math.max(0, i)](nick);
 }
 
 /**
- * Alvo do !bet: nick passado, ou alguém aleatório da sala (de preferência em campo).
+ * Alvo do !provocar: nick/#id passado, ou alguém aleatório da sala (de preferência em campo).
  */
-function resolveBetTarget(room, actor, mention, rng = Math.random) {
+function resolveTeaseTarget(room, actor, mention, rng = Math.random) {
   if (mention) {
     const { findPlayer } = require("../utils");
     return findPlayer(room, mention);
@@ -49,4 +55,4 @@ function resolveBetTarget(room, actor, mention, rng = Math.random) {
   return pool[Math.max(0, i)] || null;
 }
 
-module.exports = { BET_LINES, pickBetLine, resolveBetTarget };
+module.exports = { formatBetLine, TEASE_LINES, pickTeaseLine, resolveTeaseTarget };

@@ -130,13 +130,8 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("parado em campo vira AFK e vai pro spec; quem mexe o boneco não", () => {
+  it("parado em campo vira AFK; quem aperta tecla não", () => {
     const { room, players } = afkSetup(4);
-    const discs = new Map([
-      [1, { x: 0, y: 0 }],
-      [2, { x: 50, y: 0 }],
-    ]);
-    room.getPlayerDiscProperties = (id) => discs.get(id) || null;
     const afk = createAfkTracker(room);
     const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
     config.afkWarnMs = 8000;
@@ -145,19 +140,16 @@ describe("AFK: ações e pausa", () => {
 
     afk.touch(1, at);
     afk.touch(2, at);
-    afk.sampleMovement(at);
-
-    // P2 corre, P1 fica plantado
+    // P2 tecla (onPlayerActivity); P1 fica plantado
     for (let i = 1; i <= 5; i++) {
-      discs.set(2, { x: 50 + i * 10, y: 0 });
-      afk.sampleMovement(at + i * 1000);
+      afk.touch(2, at + i * 1000);
     }
 
     afk.tick(at + 13000);
 
     assert.equal(players.find((p) => p.id === 1).team, 0, "parado devia ir pro spec");
     assert.equal(afk.isAfk(1), true);
-    assert.equal(players.find((p) => p.id === 2).team, 2, "quem mexeu continua em campo");
+    assert.equal(players.find((p) => p.id === 2).team, 2, "quem teclou continua em campo");
     assert.equal(afk.isAfk(2), false);
 
     config.afkWarnMs = prev.warn;
@@ -165,7 +157,7 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("sem disco (jogo parado) não gera atividade falsa", () => {
+  it("sem atividade o timer corre mesmo sem disco", () => {
     const { room, players } = afkSetup(4);
     room.getPlayerDiscProperties = () => null;
     const afk = createAfkTracker(room);
@@ -174,7 +166,6 @@ describe("AFK: ações e pausa", () => {
     config.afkActionMs = 0;
 
     afk.touch(1);
-    afk.sampleMovement();
     afk.tick();
 
     assert.equal(players.find((p) => p.id === 1).team, 0);
@@ -183,7 +174,7 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("empurrão pequeno não zera o AFK; andar de verdade zera", () => {
+  it("empurrão na posição não zera AFK; tecla (activity) zera", () => {
     const { room, players } = afkSetup(4);
     const discs = new Map([
       [1, { x: 0, y: 0 }],
@@ -197,16 +188,46 @@ describe("AFK: ações e pausa", () => {
     const at = Date.now();
     afk.touch(1, at);
     afk.touch(2, at);
-    afk.sampleMovement(at);
 
-    discs.set(1, { x: 3, y: 1 });
+    // Bola empurra os dois — sampleMovement é no-op e não salva ninguém.
+    discs.set(1, { x: 80, y: 40 });
+    discs.set(2, { x: 90, y: 50 });
     afk.sampleMovement(at + 4000);
-    discs.set(2, { x: 40, y: 0 });
-    afk.sampleMovement(at + 4000);
+    // Só P2 tecla de verdade.
+    afk.touch(2, at + 4000);
 
     afk.tick(at + 13000);
     assert.equal(players.find((p) => p.id === 1).team, 0, "empurrão não conta como atividade");
-    assert.equal(players.find((p) => p.id === 2).team, 2, "quem andou segue em campo");
+    assert.equal(players.find((p) => p.id === 2).team, 2, "quem teclou segue em campo");
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("se o kickoff não vier, o AFK volta a contar sozinho sem zerar o progresso", () => {
+    const { room, players } = afkSetup(4);
+    const { COUNTING_STALL_MS } = require("../src/room/afk");
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const at = Date.now();
+
+    afk.touch(1, at);
+    afk.setCounting(false, at + 5000);
+    afk.tick(at + 6000);
+    assert.equal(afk.isCounting(), false);
+    assert.equal(players.find((p) => p.id === 1).team, 1, "ainda em comemoração");
+
+    // Stall religa; progresso de 5s idle permanece (faltam 7s para a ação).
+    afk.tick(at + 5000 + COUNTING_STALL_MS + 100);
+    assert.equal(afk.isCounting(), true, "stall religa o relógio");
+    assert.equal(players.find((p) => p.id === 1).team, 1, "ainda não estourou o limite");
+
+    afk.tick(at + 5000 + COUNTING_STALL_MS + 100 + 8000);
+    assert.equal(players.find((p) => p.id === 1).team, 0, "completa os 12s efetivos após o stall");
+    assert.equal(afk.isAfk(1), true);
+
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();

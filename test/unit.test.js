@@ -24,6 +24,7 @@ const {
   isDecidedLosingScore,
   rageQuitMessages,
   targetTeamSize,
+  pickGoalkeeper,
 } = require("../src/gameLogic");
 const {
   listUnlocked,
@@ -89,11 +90,59 @@ describe("gameLogic", () => {
     assert.equal(g.isOwnGoal, false);
   });
 
+  it("attributeGoal: assist é o último toque do time, mesmo com rival no meio", () => {
+    const touches = [
+      { id: 3, name: "C", auth: "c", team: 1 },
+      { id: 9, name: "Rival", auth: "x", team: 2 },
+      { id: 2, name: "B", auth: "b", team: 1 },
+      { id: 1, name: "A", auth: "a", team: 1 },
+    ];
+    const g = attributeGoal(touches, 1);
+    assert.equal(g.scorer.name, "C");
+    assert.equal(g.assist.name, "B");
+  });
+
+  it("attributeGoal: dois toques do goleador não viram auto-assist", () => {
+    const g = attributeGoal(
+      [
+        { id: 1, name: "A", auth: "a", team: 1 },
+        { id: 1, name: "A", auth: "a", team: 1 },
+        { id: 2, name: "B", auth: "b", team: 1 },
+      ],
+      1
+    );
+    assert.equal(g.scorer.name, "A");
+    assert.equal(g.assist.name, "B");
+  });
+
+  it("attributeGoal: sem auth ainda casa assist por id", () => {
+    const g = attributeGoal(
+      [
+        { id: 1, name: "A", team: 1 },
+        { id: 2, name: "B", team: 1 },
+      ],
+      1
+    );
+    assert.equal(g.assist.name, "B");
+  });
+
   it("attributeGoal: gol contra", () => {
     const g = attributeGoal([{ name: "X", auth: "x", team: 2 }], 1);
     assert.equal(g.isOwnGoal, true);
     assert.equal(g.scorer.name, "X");
     assert.equal(g.assist, null);
+  });
+
+  it("pickGoalkeeper: vermelho mais à esquerda, azul mais à direita", () => {
+    const samples = [
+      { id: 1, team: 1, xAvg: -40 },
+      { id: 2, team: 1, xAvg: -180 },
+      { id: 3, team: 2, xAvg: 30 },
+      { id: 4, team: 2, xAvg: 200 },
+    ];
+    assert.equal(pickGoalkeeper(samples, 1).id, 2);
+    assert.equal(pickGoalkeeper(samples, 2).id, 4);
+    assert.equal(pickGoalkeeper([], 1), null);
   });
 
   it("isValidMatchScores por placar e por tempo", () => {
@@ -208,28 +257,31 @@ describe("streak / winner stays", () => {
     assert.equal(s.recordWin(0), 0);
   });
 
-  it("guarda o maior streak e chama onBest", () => {
+  it("guarda o maior streak, os nomes e chama onBest", () => {
     const hits = [];
     const s = createStreakTracker({
       best: 2,
-      onBest(n) {
-        hits.push(n);
+      onBest(n, holders) {
+        hits.push({ n, holders });
       },
     });
     assert.equal(s.getBest(), 2);
-    s.recordWin(TEAM.RED);
-    s.recordWin(TEAM.RED);
+    s.recordWin(TEAM.RED, ["A", "B"]);
+    s.recordWin(TEAM.RED, ["A", "B"]);
     assert.equal(s.getBest(), 2);
     assert.deepEqual(hits, []);
-    s.recordWin(TEAM.RED);
+    s.recordWin(TEAM.RED, ["A", "B", "C", "D"]);
     assert.equal(s.get(), 3);
     assert.equal(s.getBest(), 3);
-    assert.deepEqual(hits, [3]);
-    s.recordWin(TEAM.BLUE);
+    assert.deepEqual(s.getBestHolders(), ["A", "B", "C", "D"]);
+    assert.deepEqual(hits, [{ n: 3, holders: ["A", "B", "C", "D"] }]);
+    s.recordWin(TEAM.BLUE, ["X"]);
     assert.equal(s.get(), 1);
     assert.equal(s.getBest(), 3);
-    s.hydrateBest(8);
+    assert.deepEqual(s.getBestHolders(), ["A", "B", "C", "D"]);
+    s.hydrateBest(8, ["Z"]);
     assert.equal(s.getBest(), 8);
+    assert.deepEqual(s.getBestHolders(), ["Z"]);
   });
 
   it("azul vence → move para vermelho", () => {
@@ -326,47 +378,59 @@ describe("titles / cargos", () => {
     assert.ok(listUnlocked({ games: 100 }).some((t) => t.id === "estreante"));
   });
 
-  it("pickMatchMvps por gols*2+assists", () => {
+  it("pickMatchMvps por gols*2+assists só no time que ganhou", () => {
     const mvps = pickMatchMvps([
-      { auth: "a", nick: "A", goals: 2, assists: 0 },
-      { auth: "b", nick: "B", goals: 1, assists: 1 },
-      { auth: "c", nick: "C", goals: 0, assists: 0 },
+      { auth: "a", nick: "A", goals: 2, assists: 0, result: "win" },
+      { auth: "b", nick: "B", goals: 1, assists: 1, result: "win" },
+      { auth: "c", nick: "C", goals: 5, assists: 0, result: "loss" },
     ]);
     assert.equal(mvps.length, 1);
     assert.equal(mvps[0].auth, "a");
   });
 
-  it("pickMatchMvps: empate de pontos escolhe só 1 (mais gols)", () => {
+  it("pickMatchMvps: empate de pontos escolhe só 1 (mais gols); perdedor não entra", () => {
     const mvps = pickMatchMvps([
-      { auth: "a", nick: "A", goals: 1, assists: 2 },
-      { auth: "b", nick: "B", goals: 2, assists: 0 },
-      { auth: "c", nick: "C", goals: 0, assists: 4 },
+      { auth: "a", nick: "A", goals: 1, assists: 2, result: "win" },
+      { auth: "b", nick: "B", goals: 2, assists: 0, result: "win" },
+      { auth: "c", nick: "C", goals: 0, assists: 4, result: "loss" },
     ]);
     assert.equal(mvps.length, 1);
     assert.equal(mvps[0].auth, "b");
   });
 
-  it("pickMatchWorst: menor contribuição e GC piora", () => {
+  it("pickMatchMvps: empate no placar pode ser de qualquer time", () => {
+    const mvps = pickMatchMvps([
+      { auth: "a", nick: "A", goals: 1, assists: 0, result: "draw" },
+      { auth: "b", nick: "B", goals: 2, assists: 0, result: "draw" },
+    ]);
+    assert.equal(mvps.length, 1);
+    assert.equal(mvps[0].auth, "b");
+  });
+
+  it("pickMatchWorst: só do time que perdeu; sempre 1", () => {
     const worst = pickMatchWorst([
-      { auth: "a", nick: "A", goals: 2, assists: 0, own_goals: 0 },
-      { auth: "b", nick: "B", goals: 0, assists: 0, own_goals: 0 },
-      { auth: "c", nick: "C", goals: 0, assists: 0, own_goals: 1 },
+      { auth: "a", nick: "A", goals: 0, assists: 0, own_goals: 0, result: "win" },
+      { auth: "b", nick: "B", goals: 0, assists: 0, own_goals: 0, result: "loss" },
+      { auth: "c", nick: "C", goals: 0, assists: 0, own_goals: 1, result: "loss" },
     ]);
     assert.equal(worst.length, 1);
     assert.equal(worst[0].auth, "c");
   });
 
-  it("pickMatchWorst: empate total não anuncia; MVP não é pior", () => {
-    assert.deepEqual(
-      pickMatchWorst([
-        { auth: "a", nick: "A", goals: 0, assists: 0 },
-        { auth: "b", nick: "B", goals: 0, assists: 0 },
-      ]),
-      []
-    );
+  it("pickMatchWorst: empate no placar pode ser de qualquer time (≠ MVP)", () => {
     const worst = pickMatchWorst([
-      { auth: "a", nick: "A", goals: 1, assists: 0 },
-      { auth: "b", nick: "B", goals: 0, assists: 0 },
+      { auth: "a", nick: "A", goals: 2, assists: 0, own_goals: 0, result: "draw" },
+      { auth: "b", nick: "B", goals: 0, assists: 0, own_goals: 1, result: "draw" },
+    ]);
+    assert.equal(worst.length, 1);
+    assert.equal(worst[0].auth, "b");
+  });
+
+  it("pickMatchWorst: vencedor com GC não é pior se houve time perdedor", () => {
+    const worst = pickMatchWorst([
+      { auth: "a", nick: "A", goals: 1, assists: 0, own_goals: 2, result: "win" },
+      { auth: "b", nick: "B", goals: 0, assists: 0, own_goals: 0, result: "loss" },
+      { auth: "c", nick: "C", goals: 0, assists: 1, own_goals: 0, result: "loss" },
     ]);
     assert.equal(worst.length, 1);
     assert.equal(worst[0].auth, "b");

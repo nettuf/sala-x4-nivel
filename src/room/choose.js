@@ -55,13 +55,6 @@ function createChooseController(room, {
   function setTeam(playerId, team) {
     pendingTeams.set(playerId, team);
     room.setPlayerTeam(playerId, team);
-    const applied = room
-      .getPlayerList()
-      .find((player) => player.id === playerId)?.team;
-    if (applied === team) {
-      pendingTeams.delete(playerId);
-      return;
-    }
     const timer = setTimeout(() => pendingTeams.delete(playerId), 250);
     if (typeof timer.unref === "function") timer.unref();
   }
@@ -102,18 +95,25 @@ function createChooseController(room, {
     }
   }
 
-  /** Lista só quem pode ser escolhido: AFK não aparece nem ocupa número. */
+  /** Nunca cai no chat geral: id inválido / 0 (host) = não manda. */
+  function tell(playerId, msg, color, style = "normal", sound = 1) {
+    const id = Number(playerId);
+    if (!Number.isInteger(id) || id <= 0) return;
+    room.sendAnnouncement(msg, id, color, style, sound);
+  }
+
+  /** Lista só quem pode ser escolhido: AFK não aparece nem ocupa número. Só o capitão vê. */
   function announceSpecList(captainId) {
     const { specReady } = list();
     if (!specReady.length) {
-      room.sendAnnouncement("Sem jogadores no spec.", captainId, 0xe74c3c, "bold", 2);
+      tell(captainId, "Sem jogadores no spec.", 0xe74c3c, "bold", 2);
       return;
     }
     const line = specReady.map((p, i) => `${p.name}[${i + 1}]`).join(", ");
-    room.sendAnnouncement(`Specs: ${line}`, captainId, 0x3498db, "bold", 1);
-    room.sendAnnouncement(
-      `Escolha em ${config.chooseTimeSec}s: número | top | random | bottom${streakSuffix()}`,
+    tell(captainId, `Specs: ${line}`, 0x3498db, "bold", 1);
+    tell(
       captainId,
+      `Escolha em ${config.chooseTimeSec}s: número | top | random | bottom${streakSuffix()}`,
       0xecf0f1,
       "normal",
       1
@@ -137,7 +137,8 @@ function createChooseController(room, {
     const team = pickingTeam();
     if (!team) return null;
     const side = team === TEAM.RED ? red : blue;
-    return side[0] || null;
+    // AFK que ainda aparece no time (lista stale) não herda o pick.
+    return side.find((p) => !excluded(p)) || null;
   }
 
   function teamForCaptain(cap) {
@@ -176,7 +177,11 @@ function createChooseController(room, {
     const { specReady } = list();
 
     if (replacement) {
-      if (specReady.length === 1 && currentCaptain()) {
+      const holes = holesByTeam();
+      const need =
+        replacement.targetTeam === TEAM.RED ? holes.red : holes.blue;
+      if (need <= 0 || !currentCaptain()) return false;
+      if (specReady.length === 1) {
         applyCaptainPick(currentCaptain(), specReady[0], replacement.targetTeam, "");
         return true;
       }
@@ -261,9 +266,9 @@ function createChooseController(room, {
         promptCaptain();
         return;
       }
-      room.sendAnnouncement(
-        `${cap.name}, ${Math.floor(chooseTime / 2)}s restantes!`,
+      tell(
         cap.id,
+        `${cap.name}, ${Math.floor(chooseTime / 2)}s restantes!`,
         0xf1c40f,
         "bold",
         2
@@ -302,8 +307,17 @@ function createChooseController(room, {
       1
     );
 
-    const side = team === TEAM.RED ? list().red : list().blue;
+    const side = (team === TEAM.RED ? list().red : list().blue).filter(
+      (p) => !excluded(p)
+    );
     if (side.length) {
+      room.sendAnnouncement(
+        `${side[0].name} é o novo capitão e escolhe agora.`,
+        null,
+        0x3498db,
+        "bold",
+        1
+      );
       promptCaptain();
       return;
     }
@@ -555,7 +569,7 @@ function createChooseController(room, {
       promptCaptain();
       return true;
     }
-    if (typeof onPickFromSpec === "function") onPickFromSpec(chosen);
+    if (typeof onPickFromSpec === "function") onPickFromSpec(chosen, team);
     setTeam(chosen.id, team);
     const arrow = team === TEAM.RED ? "🔴" : "🔵";
     room.sendAnnouncement(
@@ -569,18 +583,27 @@ function createChooseController(room, {
     );
 
     if (replacement) {
-      const onReady = replacement.onReady;
-      deactivate();
-      afterTeamChange(() => onReady?.({ chosen }));
+      if (replacementTeamFull() || bothFull()) {
+        const onReady = replacement.onReady;
+        deactivate();
+        afterTeamChange(() => onReady?.({ chosen }));
+        return true;
+      }
+      afterTeamChange(() => promptCaptain());
       return true;
     }
 
     if (bothFull()) {
       deactivate();
       afterTeamChange(onReadyToStart);
-    } else {
-      promptCaptain();
+      return true;
     }
+
+    const nextCap = currentCaptain();
+    if (nextCap && list().specReady.length >= 2) {
+      announceSpecList(nextCap.id);
+    }
+    afterTeamChange(() => promptCaptain());
     return true;
   }
 
@@ -588,31 +611,26 @@ function createChooseController(room, {
     // Choose ativo manda, mesmo com o jogo rolando ou pausado: era esse guard
     // que deixava o capitão sem pick quando a partida começava incompleta.
     if (!active) return false;
+    const token = String(message || "").trim().split(/\s+/)[0];
+    if (!isChooseToken(token)) return false;
+
     const { red, blue } = list();
     const cap = currentCaptain();
-    if (!cap || player.id !== cap.id) return false;
-    if (red.length >= currentTeamSize() && blue.length >= currentTeamSize()) return false;
-
-    const token = String(message || "").trim().split(/\s+/)[0];
-    if (!isChooseToken(token)) {
-      return false;
+    if (!cap || player.id !== cap.id) {
+      tell(player.id, "Só o capitão da vez escolhe.", 0xe67e22, "bold", 2);
+      return true;
     }
+    if (red.length >= currentTeamSize() && blue.length >= currentTeamSize()) return true;
 
     const chosen = pickSpec(token);
     if (!chosen) {
-      room.sendAnnouncement(
-        "Escolha inválida — a lista mudou. Confira os números:",
-        player.id,
-        0xe74c3c,
-        "normal",
-        1
-      );
+      tell(player.id, "Escolha inválida — a lista mudou. Confira os números:", 0xe74c3c, "normal", 1);
       announceSpecList(player.id);
       return true;
     }
 
     const team = teamForCaptain(cap);
-    if (!team || (!replacement && !teamHasHole(team))) return false;
+    if (!team || (!replacement && !teamHasHole(team))) return true;
     return applyCaptainPick(player, chosen, team, token);
   }
 
@@ -655,7 +673,7 @@ function createChooseController(room, {
       const next = (skipId ? specReady.find((p) => p.id !== skipId) : null) || specReady[0];
       if (next) {
         const empty = !red.length ? TEAM.RED : TEAM.BLUE;
-        if (typeof onPickFromSpec === "function") onPickFromSpec(next);
+        if (typeof onPickFromSpec === "function") onPickFromSpec(next, empty);
         setTeam(next.id, empty);
         room.sendAnnouncement(
           `${next.name} virou capitão do time ${empty === TEAM.RED ? "vermelho" : "azul"}.`,

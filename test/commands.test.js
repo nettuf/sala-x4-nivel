@@ -55,16 +55,21 @@ describe("comandos (mock room)", () => {
   it("@nick manda PV só para o destinatário e o remetente", () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
-    const ctx = { admins: new Map(), mutes: new Map(), afk, titles: new Map() };
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      titles: new Map([[1, { emblem: "🌱", name: "Novato", color: 0xbdc3c7 }]]),
+    };
     const cmd = createCommandHandler(room, ctx);
     assert.equal(cmd.handleWhisper(room._players[0], "@Spec eae"), true);
     const toSpec = room.announcements.filter((a) => a.to === 3);
     const toSender = room.announcements.filter((a) => a.to === 1);
     const toOthers = room.announcements.filter((a) => a.to == null || a.to === 2);
     assert.equal(toSpec.length, 1);
-    assert.match(toSpec[0].msg, /PV de .*RedCap: eae/);
+    assert.equal(toSpec[0].msg, "📩 PV de @RedCap: eae");
     assert.equal(toSender.length, 1);
-    assert.match(toSender[0].msg, /PV para Spec: eae/);
+    assert.equal(toSender[0].msg, "📩 PV para @Spec: eae");
     assert.equal(toOthers.length, 0);
     afk.stop();
   });
@@ -82,7 +87,7 @@ describe("comandos (mock room)", () => {
     assert.equal(cmd.handleWhisper(room._players[0], "@Spec eae"), true);
     const toAdmin = room.announcements.filter((a) => a.to === 2);
     assert.equal(toAdmin.length, 1);
-    assert.match(toAdmin[0].msg, /RedCap → Spec: eae/);
+    assert.match(toAdmin[0].msg, /@RedCap → @Spec: eae/);
     assert.equal(room.announcements.some((a) => a.to == null), false);
     afk.stop();
   });
@@ -298,23 +303,70 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
-  it("!bet zoa o alvo em público e respeita cooldown", async () => {
+  it("!bet anuncia o contador em público e respeita cooldown", async () => {
+    const room = mockRoom();
+    let bets = 10;
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      roomStats: {
+        recordBet() {
+          bets += 1;
+          return { bets };
+        },
+      },
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!bet");
+    const msg = room.announcements.find((a) => a.to == null && /🎲/.test(a.msg))?.msg || "";
+    assert.match(msg, /Haxbooket pela 11ª vez/);
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!bet");
+    assert.ok(room.announcements.some((a) => a.to === room._players[0].id && /Espere/i.test(a.msg)));
+    assert.equal(bets, 11);
+  });
+
+  it("!bet incrementa a cada jogador e não precisa de nick", async () => {
+    const room = mockRoom();
+    let bets = 0;
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      roomStats: {
+        recordBet() {
+          bets += 1;
+          return { bets };
+        },
+      },
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[2], "!bet");
+    await cmd.handle(room._players[0], "!aposta");
+    const msgs = room.announcements.filter((a) => a.to == null && /🎲/.test(a.msg)).map((a) => a.msg);
+    assert.match(msgs[0], /pela 1ª vez/);
+    assert.match(msgs[1], /pela 2ª vez/);
+  });
+
+  it("!provocar zoa o alvo em público e respeita cooldown", async () => {
     const room = mockRoom();
     const ctx = { admins: new Map(), mutes: new Map() };
     const cmd = createCommandHandler(room, ctx);
-    await cmd.handle(room._players[0], "!bet Spec");
+    await cmd.handle(room._players[0], "!provocar Spec");
     const msg = room.announcements.find((a) => a.to == null && /🎲/.test(a.msg))?.msg || "";
     assert.match(msg, /Spec/);
     room.announcements.length = 0;
-    await cmd.handle(room._players[0], "!bet Spec");
+    await cmd.handle(room._players[0], "!provocar Spec");
     assert.ok(room.announcements.some((a) => a.to === room._players[0].id && /Espere/i.test(a.msg)));
   });
 
-  it("!bet sem nick pega alguém da sala", async () => {
+  it("!provocar #id e sem alvo pega alguém da sala", async () => {
     const room = mockRoom();
     const ctx = { admins: new Map(), mutes: new Map() };
     const cmd = createCommandHandler(room, ctx);
-    await cmd.handle(room._players[2], "!bet");
+    await cmd.handle(room._players[2], "!provocar #1");
+    assert.ok(room.announcements.some((a) => a.to == null && /RedCap/.test(a.msg)));
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!provocar");
     assert.ok(room.announcements.some((a) => a.to == null && /🎲/.test(a.msg)));
   });
 
@@ -420,11 +472,19 @@ describe("comandos (mock room)", () => {
       admins: new Map(),
       mutes: new Map(),
       afk,
-      streak: { get: () => 2, getBest: () => 9 },
+      streak: {
+        get: () => 2,
+        getBest: () => 9,
+        getBestHolders: () => ["Netto", "Baleio", "Rato", "GH"],
+      },
     };
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!topstreak");
-    assert.ok(room.announcements.some((a) => /Maior streak da sala: 9/.test(a.msg)));
+    assert.ok(
+      room.announcements.some((a) =>
+        /Maior streak da sala: 9 · Netto, Baleio, Rato, GH/.test(a.msg)
+      )
+    );
     afk.stop();
   });
 

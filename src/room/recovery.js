@@ -32,12 +32,15 @@ function planCompetitiveRecovery({
       return { action: "rebalance" };
     }
 
-    if (specCount === 1 && deficit === 1) {
-      return { action: "fill-one", targetTeam };
-    }
-
-    if (specCount > 1 && deficit === 1) {
-      return { action: "choose", targetTeam };
+    // Time menor ainda tem gente em campo: repor do spec (1 pick ou vários,
+    // se o capitão também caiu AFK e o buraco ficou maior que 1).
+    if (Math.min(redCount, blueCount) > 0) {
+      if (specCount === 1) {
+        return { action: "fill-one", targetTeam };
+      }
+      if (specCount > 1) {
+        return { action: "choose", targetTeam };
+      }
     }
 
     // 4v3 sem spec: o extra do time maior vai ao spec e o 3v3 segue.
