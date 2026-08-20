@@ -58,6 +58,16 @@ describe("ragequit no x4 oficial", () => {
     );
   });
 
+  it("3x1 quitando encerra mesmo sem competitive", () => {
+    const host = setup();
+    host.setScores({ red: 3, blue: 1 });
+    host.match.setCompetitive(false);
+    assert.match(
+      host.match.rageQuitReason(host.players[1]),
+      /abandonou perdendo 3x1/i
+    );
+  });
+
   it("3x0 com getScores nulo usa o último placar", () => {
     const host = setup();
     host.setScores({ red: 3, blue: 0 });

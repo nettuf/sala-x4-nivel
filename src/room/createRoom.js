@@ -629,7 +629,7 @@ function createRoom(HBInit) {
       return;
     }
 
-    if (match.isCompetitive()) {
+    if (match.isRunning()) {
       const rageReason = kicked ? null : match.rageQuitReason(player, scoresAtLeave);
       if (rageReason) {
         announceRageQuit(player, rageReason);
@@ -637,7 +637,9 @@ function createRoom(HBInit) {
         setTimeout(() => room.stopGame(), 100);
         return;
       }
+    }
 
+    if (match.isCompetitive()) {
       // Spec saindo não mexe em 4v4: sem RR, sem reposição.
       if (player && player.team === TEAM.SPEC) return;
 

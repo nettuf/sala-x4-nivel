@@ -316,7 +316,7 @@ function createMockRoomHost() {
       return;
     }
 
-    if (match.isCompetitive()) {
+    if (match.isRunning()) {
       const rageReason = leaving ? match.rageQuitReason(leaving) : null;
       if (rageReason) {
         const msgs = rageQuitMessages(leaving.name, rageReason);
@@ -326,7 +326,9 @@ function createMockRoomHost() {
         room.stopGame();
         return;
       }
+    }
 
+    if (match.isCompetitive()) {
       if (leaving && leaving.team === TEAM.SPEC) return;
 
       const remaining = players.filter((p) => p.id !== 0 && !voluntaryAfk.has(p.id));
@@ -1223,6 +1225,21 @@ describe("fluxo por estágios da sala", () => {
       host.announcements.some((a) => a.to === blueId && a.msg.includes(`@${blueName}`)),
       "devia mencionar o jogador no PV"
     );
+    host.cleanup();
+  });
+
+  it("ragequit: 3x1 encerra mesmo depois do 4v3 (competitive off)", () => {
+    const host = createMockRoomHost();
+    host.growTo(8);
+    host.setScores({ red: 3, blue: 1, time: 50 });
+    host.match.setCompetitive(false);
+    const blue = host.players.find((p) => p.team === TEAM.BLUE);
+    host.removePlayer(blue.id);
+    assert.ok(
+      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg) && /3x1/.test(a.msg)),
+      `devia anunciar ragequit 3x1, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.equal(host.getScores(), null, "partida parada");
     host.cleanup();
   });
 

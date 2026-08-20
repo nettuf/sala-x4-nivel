@@ -298,6 +298,26 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("!bet zoa o alvo em público e respeita cooldown", async () => {
+    const room = mockRoom();
+    const ctx = { admins: new Map(), mutes: new Map() };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!bet Spec");
+    const msg = room.announcements.find((a) => a.to == null && /🎲/.test(a.msg))?.msg || "";
+    assert.match(msg, /Spec/);
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!bet Spec");
+    assert.ok(room.announcements.some((a) => a.to === room._players[0].id && /Espere/i.test(a.msg)));
+  });
+
+  it("!bet sem nick pega alguém da sala", async () => {
+    const room = mockRoom();
+    const ctx = { admins: new Map(), mutes: new Map() };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[2], "!bet");
+    assert.ok(room.announcements.some((a) => a.to == null && /🎲/.test(a.msg)));
+  });
+
   it("chat usa só emoji + nick, sem escrever Novato", () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);

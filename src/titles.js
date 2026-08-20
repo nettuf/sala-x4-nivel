@@ -239,16 +239,26 @@ function matchContribution(p) {
 
 /**
  * MVP da partida: maior (gols*2 + assists), mínimo 1 ponto.
- * Empate: todos com a pontuação máxima.
+ * Sempre 1 só: em empate desempata por mais gols, depois assists, depois menos GC.
  */
 function pickMatchMvps(players) {
   const scored = (players || []).map((p) => ({
     ...p,
-    score: (p.goals || 0) * 2 + (p.assists || 0),
+    goals: Math.max(0, Math.floor(Number(p.goals) || 0)),
+    assists: Math.max(0, Math.floor(Number(p.assists) || 0)),
+    own_goals: Math.max(0, Math.floor(Number(p.own_goals) || 0)),
+    score: (Number(p.goals) || 0) * 2 + (Number(p.assists) || 0),
   }));
   const max = Math.max(0, ...scored.map((p) => p.score));
   if (max < 1) return [];
-  return scored.filter((p) => p.score === max);
+  const tied = scored.filter((p) => p.score === max);
+  tied.sort((a, b) => {
+    if (b.goals !== a.goals) return b.goals - a.goals;
+    if (b.assists !== a.assists) return b.assists - a.assists;
+    if (a.own_goals !== b.own_goals) return a.own_goals - b.own_goals;
+    return String(a.auth || a.nick || "").localeCompare(String(b.auth || b.nick || ""));
+  });
+  return [tied[0]];
 }
 
 /**

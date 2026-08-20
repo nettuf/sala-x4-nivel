@@ -15,6 +15,7 @@ const {
   formatTop5,
 } = require("../db/stats");
 const { formatCurrentStreak, formatBestStreak } = require("../room/streak");
+const { pickBetLine, resolveBetTarget } = require("../room/bet");
 const {
   TITLES,
   STAFF_TITLES,
@@ -70,6 +71,7 @@ function playerHelpLines({
     "@nick msg — mensagem privada (ou @#id)",
     "!gols !assists !golcontra !cs — top 5",
     "!streak — streak atual · !topstreak — recorde da sala",
+    "!bet [nick] — zoação de quem entregou",
     "!unis — uniformes disponíveis"
   );
   if (canChangeUni) {
@@ -109,6 +111,9 @@ function adminHelpText() {
 function createCommandHandler(room, ctx) {
   /** @type {Map<number, number>} */
   const lastAfkCommandAt = new Map();
+  /** @type {Map<number, number>} */
+  const lastBetAt = new Map();
+  const BET_COOLDOWN_MS = 8000;
 
   function resolveAuth(player) {
     return resolvePlayerAuth(player, ctx.auths, room.getPlayerList());
@@ -125,6 +130,7 @@ function createCommandHandler(room, ctx) {
 
   function forgetPlayer(playerId) {
     lastAfkCommandAt.delete(playerId);
+    lastBetAt.delete(playerId);
   }
 
   async function loadTitleForPlayer(player) {
@@ -489,6 +495,39 @@ function createCommandHandler(room, ctx) {
         ? "Rankings indisponíveis no momento."
         : formatTop5(ranking.title, board?.rows);
       room.sendAnnouncement(text, player.id, 0xf1c40f, "bold", 1);
+      return true;
+    }
+
+    if (cmd === "bet" || cmd === "aposta" || cmd === "entregou") {
+      const now = Date.now();
+      const elapsed = now - (lastBetAt.get(player.id) || 0);
+      if (elapsed < BET_COOLDOWN_MS) {
+        const left = Math.ceil((BET_COOLDOWN_MS - elapsed) / 1000);
+        room.sendAnnouncement(
+          `Espere ${left}s para zoar de novo.`,
+          player.id,
+          0xf1c40f,
+          "normal",
+          1
+        );
+        return true;
+      }
+      const mention = args.join(" ").trim();
+      const target = resolveBetTarget(room, player, mention || null);
+      if (!target) {
+        room.sendAnnouncement(
+          mention
+            ? "Jogador não encontrado. Uso: !bet ou !bet <nick>"
+            : "Ninguém na sala pra zoar.",
+          player.id,
+          0xe74c3c,
+          "normal",
+          1
+        );
+        return true;
+      }
+      lastBetAt.set(player.id, now);
+      room.sendAnnouncement(pickBetLine(target.name), null, 0xe67e22, "bold", 1);
       return true;
     }
 

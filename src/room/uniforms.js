@@ -46,6 +46,8 @@ const KITS = [
   { id: "gigachads", name: "Gigachads", angle: 60, text: 0x000000, colors: [0xb8ff4d, 0xaeffab, 0x61ff30], emoji: "🗿" },
   { id: "moggadores", name: "Moggadores", angle: 601, text: 0x2d0dff, colors: [0x4a6eff, 0x5ca8ff], emoji: "🤫" },
   { id: "pedro", name: "Amigos do Pedro", angle: 60, text: 0xffffff, colors: [0x000000, 0x776c69] },
+  { id: "tulio", name: "Amigos do Tulio", angle: 601, text: 0x851575, colors: [0xc420ae, 0xff29e2], emoji: "🏳️‍🌈" },
+  { id: "marconhados", name: "Marconhados", angle: 33, text: 0x1be329, colors: [0x108518, 0x14a81e], emoji: "☘️" },
 ];
 
 function defaultKit(team) {

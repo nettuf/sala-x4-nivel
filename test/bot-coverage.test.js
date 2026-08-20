@@ -213,6 +213,13 @@ describe("ragequit: placares", () => {
     assert.match(host.match.rageQuitReason(host.players[1]), /3x1/);
   });
 
+  it("3x1 ainda é ragequit se a partida deixou de ser competitive", () => {
+    const host = matchHost();
+    host.setScores({ red: 3, blue: 1 });
+    host.match.setCompetitive(false);
+    assert.match(host.match.rageQuitReason(host.players[1]), /3x1/);
+  });
+
   it("empate 2x2 não é ragequit", () => {
     const host = matchHost();
     host.setScores({ red: 2, blue: 2 });

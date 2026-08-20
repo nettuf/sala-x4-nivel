@@ -336,6 +336,16 @@ describe("titles / cargos", () => {
     assert.equal(mvps[0].auth, "a");
   });
 
+  it("pickMatchMvps: empate de pontos escolhe só 1 (mais gols)", () => {
+    const mvps = pickMatchMvps([
+      { auth: "a", nick: "A", goals: 1, assists: 2 },
+      { auth: "b", nick: "B", goals: 2, assists: 0 },
+      { auth: "c", nick: "C", goals: 0, assists: 4 },
+    ]);
+    assert.equal(mvps.length, 1);
+    assert.equal(mvps[0].auth, "b");
+  });
+
   it("pickMatchWorst: menor contribuição e GC piora", () => {
     const worst = pickMatchWorst([
       { auth: "a", nick: "A", goals: 2, assists: 0, own_goals: 0 },

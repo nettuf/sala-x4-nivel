@@ -121,6 +121,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     bluePoss = 0;
     match = {
       competitive,
+      everCompetitive: !!competitive,
       recordingStarted: false,
       touches: [],
       goals: [],
@@ -431,11 +432,12 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
   }
 
   /**
-   * Ragequit só no 4v4 oficial, só quem saiu do time perdedor, e só com o jogo decidido:
-   * 2+ de diferença em qualquer momento, ou 1 de diferença no último minuto.
+   * Ragequit: quem saiu do time perdedor com o jogo decidido (diff 2+, ou 1 no fim).
+   * Treino/warmup não conta. Se o 4v4 oficial virou 3v3 no meio (competitive off),
+   * ainda conta — senão quit no 3x1 não encerrava.
    */
   function rageQuitReason(player, scores) {
-    if (!match?.competitive || !player) return null;
+    if (!match?.everCompetitive || !player) return null;
     const resolved = scores || snapshotScores();
     if (!resolved) return null;
 
@@ -474,7 +476,9 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     snapshotScores,
     cancelRecordingOnly,
     setCompetitive(value) {
-      if (match) match.competitive = !!value;
+      if (!match) return;
+      match.competitive = !!value;
+      if (value) match.everCompetitive = true;
     },
     isRunning: () => !!match,
     isCompetitive: () => !!match?.competitive,
