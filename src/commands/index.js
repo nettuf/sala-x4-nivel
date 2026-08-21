@@ -110,15 +110,23 @@ function adminHelpText() {
   ].join("\n");
 }
 
+function cooldownLeftSec(lastAt, ms, now) {
+  const left = ms - (now - (Number(lastAt) || 0));
+  return left > 0 ? Math.ceil(left / 1000) : 0;
+}
+
 function createCommandHandler(room, ctx) {
+  const clock = typeof ctx.now === "function" ? ctx.now : () => Date.now();
   /** @type {Map<number, number>} */
   const lastAfkCommandAt = new Map();
   /** @type {Map<number, number>} */
-  const lastBetAt = new Map();
-  const lastTeaseAt = new Map();
-  const lastPraiseAt = new Map();
-  const BET_COOLDOWN_MS = 8000;
-  const TEASE_COOLDOWN_MS = 8000;
+  const lastFunPlayerAt = new Map();
+  /** @type {Map<string, number>} */
+  const lastLookupAt = new Map();
+  let lastFunRoomAt = 0;
+  const FUN_PLAYER_MS = config.cmdPublicPlayerMs || 25000;
+  const FUN_ROOM_MS = config.cmdPublicRoomMs || 15000;
+  const LOOKUP_MS = config.cmdLookupPlayerMs || 10000;
 
   function resolveAuth(player) {
     return resolvePlayerAuth(player, ctx.auths, room.getPlayerList());
@@ -135,9 +143,44 @@ function createCommandHandler(room, ctx) {
 
   function forgetPlayer(playerId) {
     lastAfkCommandAt.delete(playerId);
-    lastBetAt.delete(playerId);
-    lastTeaseAt.delete(playerId);
-    lastPraiseAt.delete(playerId);
+    lastFunPlayerAt.delete(playerId);
+    for (const key of [...lastLookupAt.keys()]) {
+      if (key.startsWith(`${playerId}:`)) lastLookupAt.delete(key);
+    }
+  }
+
+  function tellWait(player, left) {
+    room.sendAnnouncement(
+      `Espere ${left}s pra não floodar o chat.`,
+      player.id,
+      0xf1c40f,
+      "normal",
+      1
+    );
+    return true;
+  }
+
+  /** !bet !provocar !elogiar !discord !site — um anúncio público por vez na sala. */
+  function blockPublicFun(player) {
+    const now = clock();
+    const left = Math.max(
+      cooldownLeftSec(lastFunPlayerAt.get(player.id), FUN_PLAYER_MS, now),
+      cooldownLeftSec(lastFunRoomAt, FUN_ROOM_MS, now)
+    );
+    if (left > 0) return tellWait(player, left);
+    lastFunPlayerAt.set(player.id, now);
+    lastFunRoomAt = now;
+    return false;
+  }
+
+  /** Rankings/stats privados: o mesmo jogador não dispara o mesmo tipo em sequência. */
+  function blockLookup(player, kind) {
+    const now = clock();
+    const key = `${player.id}:${kind}`;
+    const left = cooldownLeftSec(lastLookupAt.get(key), LOOKUP_MS, now);
+    if (left > 0) return tellWait(player, left);
+    lastLookupAt.set(key, now);
+    return false;
   }
 
   async function loadTitleForPlayer(player) {
@@ -277,12 +320,14 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "discord" || cmd === "dc") {
+      if (blockPublicFun(player)) return true;
       const url = config.discordInviteUrl;
       room.sendAnnouncement(`Entre em nosso Discord: ${url}`, null, 0x5865f2, "bold", 1);
       return true;
     }
 
     if (cmd === "site" || cmd === "haxbook" || cmd === "statsweb") {
+      if (blockPublicFun(player)) return true;
       const url = config.siteUrl;
       room.sendAnnouncement(`🌐 Stats, rankings e mais: ${url}`, null, 0x1abc9c, "bold", 1);
       return true;
@@ -480,12 +525,14 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "streak" || cmd === "streaks") {
+      if (blockLookup(player, "streak")) return true;
       const n = ctx.streak?.get?.() ?? 0;
       room.sendAnnouncement(formatCurrentStreak(n), player.id, 0xf1c40f, "bold", 1);
       return true;
     }
 
     if (cmd === "topstreak" || cmd === "recordstreak" || cmd === "melhorstreak" || cmd === "maxstreak") {
+      if (blockLookup(player, "topstreak")) return true;
       const best = ctx.streak?.getBest?.() ?? ctx.roomStats?.snapshot?.()?.bestStreak ?? 0;
       const current = ctx.streak?.get?.() ?? 0;
       const holders =
@@ -498,6 +545,7 @@ function createCommandHandler(room, ctx) {
 
     const ranking = RANKING_CMDS[cmd];
     if (ranking) {
+      if (blockLookup(player, ranking.stat)) return true;
       const fetchTop = ctx.getLeaderboard || getLeaderboard;
       const board = await fetchTop(ranking.stat);
       const text = board?.unavailable
@@ -508,39 +556,13 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "bet" || cmd === "aposta") {
-      const now = Date.now();
-      const elapsed = now - (lastBetAt.get(player.id) || 0);
-      if (elapsed < BET_COOLDOWN_MS) {
-        const left = Math.ceil((BET_COOLDOWN_MS - elapsed) / 1000);
-        room.sendAnnouncement(
-          `Espere ${left}s para apostar de novo.`,
-          player.id,
-          0xf1c40f,
-          "normal",
-          1
-        );
-        return true;
-      }
-      lastBetAt.set(player.id, now);
+      if (blockPublicFun(player)) return true;
       const count = ctx.roomStats?.recordBet?.()?.bets ?? 1;
       room.sendAnnouncement(formatBetLine(count), null, 0xe67e22, "bold", 1);
       return true;
     }
 
     if (cmd === "provocar" || cmd === "provoca" || cmd === "entregou") {
-      const now = Date.now();
-      const elapsed = now - (lastTeaseAt.get(player.id) || 0);
-      if (elapsed < TEASE_COOLDOWN_MS) {
-        const left = Math.ceil((TEASE_COOLDOWN_MS - elapsed) / 1000);
-        room.sendAnnouncement(
-          `Espere ${left}s para zoar de novo.`,
-          player.id,
-          0xf1c40f,
-          "normal",
-          1
-        );
-        return true;
-      }
       const mention = args.join(" ").trim();
       const target = resolveTeaseTarget(room, player, mention || null);
       if (!target) {
@@ -555,25 +577,12 @@ function createCommandHandler(room, ctx) {
         );
         return true;
       }
-      lastTeaseAt.set(player.id, now);
+      if (blockPublicFun(player)) return true;
       room.sendAnnouncement(pickTeaseLine(target.name), null, 0xe67e22, "bold", 1);
       return true;
     }
 
     if (cmd === "elogiar" || cmd === "elogio" || cmd === "craque") {
-      const now = Date.now();
-      const elapsed = now - (lastPraiseAt.get(player.id) || 0);
-      if (elapsed < TEASE_COOLDOWN_MS) {
-        const left = Math.ceil((TEASE_COOLDOWN_MS - elapsed) / 1000);
-        room.sendAnnouncement(
-          `Espere ${left}s para elogiar de novo.`,
-          player.id,
-          0xf1c40f,
-          "normal",
-          1
-        );
-        return true;
-      }
       const mention = args.join(" ").trim();
       const target = resolveTeaseTarget(room, player, mention || null);
       if (!target) {
@@ -588,7 +597,7 @@ function createCommandHandler(room, ctx) {
         );
         return true;
       }
-      lastPraiseAt.set(player.id, now);
+      if (blockPublicFun(player)) return true;
       room.sendAnnouncement(pickPraiseLine(target.name), null, 0xf1c40f, "bold", 1);
       return true;
     }
@@ -616,6 +625,7 @@ function createCommandHandler(room, ctx) {
         );
         return true;
       }
+      if (blockLookup(player, "stats")) return true;
       const s = (await getPlayerStats(auth)) || emptyPlayerStats();
       const adminLevel = ctx.admins.get(target.id)?.level || 0;
       const title = resolveTitle(s, s.selected_title, adminLevel);

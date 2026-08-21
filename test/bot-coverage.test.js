@@ -376,8 +376,10 @@ describe("comandos extras", () => {
       uniforms,
       streak,
     };
+    let now = 1_700_000_000_000;
+    ctx.now = () => now;
     const cmd = createCommandHandler(room, ctx);
-    return { room, players, announcements, afk, cmd, streak, ctx };
+    return { room, players, announcements, afk, cmd, streak, ctx, advance: (ms) => { now += ms; } };
   }
 
   it("!streak vazio e com vitória", async () => {
@@ -385,6 +387,7 @@ describe("comandos extras", () => {
     await host.cmd.handle(host.players[0], "!streak");
     assert.ok(host.announcements.some((a) => /Sem streak/i.test(a.msg)));
     host.streak.recordWin(TEAM.RED);
+    host.advance(10_000);
     await host.cmd.handle(host.players[0], "!streaks");
     assert.ok(host.announcements.some((a) => /Streak atual: 1/.test(a.msg)));
     host.afk.stop();
@@ -397,6 +400,7 @@ describe("comandos extras", () => {
     host.streak.recordWin(TEAM.RED, ["A", "B"]);
     host.streak.recordWin(TEAM.RED, ["A", "B"]);
     host.streak.recordWin(TEAM.BLUE, ["C"]);
+    host.advance(10_000);
     await host.cmd.handle(host.players[0], "!topstreak");
     assert.ok(host.announcements.some((a) => /Maior streak da sala: 2 · A, B/.test(a.msg)));
     host.afk.stop();

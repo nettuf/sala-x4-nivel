@@ -29,6 +29,15 @@ function mockRoom() {
   };
 }
 
+function withClock(ctx, start = 1_700_000_000_000) {
+  let t = start;
+  ctx.now = () => t;
+  ctx.advance = (ms) => {
+    t += ms;
+  };
+  return ctx;
+}
+
 describe("comandos (mock room)", () => {
   it("!ids lista jogadores", async () => {
     const room = mockRoom();
@@ -315,7 +324,7 @@ describe("comandos (mock room)", () => {
   it("!bet anuncia o contador em público e respeita cooldown", async () => {
     const room = mockRoom();
     let bets = 10;
-    const ctx = {
+    const ctx = withClock({
       admins: new Map(),
       mutes: new Map(),
       roomStats: {
@@ -324,7 +333,7 @@ describe("comandos (mock room)", () => {
           return { bets };
         },
       },
-    };
+    });
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!bet");
     const msg = room.announcements.find((a) => a.to == null && /🎲/.test(a.msg))?.msg || "";
@@ -338,7 +347,7 @@ describe("comandos (mock room)", () => {
   it("!bet incrementa a cada jogador e não precisa de nick", async () => {
     const room = mockRoom();
     let bets = 0;
-    const ctx = {
+    const ctx = withClock({
       admins: new Map(),
       mutes: new Map(),
       roomStats: {
@@ -347,18 +356,51 @@ describe("comandos (mock room)", () => {
           return { bets };
         },
       },
-    };
+    });
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[2], "!bet");
+    ctx.advance(15_000);
     await cmd.handle(room._players[0], "!aposta");
     const msgs = room.announcements.filter((a) => a.to == null && /🎲/.test(a.msg)).map((a) => a.msg);
     assert.match(msgs[0], /pela 1ª vez/);
     assert.match(msgs[1], /pela 2ª vez/);
   });
 
+  it("comandos públicos compartilham cooldown da sala — outro jogador não flooda !bet/!gols/!provocar", async () => {
+    const room = mockRoom();
+    let bets = 0;
+    const ctx = withClock({
+      admins: new Map(),
+      mutes: new Map(),
+      roomStats: {
+        recordBet() {
+          bets += 1;
+          return { bets };
+        },
+      },
+      getLeaderboard: async () => ({ unavailable: false, rows: [{ nick: "Netto", value: 12 }] }),
+    });
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!bet");
+    room.announcements.length = 0;
+    await cmd.handle(room._players[2], "!aposta");
+    assert.ok(room.announcements.some((a) => a.to === room._players[2].id && /Espere/i.test(a.msg)));
+    assert.equal(bets, 1);
+    room.announcements.length = 0;
+    await cmd.handle(room._players[1], "!provocar Spec");
+    assert.ok(room.announcements.some((a) => a.to === room._players[1].id && /Espere/i.test(a.msg)));
+    assert.equal(room.announcements.some((a) => a.to == null), false);
+    room.announcements.length = 0;
+    await cmd.handle(room._players[2], "!gols");
+    assert.ok(room.announcements.some((a) => /Top 5 gols/.test(a.msg)));
+    room.announcements.length = 0;
+    await cmd.handle(room._players[2], "!gols");
+    assert.ok(room.announcements.some((a) => a.to === room._players[2].id && /Espere/i.test(a.msg)));
+  });
+
   it("!provocar zoa o alvo em público e respeita cooldown", async () => {
     const room = mockRoom();
-    const ctx = { admins: new Map(), mutes: new Map() };
+    const ctx = withClock({ admins: new Map(), mutes: new Map() });
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!provocar Spec");
     const msg = room.announcements.find((a) => a.to == null && /🎲/.test(a.msg))?.msg || "";
@@ -370,18 +412,19 @@ describe("comandos (mock room)", () => {
 
   it("!provocar #id e sem alvo pega alguém da sala", async () => {
     const room = mockRoom();
-    const ctx = { admins: new Map(), mutes: new Map() };
+    const ctx = withClock({ admins: new Map(), mutes: new Map() });
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[2], "!provocar #1");
     assert.ok(room.announcements.some((a) => a.to == null && /RedCap/.test(a.msg)));
     room.announcements.length = 0;
+    ctx.advance(15_000);
     await cmd.handle(room._players[0], "!provocar");
     assert.ok(room.announcements.some((a) => a.to == null && /🎲/.test(a.msg)));
   });
 
   it("!elogiar elogia o alvo em público e respeita cooldown", async () => {
     const room = mockRoom();
-    const ctx = { admins: new Map(), mutes: new Map() };
+    const ctx = withClock({ admins: new Map(), mutes: new Map() });
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!elogiar Spec");
     const msg = room.announcements.find((a) => a.to == null && /⭐/.test(a.msg))?.msg || "";
