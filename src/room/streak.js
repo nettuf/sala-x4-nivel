@@ -154,7 +154,9 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded } = {}) {
 function shouldUseWinnerStays(playerCount, valid, winner) {
   if (winner !== TEAM.RED && winner !== TEAM.BLUE) return false;
   if (playerCount < 2) return false;
-  // 4v4 oficial: só depois de partida válida. 1v1/2v2/3v3 (warmup) rotaciona mesmo sem stats.
+  // playerCount = elegíveis (sem AFK). 4v4: só partida válida.
+  // 1v1/2v2/3v3 rotaciona mesmo sem stats. AFK no spec não pode inflar
+  // isso pra 8+ e pular o winner stays (ex.: 3v3 + 1 spec + 4 AFK).
   if (playerCount >= config.teamSize * 2) return !!valid;
   return true;
 }

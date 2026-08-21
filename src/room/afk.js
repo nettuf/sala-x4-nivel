@@ -12,6 +12,9 @@ function shouldCountAutoAfk(players) {
 
 /** Distância mínima (legado/testes). AFK real usa tecla (onPlayerActivity). */
 const MOVE_EPS = 8;
+/** Haxball: onGameTick = 60 Hz. Apex incrementa ACT nesse loop. */
+const TICK_HZ = 60;
+const MS_PER_TICK = 1000 / TICK_HZ;
 
 function hasMoved(prev, next, eps = MOVE_EPS) {
   if (!prev || !next) return false;
@@ -26,27 +29,27 @@ function afkRemainSec() {
 }
 
 /**
- * AFK é um estado só, venha do !afk ou de ficar parado em campo:
- * sai da fila do pick, ninguém escolhe, admin não consegue colocar em campo.
- * Só sai com !afk do próprio jogador — ou kick, se a sala encher.
+ * AFK é um estado só, venha do !afk ou de ficar parado em campo.
  *
- * Modelo do bot de referência (kickOff): conta 1s em 1s enquanto o jogo está
- * rodando e o jogador está em campo. Atividade = tecla (onPlayerActivity) /
- * chute / entrar em time. Empurrão da bola não conta.
+ * Apex (sala parceira): onGameTick incrementa um contador; onPlayerActivity
+ * zera. onGameTick NÃO dispara com o jogo pausado — a pausa congela sozinha.
+ * Não usam flag `paused` à parte: se o bot pausa pro choose e o unpause não
+ * dispara, o relógio antigo ficava morto pra sempre.
  *
- * Pausa CONGELA o relógio (não zera). Gol/kickoff NÃO congelam — se congelar
- * após cada gol o parado nunca chega no limite.
+ * Aqui: o loop do jogo (noteGameTick) é a fonte da verdade. A flag paused só
+ * congela o fallback do setInterval, não o tick da física.
  */
 function createAfkTracker(room, opts = {}) {
-  /** @type {Map<number, { lastActive: number, warned: boolean }>} lastActive = relógio efetivo */
+  /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number }>} */
   const state = new Map();
   /** @type {Map<number, number>} id → AFK desde quando (para kickar o mais antigo) */
   const afks = new Map();
   let paused = false;
-  /** Tempo de parede acumulado em pausa. */
+  /** Tempo de parede acumulado em pausa (só o fallback do setInterval). */
   let holdAccumMs = 0;
-  /** Se > 0, hold aberto desde esse Date.now(). */
   let holdStartedAt = 0;
+  /** Último onGameTick — se recente, o setInterval não conta de novo. */
+  let lastSimTickAt = 0;
   let onStateChange = null;
   const shouldAutoAfk = typeof opts.shouldAutoAfk === "function" ? opts.shouldAutoAfk : () => true;
 
@@ -71,12 +74,17 @@ function createAfkTracker(room, opts = {}) {
     else endHold(wallNow);
   }
 
+  function blankState(now) {
+    return { lastActive: now, warned: false, idleTicks: 0 };
+  }
+
   function touch(playerId, wallNow = Date.now()) {
     if (afks.has(playerId)) return;
     const now = effectiveNow(wallNow);
-    const cur = state.get(playerId) || { lastActive: now, warned: false };
+    const cur = state.get(playerId) || blankState(now);
     cur.lastActive = now;
     cur.warned = false;
+    cur.idleTicks = 0;
     state.set(playerId, cur);
   }
 
@@ -180,14 +188,66 @@ function createAfkTracker(room, opts = {}) {
     return humans().length;
   }
 
+  function punishIdle(p, idleMs, full) {
+    const st = state.get(p.id);
+    if (!st) return;
+    if (idleMs >= config.afkWarnMs && !st.warned) {
+      st.warned = true;
+      room.sendAnnouncement(
+        `⚠️ ${p.name}, mexa-se — faltam ${afkRemainSec()}s para AFK.`,
+        p.id,
+        0xf1c40f,
+        "bold",
+        2
+      );
+    }
+    if (idleMs < config.afkActionMs) return false;
+
+    if (full) {
+      onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
+      room.kickPlayer(p.id, kickReason("AFK (sala cheia)"), false);
+      remove(p.id);
+      return true;
+    }
+    if (p.team !== 0) {
+      const previousTeam = p.team;
+      markAfk(p.id);
+      sendToSpec(p.id, { pause: false });
+      room.sendAnnouncement(
+        `${p.name} parado — está AFK no spec (!afk para voltar).`,
+        null,
+        0xe67e22,
+        "normal",
+        1
+      );
+      onStateChange?.({ type: "auto-afk", player: p, previousTeam });
+    }
+    return true;
+  }
+
+  function forEachFieldPlayer(wallNow, onEach) {
+    const full = playingCount() >= config.afkFullThreshold;
+    for (const p of room.getPlayerList()) {
+      if (p.id === 0) continue;
+      if (afks.has(p.id)) {
+        if (p.team !== 0) sendToSpec(p.id, { pause: false });
+        continue;
+      }
+      if (p.team === 0) continue;
+      if (!state.has(p.id)) touch(p.id, wallNow);
+      onEach(p, state.get(p.id), full);
+    }
+  }
+
   /** Só no início de partida: todo mundo começa o relógio do zero. */
   function resetClocks(wallNow = Date.now()) {
     holdAccumMs = 0;
     holdStartedAt = 0;
+    lastSimTickAt = 0;
     const now = effectiveNow(wallNow);
     for (const p of room.getPlayerList()) {
       if (p.id === 0 || afks.has(p.id)) continue;
-      state.set(p.id, { lastActive: now, warned: false });
+      state.set(p.id, blankState(now));
     }
   }
 
@@ -196,8 +256,36 @@ function createAfkTracker(room, opts = {}) {
     syncHold(wallNow);
   }
 
+  /**
+   * Apex: chamado 60x/s enquanto a física roda. Ignora a flag paused —
+   * onGameTick só existe com o jogo despausado. Se a flag ficar presa depois
+   * do choose, o parado ainda cai.
+   */
+  function noteGameTick(wallNow = Date.now()) {
+    lastSimTickAt = wallNow;
+    if (!shouldAutoAfk()) {
+      ensureReserveSlots();
+      return;
+    }
+    if (typeof room.getScores === "function" && !room.getScores()) {
+      ensureReserveSlots();
+      return;
+    }
+    forEachFieldPlayer(wallNow, (p, st, full) => {
+      st.idleTicks = (Number(st.idleTicks) || 0) + 1;
+      punishIdle(p, st.idleTicks * MS_PER_TICK, full);
+    });
+    ensureReserveSlots();
+  }
+
   function tick(wallNow = Date.now()) {
     syncHold(wallNow);
+
+    // O loop do jogo está no controle: não contar duas vezes.
+    if (lastSimTickAt > 0 && wallNow - lastSimTickAt < 1500) {
+      ensureReserveSlots();
+      return;
+    }
 
     if (paused) {
       ensureReserveSlots();
@@ -213,49 +301,9 @@ function createAfkTracker(room, opts = {}) {
     }
 
     const now = effectiveNow(wallNow);
-    const full = playingCount() >= config.afkFullThreshold;
-    for (const p of room.getPlayerList()) {
-      if (p.id === 0) continue;
-      if (afks.has(p.id)) {
-        if (p.team !== 0) sendToSpec(p.id, { pause: false });
-        continue;
-      }
-      if (p.team === 0) continue;
-      if (!state.has(p.id)) touch(p.id, wallNow);
-      const st = state.get(p.id);
-      const idleMs = now - st.lastActive;
-
-      if (idleMs >= config.afkWarnMs && !st.warned) {
-        st.warned = true;
-        room.sendAnnouncement(
-          `⚠️ ${p.name}, mexa-se — faltam ${afkRemainSec()}s para AFK.`,
-          p.id,
-          0xf1c40f,
-          "bold",
-          2
-        );
-      }
-
-      if (idleMs < config.afkActionMs) continue;
-
-      if (full) {
-        onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
-        room.kickPlayer(p.id, kickReason("AFK (sala cheia)"), false);
-        remove(p.id);
-      } else if (p.team !== 0) {
-        const previousTeam = p.team;
-        markAfk(p.id);
-        sendToSpec(p.id, { pause: false });
-        room.sendAnnouncement(
-          `${p.name} parado — está AFK no spec (!afk para voltar).`,
-          null,
-          0xe67e22,
-          "normal",
-          1
-        );
-        onStateChange?.({ type: "auto-afk", player: p, previousTeam });
-      }
-    }
+    forEachFieldPlayer(wallNow, (p, st, full) => {
+      punishIdle(p, now - st.lastActive, full);
+    });
     ensureReserveSlots();
   }
 
@@ -281,6 +329,7 @@ function createAfkTracker(room, opts = {}) {
     /** Exposto para testes do relógio congelado na pausa. */
     effectiveNow,
     tick,
+    noteGameTick,
     stop() {
       clearInterval(interval);
     },
@@ -293,4 +342,5 @@ module.exports = {
   shouldCountAutoAfk,
   hasMoved,
   MOVE_EPS,
+  TICK_HZ,
 };

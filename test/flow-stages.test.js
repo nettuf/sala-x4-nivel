@@ -211,7 +211,7 @@ function createMockRoomHost() {
     refreshLobby();
   }
 
-  function addPlayer(name, { settle = false } = {}) {
+  function addPlayer(name, { settle = false, afk = false } = {}) {
     const p = {
       id: nextId++,
       name: name || `P${nextId}`,
@@ -220,6 +220,7 @@ function createMockRoomHost() {
       conn: Buffer.from("1.1.1.1").toString("hex"),
     };
     players.push(p);
+    if (afk) voluntaryAfk.add(p.id);
     refreshLobby();
     if (settle) settleLobby();
     return p;
@@ -393,7 +394,7 @@ function createMockRoomHost() {
     const result = await match.finish(scoresObj);
     room.stopGame();
 
-    const count = players.filter((p) => p.id !== 0).length;
+    const count = players.filter((p) => p.id !== 0 && !voluntaryAfk.has(p.id)).length;
     if (result && shouldUseWinnerStays(count, result.valid, result.winner)) {
       const { mode } = applyWinnerStays(room, result.winner, streak, {
         isExcluded: (p) => voluntaryAfk.has(p.id),
@@ -899,6 +900,28 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.matchRunning, true);
     assert.equal(s.gameStarted, started);
     assert.equal(host.match.isCompetitive(), false);
+    host.cleanup();
+  });
+
+  it("3v3 + 1 spec ativo e 4 AFK: winner stays, o spec vira capitão", async () => {
+    const host = createMockRoomHost();
+    host.growTo(7);
+    const specId = host.players.find((p) => p.team === TEAM.SPEC).id;
+    const redIds = host.players.filter((p) => p.team === TEAM.RED).map((p) => p.id);
+    for (let i = 0; i < 4; i++) host.addPlayer(`Afk${i + 1}`, { afk: true });
+    assert.equal(host.snapshot().red, 3);
+    assert.equal(host.snapshot().blue, 3);
+    assert.equal(host.players.length, 11);
+
+    await host.endValidMatch({ red: config.scoreLimit, blue: 0 });
+    const s = host.snapshot();
+    assert.equal(s.chooseActive, true, "AFK no spec não pode pular o winner stays");
+    assert.equal(s.red, 3);
+    assert.equal(s.blue, 1);
+    assert.equal(host.currentCaptain().id, specId);
+    for (const id of redIds) {
+      assert.equal(host.players.find((p) => p.id === id).team, TEAM.RED);
+    }
     host.cleanup();
   });
 

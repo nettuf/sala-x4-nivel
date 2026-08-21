@@ -15,7 +15,7 @@ const {
   formatTop5,
 } = require("../db/stats");
 const { formatCurrentStreak, formatBestStreak } = require("../room/streak");
-const { formatBetLine, pickTeaseLine, resolveTeaseTarget } = require("../room/bet");
+const { formatBetLine, pickTeaseLine, pickPraiseLine, resolveTeaseTarget } = require("../room/bet");
 const {
   TITLES,
   STAFF_TITLES,
@@ -73,6 +73,7 @@ function playerHelpLines({
     "!streak — streak atual · !topstreak — recorde da sala",
     "!bet — aposta na Haxbooket",
     "!provocar [#id|nick] — zoação de quem entregou",
+    "!elogiar [#id|nick] — elogio de craque",
     "!unis — uniformes disponíveis"
   );
   if (canChangeUni) {
@@ -115,6 +116,7 @@ function createCommandHandler(room, ctx) {
   /** @type {Map<number, number>} */
   const lastBetAt = new Map();
   const lastTeaseAt = new Map();
+  const lastPraiseAt = new Map();
   const BET_COOLDOWN_MS = 8000;
   const TEASE_COOLDOWN_MS = 8000;
 
@@ -135,6 +137,7 @@ function createCommandHandler(room, ctx) {
     lastAfkCommandAt.delete(playerId);
     lastBetAt.delete(playerId);
     lastTeaseAt.delete(playerId);
+    lastPraiseAt.delete(playerId);
   }
 
   async function loadTitleForPlayer(player) {
@@ -554,6 +557,39 @@ function createCommandHandler(room, ctx) {
       }
       lastTeaseAt.set(player.id, now);
       room.sendAnnouncement(pickTeaseLine(target.name), null, 0xe67e22, "bold", 1);
+      return true;
+    }
+
+    if (cmd === "elogiar" || cmd === "elogio" || cmd === "craque") {
+      const now = Date.now();
+      const elapsed = now - (lastPraiseAt.get(player.id) || 0);
+      if (elapsed < TEASE_COOLDOWN_MS) {
+        const left = Math.ceil((TEASE_COOLDOWN_MS - elapsed) / 1000);
+        room.sendAnnouncement(
+          `Espere ${left}s para elogiar de novo.`,
+          player.id,
+          0xf1c40f,
+          "normal",
+          1
+        );
+        return true;
+      }
+      const mention = args.join(" ").trim();
+      const target = resolveTeaseTarget(room, player, mention || null);
+      if (!target) {
+        room.sendAnnouncement(
+          mention
+            ? "Jogador não encontrado. Uso: !elogiar ou !elogiar <#id|nick>"
+            : "Ninguém na sala pra elogiar.",
+          player.id,
+          0xe74c3c,
+          "normal",
+          1
+        );
+        return true;
+      }
+      lastPraiseAt.set(player.id, now);
+      room.sendAnnouncement(pickPraiseLine(target.name), null, 0xf1c40f, "bold", 1);
       return true;
     }
 

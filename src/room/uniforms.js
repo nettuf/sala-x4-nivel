@@ -57,6 +57,14 @@ const KITS = [
     colors: [0x21d3ff, 0xff00cc, 0x21d3ff],
     emoji: "🦓",
   },
+  {
+    id: "olympusguardians",
+    name: "Olympus Guardians",
+    angle: 120,
+    text: 0xe5ed00,
+    colors: [0x080404, 0x141414],
+    emoji: "⚡",
+  },
 ];
 
 function defaultKit(team) {

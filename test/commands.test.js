@@ -2,6 +2,7 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const { createCommandHandler } = require("../src/commands");
 const { createAfkTracker } = require("../src/room/afk");
+const { TEASE_LINES, PRAISE_LINES, pickTeaseLine, pickPraiseLine } = require("../src/room/bet");
 
 function mockRoom() {
   const players = [
@@ -303,6 +304,14 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("!provocar tem 100+ zoações e !elogiar 100+ elogios", () => {
+    assert.ok(TEASE_LINES.length >= 100, `provocar: ${TEASE_LINES.length}`);
+    assert.ok(PRAISE_LINES.length >= 100, `elogiar: ${PRAISE_LINES.length}`);
+    assert.match(pickTeaseLine("Netto", () => 0), /Netto/);
+    assert.match(pickPraiseLine("Netto", () => 0), /Netto/);
+    assert.match(pickPraiseLine("Netto", () => 0), /⭐/);
+  });
+
   it("!bet anuncia o contador em público e respeita cooldown", async () => {
     const room = mockRoom();
     let bets = 10;
@@ -368,6 +377,18 @@ describe("comandos (mock room)", () => {
     room.announcements.length = 0;
     await cmd.handle(room._players[0], "!provocar");
     assert.ok(room.announcements.some((a) => a.to == null && /🎲/.test(a.msg)));
+  });
+
+  it("!elogiar elogia o alvo em público e respeita cooldown", async () => {
+    const room = mockRoom();
+    const ctx = { admins: new Map(), mutes: new Map() };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!elogiar Spec");
+    const msg = room.announcements.find((a) => a.to == null && /⭐/.test(a.msg))?.msg || "";
+    assert.match(msg, /Spec/);
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!craque Spec");
+    assert.ok(room.announcements.some((a) => a.to === room._players[0].id && /Espere/i.test(a.msg)));
   });
 
   it("chat usa só emoji + nick, sem escrever Novato", () => {

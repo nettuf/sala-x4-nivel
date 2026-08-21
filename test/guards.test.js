@@ -225,6 +225,27 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
+  it("onGameTick pune o parado mesmo se a flag de pausa ficou presa", () => {
+    const { room, players } = afkSetup(4);
+    const { TICK_HZ } = require("../src/room/afk");
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    afk.touch(1);
+    afk.touch(2);
+    afk.setPaused(true);
+
+    const ticks = Math.ceil((12000 / 1000) * TICK_HZ) + 2;
+    for (let i = 0; i < ticks; i++) afk.noteGameTick();
+
+    assert.equal(players.find((p) => p.id === 1).team, 0, "física rodando ignora paused preso");
+    assert.equal(afk.isAfk(1), true);
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
   it("sala cheia (>= limiar): AFK é kickado", () => {
     const { room, players } = afkSetup(config.afkFullThreshold);
     const afk = createAfkTracker(room);

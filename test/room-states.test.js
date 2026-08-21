@@ -224,6 +224,39 @@ describe("sala se destrava sem admin", () => {
   });
 });
 
+describe("winner stays ignora AFK no spec", () => {
+  it("3v3 + 1 spec ativo + 4 AFK: o spec vira capitão, os vencedores ficam", async () => {
+    const host = bootRoom();
+    const reds = [];
+    const blues = [];
+    for (let i = 0; i < 3; i++) reds.push(host.addPlayer(TEAM.RED));
+    for (let i = 0; i < 3; i++) blues.push(host.addPlayer(TEAM.BLUE));
+    const specAtivo = host.addPlayer(TEAM.SPEC);
+    for (let i = 0; i < 4; i++) {
+      const p = host.addPlayer(TEAM.SPEC);
+      host.handles.afk.setAfk(p, true);
+    }
+    host.startMatch({ competitive: false });
+
+    const scores = host.live();
+    Object.assign(scores, { red: config.scoreLimit, blue: 0, time: 240 });
+    host.handles.match.onTick();
+    host.handles.match.markVictory();
+    host.room.stopGame();
+    await host.room.onGameStop();
+    await new Promise((r) => setTimeout(r, 500));
+
+    assert.equal(host.handles.choose.isActive(), true, "AFK no spec não pode remountar o mesmo 3v3");
+    assert.equal(host.teamCount(TEAM.RED), 3);
+    assert.equal(host.teamCount(TEAM.BLUE), 1);
+    assert.equal(host.handles.choose.currentCaptain()?.id, specAtivo.id);
+    for (const p of reds) {
+      assert.equal(host.find(p.id).team, TEAM.RED);
+    }
+    host.cleanup();
+  });
+});
+
 describe("ações de admin", () => {
   it("admin pausa: ninguém vira AFK nem toma kick enquanto está pausado", () => {
     const host = bootRoom();

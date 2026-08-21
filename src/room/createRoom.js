@@ -932,13 +932,11 @@ function createRoom(HBInit) {
     }, 2500);
   };
 
-  let afkTickCounter = 0;
-
   room.onGameTick = () => {
     match.onTick();
-    // Backup do setInterval: se o Node atrasar o timer, o tick do jogo (60Hz) cobre.
-    afkTickCounter += 1;
-    if (afkTickCounter % 60 === 0) afk.tick();
+    // Apex: o AFK conta no loop da física (60 Hz). Pausa de verdade para o
+    // onGameTick — a flag paused do bot não pode matar o relógio.
+    afk.noteGameTick();
   };
 
   room.onGameStop = async () => {
@@ -954,7 +952,8 @@ function createRoom(HBInit) {
   async function handleGameStop() {
     uniforms.noteMatchEnd();
     const result = await match.finish();
-    const count = room.getPlayerList().filter((p) => p.id !== 0).length;
+    const humans = room.getPlayerList().filter((p) => p.id !== 0);
+    const count = humans.filter((p) => !afk.isAfk(p.id)).length;
 
     if (result?.titleUnlocks?.length) {
       for (const u of result.titleUnlocks) {

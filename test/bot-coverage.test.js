@@ -340,6 +340,8 @@ describe("streak e winner stays", () => {
     assert.equal(shouldUseWinnerStays(3, false, TEAM.RED), true);
     assert.equal(shouldUseWinnerStays(8, false, TEAM.RED), false);
     assert.equal(shouldUseWinnerStays(7, false, 0), false);
+    // 3v3 + 1 spec (+ AFK no spec não entram nesta conta)
+    assert.equal(shouldUseWinnerStays(7, false, TEAM.RED), true);
   });
 });
 
