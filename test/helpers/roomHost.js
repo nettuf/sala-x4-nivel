@@ -10,15 +10,22 @@ const { TEAM } = require("../../src/room/choose");
  * Só as ações feitas pelo teste (admin/jogador) disparam eventos — movimentos
  * internos do bot apenas mudam o estado, como no headless, evitando recursão.
  */
-function bootRoom() {
+function bootRoom({ deferTeamChanges = false } = {}) {
   const players = [];
   const announcements = [];
   const kicks = [];
   const pauses = [];
+  const pendingTeams = [];
   let scores = null;
   let nextId = 1;
+  let deferring = deferTeamChanges;
 
   const snapshot = (p) => ({ ...p });
+
+  function applyTeam(id, team) {
+    const p = players.find((x) => x.id === id);
+    if (p) p.team = team;
+  }
 
   const room = {
     getPlayerList: () => players.map(snapshot),
@@ -27,8 +34,11 @@ function bootRoom() {
     getDiscProperties: () => ({ xspeed: 0, yspeed: 0 }),
     getPlayerDiscProperties: (id) => discs.get(id) || null,
     setPlayerTeam: (id, team) => {
-      const p = players.find((x) => x.id === id);
-      if (p) p.team = team;
+      if (deferring) {
+        pendingTeams.push({ id, team });
+        return;
+      }
+      applyTeam(id, team);
     },
     setPlayerAdmin: () => {},
     sendAnnouncement: (msg, to, color) => announcements.push({ msg, to, color }),
@@ -87,6 +97,15 @@ function bootRoom() {
     addPlayer,
     startMatch,
     live: () => scores,
+    flushTeams() {
+      const queued = pendingTeams.splice(0, pendingTeams.length);
+      for (const { id, team } of queued) applyTeam(id, team);
+    },
+    applyTeamsLive() {
+      deferring = false;
+      const queued = pendingTeams.splice(0, pendingTeams.length);
+      for (const { id, team } of queued) applyTeam(id, team);
+    },
     find: (id) => players.find((p) => p.id === id),
     /** Admin arrastou alguém para outro time pelo painel do Haxball. */
     adminMove(target, team, admin) {

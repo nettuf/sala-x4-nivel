@@ -242,7 +242,8 @@ async function getPlayerStats(auth) {
   }
   const emptyTotals =
     !Number(row.games) && !Number(row.goals) && !Number(row.assists) && !Number(row.mvps);
-  if (emptyTotals) {
+  // Sem linha em player_stats = jogador novo. Não varrer match_players no join.
+  if (data && emptyTotals) {
     const fromMatches = await aggregateFromMatches(sb, auth);
     if (fromMatches) return { ...row, ...fromMatches, selected_title: row.selected_title };
   }

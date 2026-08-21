@@ -34,7 +34,7 @@ function diagnoseRoom({
   const official = !!competitive && Math.max(redCount, blueCount) >= teamSize - 1;
 
   if (live) {
-    if (official && chooseActive && !replacement) {
+    if (official && chooseActive && !replacement && !paused) {
       return { action: "stop-game", reason: "choose aberto com jogo rolando" };
     }
 

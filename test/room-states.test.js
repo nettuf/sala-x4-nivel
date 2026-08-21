@@ -255,6 +255,39 @@ describe("winner stays ignora AFK no spec", () => {
     }
     host.cleanup();
   });
+
+  it("não inicia a próxima partida enquanto os perdedores ainda estão no campo", async () => {
+    const host = bootRoom({ deferTeamChanges: true });
+    fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+
+    const scores = host.live();
+    Object.assign(scores, { red: config.scoreLimit, blue: 0, time: 240 });
+    host.handles.match.onTick();
+    host.handles.match.markVictory();
+    host.room.stopGame();
+
+    const stopping = host.room.onGameStop();
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(host.live(), null, "não pode relançar o 4v4 fantasma");
+    assert.equal(host.teamCount(TEAM.BLUE), 4, "perdedores ainda no campo");
+
+    host.flushTeams();
+    await stopping;
+    host.applyTeamsLive();
+
+    assert.equal(host.live(), null, "escolhe antes de começar");
+    assert.equal(host.handles.choose.isActive(), true);
+    assert.equal(host.teamCount(TEAM.RED), 4);
+    assert.equal(host.teamCount(TEAM.BLUE), 1);
+    const cap = host.handles.choose.currentCaptain();
+    assert.ok(cap);
+    await host.room.onPlayerChat(host.find(cap.id), "1");
+    assert.equal(host.teamCount(TEAM.BLUE), 2);
+    host.cleanup();
+  });
 });
 
 describe("ações de admin", () => {

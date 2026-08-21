@@ -384,7 +384,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     return rows;
   }
 
-  async function finish(scores) {
+  async function finish(scores, opts = {}) {
     if (!match) return null;
 
     const finalScores = scores || lastScores;
@@ -444,6 +444,9 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     gkSamples = new Map();
 
     let titleUnlocks = [];
+    const persistPayload = valid
+      ? { scoreRed, scoreBlue, winner, players, goals, snapshot }
+      : null;
 
     if (valid) {
       room.sendAnnouncement(
@@ -461,33 +464,51 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       }
 
       try {
-        const saved = await saveMatch({
-          scoreRed,
-          scoreBlue,
-          winner,
-          valid: true,
-          players,
-          goals,
-        });
-        titleUnlocks = saved?.titleUnlocks || [];
-      } catch (e) {
-        console.error("[match] save", e.message);
-      }
-
-      try {
         onCompletedMatch?.({ goals: scoreRed + scoreBlue });
       } catch (e) {
         console.warn("[match] room stats", e.message);
       }
-
-      setTimeout(() => {
-        sendReplayAndSummary(snapshot).catch(() => {});
-      }, 400);
     } else {
       console.log("[match] partida inválida — sem stats/replay");
     }
 
-    return { valid, winner, scoreRed, scoreBlue, titleUnlocks, players };
+    const persist = opts.persist !== false;
+    if (persist && persistPayload) {
+      const saved = await persistMatch(persistPayload);
+      titleUnlocks = saved?.titleUnlocks || [];
+    }
+
+    return {
+      valid,
+      winner,
+      scoreRed,
+      scoreBlue,
+      titleUnlocks,
+      players,
+      persistPayload,
+    };
+  }
+
+  async function persistMatch(payload) {
+    if (!payload) return { titleUnlocks: [] };
+    let titleUnlocks = [];
+    try {
+      const saved = await saveMatch({
+        scoreRed: payload.scoreRed,
+        scoreBlue: payload.scoreBlue,
+        winner: payload.winner,
+        valid: true,
+        players: payload.players,
+        goals: payload.goals,
+      });
+      titleUnlocks = saved?.titleUnlocks || [];
+    } catch (e) {
+      console.error("[match] save", e.message);
+    }
+    setTimeout(() => {
+      sendReplayAndSummary(payload.snapshot).catch(() => {});
+    }, 400);
+    return { titleUnlocks };
   }
 
   function markVictory() {
@@ -543,6 +564,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     onTeamGoal,
     onTick,
     finish,
+    persistMatch,
     markVictory,
     addToLineup,
     notePositionsReset,

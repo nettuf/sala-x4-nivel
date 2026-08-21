@@ -50,6 +50,8 @@ function createAfkTracker(room, opts = {}) {
   let holdStartedAt = 0;
   /** Último onGameTick — se recente, o setInterval não conta de novo. */
   let lastSimTickAt = 0;
+  /** Kick de AFK por vaga não precisa de 60 Hz. */
+  let reserveCheckTicks = 0;
   let onStateChange = null;
   const shouldAutoAfk = typeof opts.shouldAutoAfk === "function" ? opts.shouldAutoAfk : () => true;
 
@@ -256,6 +258,13 @@ function createAfkTracker(room, opts = {}) {
     syncHold(wallNow);
   }
 
+  function maybeReserveSlots() {
+    reserveCheckTicks += 1;
+    if (reserveCheckTicks < 60) return;
+    reserveCheckTicks = 0;
+    ensureReserveSlots();
+  }
+
   /**
    * Apex: chamado 60x/s enquanto a física roda. Ignora a flag paused —
    * onGameTick só existe com o jogo despausado. Se a flag ficar presa depois
@@ -264,18 +273,18 @@ function createAfkTracker(room, opts = {}) {
   function noteGameTick(wallNow = Date.now()) {
     lastSimTickAt = wallNow;
     if (!shouldAutoAfk()) {
-      ensureReserveSlots();
+      maybeReserveSlots();
       return;
     }
     if (typeof room.getScores === "function" && !room.getScores()) {
-      ensureReserveSlots();
+      maybeReserveSlots();
       return;
     }
     forEachFieldPlayer(wallNow, (p, st, full) => {
       st.idleTicks = (Number(st.idleTicks) || 0) + 1;
       punishIdle(p, st.idleTicks * MS_PER_TICK, full);
     });
-    ensureReserveSlots();
+    maybeReserveSlots();
   }
 
   function tick(wallNow = Date.now()) {

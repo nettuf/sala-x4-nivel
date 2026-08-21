@@ -429,8 +429,16 @@ function createChooseController(room, {
    * Não reseta o campo.
    */
   function continueFromField() {
-    if (room.getScores()) return;
+    if (room.getScores()) {
+      try {
+        room.pauseGame(true);
+      } catch {
+        /* ignore */
+      }
+    }
     if (bothFull()) {
+      // 4v4 ainda no campo + gente no spec = perdedores não saíram. Não inicia.
+      if (list().specReady.length) return;
       deactivate();
       onReadyToStart();
       return;

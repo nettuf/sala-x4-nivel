@@ -431,6 +431,34 @@ describe("escolha de reposição", () => {
     assert.equal(choose.list().blue.length, 2);
   });
 
+  it("continueFromField com jogo já rolando pausa e o capitão picka", () => {
+    const players = [
+      p(1, TEAM.RED), p(11, TEAM.RED), p(12, TEAM.RED), p(13, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(4), p(5), p(6), p(7),
+    ];
+    const pauses = [];
+    const room = {
+      getPlayerList: () => players,
+      getScores: () => ({ red: 0, blue: 0, time: 1, timeLimit: 180 }),
+      pauseGame(on) {
+        pauses.push(!!on);
+      },
+      setPlayerTeam(id, team) {
+        players.find((player) => player.id === id).team = team;
+      },
+      sendAnnouncement: () => {},
+      kickPlayer: () => {},
+    };
+    const choose = createChooseController(room, { onReadyToStart: () => {} });
+    choose.continueFromField();
+    assert.equal(pauses[0], true);
+    assert.equal(choose.isActive(), true);
+    const cap = players.find((player) => player.id === 2);
+    assert.equal(choose.handleCaptainChat(cap, "1"), true);
+    assert.equal(players.find((player) => player.id === 4).team, TEAM.BLUE);
+  });
+
   it("reposição aceita pick com o jogo pausado (getScores != null)", () => {
     const players = [
       p(1, TEAM.RED),

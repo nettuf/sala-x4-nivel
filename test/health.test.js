@@ -26,6 +26,21 @@ describe("diagnóstico da sala", () => {
     assert.equal(d.action, "stop-game");
   });
 
+  it("choose pausado pós-vitória (sem reposição) deixa o capitão pickar", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      paused: true,
+      chooseActive: true,
+      replacement: false,
+      hasCaptain: true,
+      redCount: 4,
+      blueCount: 1,
+      specReadyCount: 3,
+    });
+    assert.equal(d.action, "none");
+  });
+
   it("reposição com jogo pausado é estado normal", () => {
     const d = diagnoseRoom({
       live: true,
