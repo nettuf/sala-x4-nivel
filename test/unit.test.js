@@ -35,6 +35,8 @@ const {
   formatChatPrefix,
   applyUnlockUpgrade,
   reqLabel,
+  getTitleById,
+  JOKE_TITLES,
 } = require("../src/titles");
 const { stadiumForPlayerCount, stadiumKindForCount, reloadMaps } = require("../src/room/maps");
 const { buildSummary } = require("../src/discord/replay");
@@ -371,6 +373,17 @@ describe("streak / winner stays", () => {
 });
 
 describe("titles / cargos", () => {
+  it("gordo e ego são overlay de chat, não cargo desbloqueável", () => {
+    assert.equal(JOKE_TITLES.gordo.emblem, "🐷");
+    assert.equal(JOKE_TITLES.ego.emblem, "🦚");
+    assert.equal(getTitleById("gordo"), null);
+    assert.equal(getTitleById("ego"), null);
+    assert.equal(
+      listUnlocked({ games: 9999, goals: 9999, assists: 9999, mvps: 9999 }).some((t) => t.id === "gordo"),
+      false
+    );
+  });
+
   it("novato sempre liberado; artilheiro precisa gols", () => {
     assert.equal(isUnlocked({}, "novato"), true);
     assert.equal(isUnlocked({ goals: 0 }, "artilheiro"), false);

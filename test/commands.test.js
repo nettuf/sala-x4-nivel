@@ -319,6 +319,12 @@ describe("comandos (mock room)", () => {
     assert.match(pickTeaseLine("Netto", () => 0), /Netto/);
     assert.match(pickPraiseLine("Netto", () => 0), /Netto/);
     assert.match(pickPraiseLine("Netto", () => 0), /⭐/);
+    const teases = TEASE_LINES.map((fn) => fn("Netto")).join("\n");
+    const praises = PRAISE_LINES.map((fn) => fn("Netto")).join("\n");
+    for (const name of ["Kyamo", "Jalin", "Didiey", "Copas"]) {
+      assert.match(teases, new RegExp(name));
+      assert.match(praises, new RegExp(name));
+    }
   });
 
   it("!bet anuncia o contador em público e respeita cooldown", async () => {
@@ -477,6 +483,65 @@ describe("comandos (mock room)", () => {
     room.announcements.length = 0;
     await cmd.handle(room._players[0], "!craque Spec");
     assert.ok(room.announcements.some((a) => a.to === room._players[0].id && /Espere/i.test(a.msg)));
+  });
+
+  it("!gordo e !ego colocam cargo 1h e têm cooldown de 15min separado", async () => {
+    const room = mockRoom();
+    const ctx = withClock({
+      admins: new Map(),
+      mutes: new Map(),
+      titles: new Map([
+        [3, { id: "novato", emblem: "🌱", name: "Novato", color: 0xbdc3c7 }],
+      ]),
+    });
+    const cmd = createCommandHandler(room, ctx);
+    const red = room._players[0];
+    const spec = room._players[2];
+
+    await cmd.handle(red, "!gordo Spec");
+    assert.ok(room.announcements.some((a) => a.to == null && /🐷/.test(a.msg) && /Spec/.test(a.msg)));
+    assert.equal(ctx.titles.get(3).id, "gordo");
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🐷 /);
+
+    room.announcements.length = 0;
+    await cmd.handle(red, "!gordo Spec");
+    assert.ok(room.announcements.some((a) => a.to === red.id && /Espere/.test(a.msg) && /gordo/.test(a.msg)));
+
+    room.announcements.length = 0;
+    await cmd.handle(red, "!ego Spec");
+    assert.ok(room.announcements.some((a) => a.to == null && /🦚/.test(a.msg)));
+    assert.equal(ctx.titles.get(3).id, "ego");
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🦚 /);
+
+    room.announcements.length = 0;
+    await cmd.handle(red, "!ego Spec");
+    assert.ok(room.announcements.some((a) => a.to === red.id && /Espere/.test(a.msg) && /ego/.test(a.msg)));
+
+    ctx.advance(15 * 60 * 1000);
+    room.announcements.length = 0;
+    await cmd.handle(red, "!gordo Spec");
+    assert.ok(room.announcements.some((a) => a.to == null && /🐷/.test(a.msg)));
+    assert.equal(ctx.titles.get(3).id, "gordo");
+
+    ctx.advance(60 * 60 * 1000);
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🌱 /);
+    assert.equal(ctx.titles.get(3).id, "novato");
+  });
+
+  it("!gordo sobrevive reload de cargo e rejoin com a mesma auth", async () => {
+    const room = mockRoom();
+    const ctx = withClock({
+      admins: new Map(),
+      mutes: new Map(),
+      titles: new Map(),
+    });
+    const cmd = createCommandHandler(room, ctx);
+    const spec = room._players[2];
+
+    await cmd.handle(room._players[0], "!gordo Spec");
+    ctx.titles.set(3, { id: "novato", emblem: "🌱", name: "Novato", color: 0xbdc3c7 });
+    await cmd.loadTitleForPlayer(spec);
+    assert.equal(ctx.titles.get(3).id, "gordo");
   });
 
   it("chat usa só emoji + nick, sem escrever Novato", () => {

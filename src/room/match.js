@@ -26,6 +26,8 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
    * }} */
   let match = null;
   let endByVictory = false;
+  /** 1|2 gravado no markVictory: o stopGame pode zerar o placar ao vivo. */
+  let forcedWinner = 0;
   let lastScores = null;
   let goldenGoal = false;
   let timeExpiryHandled = false;
@@ -55,22 +57,33 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
   function rememberScores(s) {
     if (!s) return lastScores;
-    lastScores = {
-      red: s.red,
-      blue: s.blue,
+    const next = {
+      red: s.red || 0,
+      blue: s.blue || 0,
       time: s.time,
       scoreLimit: s.scoreLimit,
       timeLimit: s.timeLimit,
     };
+    // stopGame às vezes devolve 0x0 com o relógio ainda andando — não apaga o 2x0.
+    if (lastScores) {
+      const lastTotal = (lastScores.red || 0) + (lastScores.blue || 0);
+      const nextTotal = next.red + next.blue;
+      if (nextTotal === 0 && lastTotal > 0) return lastScores;
+    }
+    lastScores = next;
     return lastScores;
   }
 
   function snapshotScores() {
     const live = room.getScores();
-    if (live && ((live.red || 0) > 0 || (live.blue || 0) > 0 || (live.time || 0) > 0)) {
+    if (live && ((live.red || 0) > 0 || (live.blue || 0) > 0)) {
       return rememberScores(live);
     }
-    return lastScores || live || null;
+    if (lastScores && ((lastScores.red || 0) > 0 || (lastScores.blue || 0) > 0)) {
+      return lastScores;
+    }
+    if (live) return rememberScores(live);
+    return lastScores || null;
   }
 
   function onTick() {
@@ -126,6 +139,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
   function start({ competitive = false } = {}) {
     endByVictory = false;
+    forcedWinner = 0;
     lastScores = null;
     goldenGoal = false;
     timeExpiryHandled = false;
@@ -395,7 +409,12 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
   async function finish(scores, opts = {}) {
     if (!match) return null;
 
-    const finalScores = scores || lastScores;
+    const incoming = scores || lastScores;
+    const rememberedTotal =
+      (lastScores?.red || 0) + (lastScores?.blue || 0);
+    const incomingTotal = (incoming?.red || 0) + (incoming?.blue || 0);
+    const finalScores =
+      incomingTotal === 0 && rememberedTotal > 0 ? lastScores : incoming;
 
     let recording = null;
     if (match.recordingStarted) {
@@ -411,6 +430,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     let winner = null;
     if (scoreRed > scoreBlue) winner = 1;
     else if (scoreBlue > scoreRed) winner = 2;
+    else if (forcedWinner === 1 || forcedWinner === 2) winner = forcedWinner;
     else winner = 0;
 
     const valid = isValidGame(finalScores);
@@ -444,6 +464,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
     match = null;
     lastScores = null;
+    forcedWinner = 0;
     goldenGoal = false;
     timeExpiryHandled = false;
     activePlay = false;
@@ -523,6 +544,9 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
   function markVictory() {
     endByVictory = true;
+    const s = snapshotScores();
+    if (s && (s.red || 0) > (s.blue || 0)) forcedWinner = 1;
+    else if (s && (s.blue || 0) > (s.red || 0)) forcedWinner = 2;
   }
 
   /**

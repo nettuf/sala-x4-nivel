@@ -138,6 +138,12 @@ function meetsReq(stats, req = {}) {
   return true;
 }
 
+/** Cargos-piada (!gordo / !ego): só overlay no chat, 1h. Não entram em !cargos. */
+const JOKE_TITLES = {
+  gordo: { id: "gordo", name: "Gordo", emblem: "🐷", color: 0xe67e22, kind: "joke" },
+  ego: { id: "ego", name: "Ego", emblem: "🦚", color: 0x9b59b6, kind: "joke" },
+};
+
 const STAFF_TITLES = Object.entries(config.adminLevels)
   .map(([lvl, meta]) => ({
     id: meta.id,
@@ -322,6 +328,7 @@ function reqLabel(req, title) {
 module.exports = {
   TITLES,
   STAFF_TITLES,
+  JOKE_TITLES,
   statsBag,
   meetsReq,
   getTitleById,

@@ -168,9 +168,9 @@ function createChooseController(room, {
   }
 
   /**
-   * Só completa sozinho quando sobra exatamente o número de vagas no spec
-   * (ex.: 3 vagas e 3 specs). Se tem mais gente que vaga (3 vagas, 7 specs),
-   * o capitão escolhe sempre. AFKs não contam. Na reposição: auto só com 1 candidato.
+   * Completa sozinho só o time da vez, quando o spec tem exatamente as vagas
+   * dele (ex.: azul precisa de 3 e tem 3 specs). Nunca preenche os dois times
+   * de uma vez — isso pulava o pick dos capitães. Reposição: auto só com 1.
    */
   function tryFillExactHoles() {
     if (!active) return false;
@@ -188,19 +188,16 @@ function createChooseController(room, {
       return false;
     }
 
+    const team = pickingTeam();
+    if (!team) return false;
     const holes = holesByTeam();
-    const need = holes.red + holes.blue;
-    // Mais specs que vagas → pick. Menos → abort em outro lugar. Igual → puxa todos.
+    const need = team === TEAM.RED ? holes.red : holes.blue;
+    // Mais specs que vagas deste time → pick. Menos → abort em outro lugar.
     if (need <= 0 || specReady.length !== need) return false;
 
-    let i = 0;
-    for (let n = 0; n < holes.red; n++) {
-      const p = specReady[i++];
-      if (p) setTeam(p.id, TEAM.RED);
-    }
-    for (let n = 0; n < holes.blue; n++) {
-      const p = specReady[i++];
-      if (p) setTeam(p.id, TEAM.BLUE);
+    for (let n = 0; n < need; n++) {
+      const p = specReady[n];
+      if (p) setTeam(p.id, team);
     }
     room.sendAnnouncement(
       "Sem escolhas restantes — bot completou os times.",
@@ -209,8 +206,12 @@ function createChooseController(room, {
       "bold",
       2
     );
-    deactivate();
-    afterTeamChange(onReadyToStart);
+    if (bothFull()) {
+      deactivate();
+      afterTeamChange(onReadyToStart);
+      return true;
+    }
+    afterTeamChange(() => promptCaptain());
     return true;
   }
 
@@ -397,34 +398,6 @@ function createChooseController(room, {
   }
 
   /**
-   * Sobe pares/vagas na ordem até 4v4. Não desfaz quem já está em um time.
-   */
-  function autoFillToX4() {
-    let { red, blue, specReady } = list();
-    if (!red.length && specReady.length) {
-      setTeam(specReady[0].id, TEAM.RED);
-      ({ red, blue, specReady } = list());
-    }
-    if (!blue.length && specReady.length) {
-      setTeam(specReady[0].id, TEAM.BLUE);
-      ({ red, blue, specReady } = list());
-    }
-    while (red.length < currentTeamSize() && blue.length < currentTeamSize() && specReady.length >= 2) {
-      setTeam(specReady[0].id, TEAM.RED);
-      setTeam(specReady[1].id, TEAM.BLUE);
-      ({ red, blue, specReady } = list());
-    }
-    while (red.length < currentTeamSize() && specReady.length) {
-      setTeam(specReady[0].id, TEAM.RED);
-      ({ red, specReady } = list());
-    }
-    while (blue.length < currentTeamSize() && specReady.length) {
-      setTeam(specReady[0].id, TEAM.BLUE);
-      ({ blue, specReady } = list());
-    }
-  }
-
-  /**
    * Pós-streak: times já montados (vencedores no red + 1 azul).
    * Não reseta o campo.
    */
@@ -537,18 +510,8 @@ function createChooseController(room, {
       return;
     }
 
-    const { red, blue } = list();
-    if (red.length >= currentTeamSize() || blue.length >= currentTeamSize()) {
-      continueFromField();
-      return;
-    }
-
-    autoFillToX4();
-    if (bothFull()) {
-      deactivate();
-      onReadyToStart();
-      return;
-    }
+    // Capitães escolhem. Auto só quando o time da vez tem exatamente N specs
+    // para N vagas (tryFillExactHoles) ou sobra uma opção.
     continueFromField();
   }
 

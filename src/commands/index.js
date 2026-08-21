@@ -26,6 +26,7 @@ const {
   reqLabel,
   chatColor,
   formatChatPrefix,
+  JOKE_TITLES,
 } = require("../titles");
 
 const RANKING_CMDS = {
@@ -75,6 +76,8 @@ function playerHelpLines({
     "!viado — viraram viado (contador)",
     "!provocar [#id|nick] — zoação de quem entregou",
     "!elogiar [#id|nick] — elogio de craque",
+    "!gordo [#id|nick] — cargo 🐷 Gordo por 1h",
+    "!ego [#id|nick] — cargo 🦚 Ego por 1h",
     "!unis — uniformes disponíveis"
   );
   if (canChangeUni) {
@@ -128,9 +131,107 @@ function createCommandHandler(room, ctx) {
   const FUN_PLAYER_MS = config.cmdPublicPlayerMs || 25000;
   const FUN_ROOM_MS = config.cmdPublicRoomMs || 15000;
   const LOOKUP_MS = config.cmdLookupPlayerMs || 10000;
+  const JOKE_CD_MS = config.tempTitleCooldownMs || 15 * 60 * 1000;
+  const JOKE_MS = config.tempTitleMs || 60 * 60 * 1000;
+  /** @type {Map<string, { kind: string, title: object, endsAt: number, previous: object|null }>} */
+  const jokeTitles = new Map();
+  /** @type {Map<string, number>} casterKey:kind → last cast */
+  const lastJokeCastAt = new Map();
 
   function resolveAuth(player) {
     return resolvePlayerAuth(player, ctx.auths, room.getPlayerList());
+  }
+
+  function jokeSubjectKey(player) {
+    return resolveAuth(player) || `id:${player.id}`;
+  }
+
+  function jokeCastKey(player, kind) {
+    return `${jokeSubjectKey(player)}:${kind}`;
+  }
+
+  function ensureTitlesMap() {
+    if (!ctx.titles) ctx.titles = new Map();
+    return ctx.titles;
+  }
+
+  function peekJoke(player, now = clock()) {
+    const key = jokeSubjectKey(player);
+    const cur = jokeTitles.get(key);
+    if (!cur) return null;
+    if (cur.endsAt <= now) {
+      jokeTitles.delete(key);
+      const titles = ensureTitlesMap();
+      if (cur.previous) titles.set(player.id, cur.previous);
+      else if (titles.get(player.id)?.kind === "joke") titles.delete(player.id);
+      return null;
+    }
+    return cur;
+  }
+
+  function wearJoke(player, baseTitle) {
+    const joke = peekJoke(player);
+    if (joke) {
+      if (baseTitle && baseTitle.kind !== "joke") joke.previous = baseTitle;
+      ensureTitlesMap().set(player.id, joke.title);
+      return joke.title;
+    }
+    const real = baseTitle?.kind === "joke" ? null : baseTitle;
+    if (real) ensureTitlesMap().set(player.id, real);
+    return ensureTitlesMap().get(player.id) || real;
+  }
+
+  function formatJokeWait(leftSec) {
+    if (leftSec >= 60) return `${Math.ceil(leftSec / 60)}min`;
+    return `${leftSec}s`;
+  }
+
+  async function applyJokeTitle(player, args, kind) {
+    const spec = JOKE_TITLES[kind];
+    const mention = args.join(" ").trim();
+    const target = resolveTeaseTarget(room, player, mention || null);
+    if (!target) {
+      room.sendAnnouncement(
+        mention
+          ? `Jogador não encontrado. Uso: !${kind} ou !${kind} <#id|nick>`
+          : `Ninguém na sala pra virar ${spec.name}.`,
+        player.id,
+        0xe74c3c,
+        "normal",
+        1
+      );
+      return true;
+    }
+    const now = clock();
+    const left = cooldownLeftSec(lastJokeCastAt.get(jokeCastKey(player, kind)), JOKE_CD_MS, now);
+    if (left > 0) {
+      room.sendAnnouncement(
+        `Espere ${formatJokeWait(left)} para usar !${kind} de novo.`,
+        player.id,
+        0xf1c40f,
+        "normal",
+        1
+      );
+      return true;
+    }
+    lastJokeCastAt.set(jokeCastKey(player, kind), now);
+    const previous = peekJoke(target)?.previous || ensureTitlesMap().get(target.id) || null;
+    const safePrev = previous?.kind === "joke" ? null : previous;
+    jokeTitles.set(jokeSubjectKey(target), {
+      kind,
+      title: spec,
+      endsAt: now + JOKE_MS,
+      previous: safePrev,
+    });
+    wearJoke(target, spec);
+    room.sendAnnouncement(
+      `${spec.emblem} ${target.name} está ${spec.name} por 1h.`,
+      null,
+      spec.color,
+      "bold",
+      1
+    );
+    return true;
   }
 
   const noAuthMsg = "Entre logado no Haxball (não como guest) para stats e cargos.";
@@ -189,17 +290,15 @@ function createCommandHandler(room, ctx) {
     const auth = resolveAuth(player);
     if (!auth) {
       const title = resolveTitle({}, null, adminLevel);
-      ctx.titles.set(player.id, title);
-      return title;
+      return wearJoke(player, title) || title;
     }
     const stats = (await getPlayerStats(auth)) || {};
     const title = resolveTitle(stats, stats.selected_title, adminLevel);
-    ctx.titles.set(player.id, title);
-    return title;
+    return wearJoke(player, title) || title;
   }
 
   function formatPlayerChat(player, message) {
-    const title = ctx.titles.get(player.id);
+    const title = wearJoke(player, ensureTitlesMap().get(player.id));
     return {
       line: `${formatChatPrefix(title)}${player.name}: ${message}`,
       color: chatColor(title),
@@ -610,6 +709,14 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
+    if (cmd === "gordo") {
+      return applyJokeTitle(player, args, "gordo");
+    }
+
+    if (cmd === "ego") {
+      return applyJokeTitle(player, args, "ego");
+    }
+
     if (cmd === "status" || cmd === "stats" || cmd === "stat" || cmd === "elo") {
       const target = args.length ? findPlayer(room, args.join(" ")) : player;
       if (!target) {
@@ -706,10 +813,14 @@ function createCommandHandler(room, ctx) {
         return true;
       }
       ctx.titles.set(player.id, title);
+      wearJoke(player, title);
+      const joke = peekJoke(player);
       room.sendAnnouncement(
-        `Cargo ativo: ${title.emblem} ${title.name}`,
+        joke
+          ? `Cargo salvo: ${title.emblem} ${title.name}. No chat ainda vale ${joke.title.emblem} ${joke.title.name}.`
+          : `Cargo ativo: ${title.emblem} ${title.name}`,
         player.id,
-        title.color,
+        (joke?.title || title).color,
         "bold",
         2
       );

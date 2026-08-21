@@ -89,8 +89,10 @@ function planCompetitiveRecovery({
 
 /**
  * Pós-vitória: vencedores ficam.
- * Sem opção extra (spec == vagas) preenche na ordem, sem pick.
- * Se sobra gente, o capitão escolhe. Sem 8 elegíveis, os 4 ficam.
+ * Só preenche na ordem quando UM time precisa de gente e o spec tem exatamente
+ * essas vagas (3 faltando e 3 no spec). Se os dois times ainda têm buraco,
+ * os capitães escolhem — nunca auto nos dois lados.
+ * Sem 8 elegíveis, os 4 ficam.
  */
 function planExactFill({ redCount, blueCount, specCount, teamSize = 4 } = {}) {
   const redNeed = Math.max(0, teamSize - (Number(redCount) || 0));
@@ -100,6 +102,7 @@ function planExactFill({ redCount, blueCount, specCount, teamSize = 4 } = {}) {
   const eligible =
     (Number(redCount) || 0) + (Number(blueCount) || 0) + (Number(specCount) || 0);
   if (eligible < teamSize * 2) return { action: "keep" };
+  if (redNeed > 0 && blueNeed > 0) return { action: "choose" };
   if (specCount === need) return { action: "fill-all", redNeed, blueNeed };
   if (specCount > need) return { action: "choose" };
   return { action: "choose" };

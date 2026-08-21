@@ -146,6 +146,20 @@ describe("ragequit no x4 oficial", () => {
     assert.equal(host.match.rageQuitReason(host.players[0]), null);
     assert.equal(host.match.rageQuitReason(host.players[1]), null);
   });
+
+  it("2x0: stopGame zerando o placar ainda conta vitória do vermelho", async () => {
+    const host = setup();
+    host.setScores({ red: 2, blue: 0, time: 80 });
+    host.match.onTick();
+    host.match.markVictory();
+    host.setScores({ red: 0, blue: 0, time: 80 });
+    host.match.onTick();
+    const result = await host.match.finish();
+    assert.equal(result.winner, TEAM.RED);
+    assert.equal(result.scoreRed, 2);
+    assert.equal(result.scoreBlue, 0);
+    assert.equal(result.valid, true);
+  });
 });
 
 describe("gol de ouro, posse e late joiner", () => {

@@ -149,6 +149,13 @@ describe("pós-vitória: preencher sem sobra ou pickar", () => {
     );
   });
 
+  it("dois capitães + 6 specs não completa os dois times sozinho", () => {
+    assert.equal(
+      planExactFill({ redCount: 1, blueCount: 1, specCount: 6, teamSize: 4 }).action,
+      "choose"
+    );
+  });
+
   it("4v4 já completo → só inicia", () => {
     assert.equal(
       planExactFill({ redCount: 4, blueCount: 4, specCount: 2, teamSize: 4 }).action,

@@ -715,22 +715,36 @@ function createRoom(HBInit) {
         const remaining = room
           .getPlayerList()
           .filter((p) => p.id !== 0 && !afk.isAfk(p.id));
-        const classic = detectRageQuit({
-          redCount: remaining.filter((p) => p.team === TEAM.RED).length,
-          blueCount: remaining.filter((p) => p.team === TEAM.BLUE).length,
-          scores: scoresAtLeave || match.snapshotScores() || room.getScores(),
-        });
-        if (classic && remaining.length >= config.teamSize * 2) {
-          room.sendAnnouncement(
-            "🤖 Abandono detectado no fim do jogo. Partida encerrada.",
-            null,
-            0xe74c3c,
-            "bold",
-            2
-          );
-          match.markVictory();
-          setTimeout(() => room.stopGame(), 100);
-          return;
+        const scores = scoresAtLeave || match.snapshotScores() || room.getScores();
+        const leavingTeam =
+          player.team === TEAM.RED || player.team === TEAM.BLUE
+            ? player.team
+            : 0;
+        const losingTeam =
+          scores && scores.red < scores.blue
+            ? TEAM.RED
+            : scores && scores.blue < scores.red
+              ? TEAM.BLUE
+              : 0;
+        // Ragequit clássico (4v3 no fim) também é só do time que está perdendo.
+        if (!losingTeam || leavingTeam === losingTeam) {
+          const classic = detectRageQuit({
+            redCount: remaining.filter((p) => p.team === TEAM.RED).length,
+            blueCount: remaining.filter((p) => p.team === TEAM.BLUE).length,
+            scores,
+          });
+          if (classic && remaining.length >= config.teamSize * 2) {
+            room.sendAnnouncement(
+              "🤖 Abandono detectado no fim do jogo. Partida encerrada.",
+              null,
+              0xe74c3c,
+              "bold",
+              2
+            );
+            match.markVictory();
+            setTimeout(() => room.stopGame(), 100);
+            return;
+          }
         }
       }
 
@@ -1114,6 +1128,12 @@ function createRoom(HBInit) {
       return;
     }
     if (fill.action === "keep") {
+      const redN = eligible.filter((p) => p.team === TEAM.RED).length;
+      const blueN = eligible.filter((p) => p.team === TEAM.BLUE).length;
+      if (specs.length && (redN >= 1 || blueN >= 1) && redN !== blueN) {
+        choose.continueFromField();
+        return;
+      }
       laterForCurrentLobby(refreshLobby);
       return;
     }

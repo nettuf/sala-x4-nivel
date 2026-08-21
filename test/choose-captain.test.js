@@ -246,6 +246,31 @@ describe("capitão e lista de pick", () => {
     assert.ok(announcements.some((row) => /Sem escolhas restantes/i.test(row.msg)));
   });
 
+  it("dois capitães + 6 specs: vermelho escolhe um; não auto nos dois times", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(3),
+      p(4),
+      p(5),
+      p(6),
+      p(7),
+      p(8),
+    ];
+    const { choose } = setup(players);
+    choose.continueFromField();
+    assert.equal(choose.isActive(), true);
+    assert.equal(choose.list().red.length, 1);
+    assert.equal(choose.list().blue.length, 1);
+    assert.equal(choose.currentCaptain().id, 1);
+
+    assert.equal(choose.handleCaptainChat(choose.currentCaptain(), "1"), true);
+    assert.equal(choose.list().red.length, 2);
+    assert.equal(choose.list().blue.length, 1);
+    assert.equal(choose.isActive(), true);
+    assert.equal(choose.currentCaptain().id, 2, "depois do 1º pick, o azul escolhe");
+  });
+
   it("4v1 + 4 specs, um AFK → os 3 prontos entram e o AFK fica spec", () => {
     const players = [
       p(1, TEAM.RED),
@@ -419,9 +444,10 @@ describe("capitão e lista de pick", () => {
       1
     );
     choose.onPlayerLeave();
-    assert.equal(choose.isActive(), false);
-    assert.equal(choose.list().red.length, 4);
-    assert.equal(choose.list().blue.length, 4);
+    assert.equal(choose.isActive(), true);
+    assert.equal(choose.currentCaptain().id, 11);
+    assert.equal(choose.list().red.length, 2);
+    assert.equal(choose.list().blue.length, 3);
   });
 
   it("vencedores no red e azul vazio → sobe spec sem resetar o red", () => {
