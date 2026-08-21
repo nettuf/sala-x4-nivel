@@ -153,17 +153,24 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     room.startGame();
   }
 
-  function recordTouch(player) {
+  function recordTouch(player, { kind = "kick" } = {}) {
     if (!match || !player || player.team === 0) return;
     const p = who(player);
     if (!p || p.team === 0) return;
     const last = match.touches[0];
-    if (last && sameTouchPlayer(last, p)) return;
+    if (last && sameTouchPlayer(last, p)) {
+      if (kind === "kick") last.kind = "kick";
+      last.team = p.team;
+      last.name = p.name;
+      if (p.auth) last.auth = p.auth;
+      return;
+    }
     match.touches.unshift({
       id: p.id,
       name: p.name,
       auth: p.auth || null,
       team: p.team,
+      kind,
     });
     if (match.touches.length > TOUCH_HISTORY) match.touches.length = TOUCH_HISTORY;
   }
@@ -201,7 +208,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
         gkSamples.set(raw.id, cur);
       }
     }
-    if (closest) recordTouch(closest);
+    if (closest) recordTouch(closest, { kind: "body" });
   }
 
   function onBallKick(player) {
@@ -289,6 +296,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
   function notePositionsReset() {
     activePlay = false;
+    if (match) match.touches = [];
   }
 
   function isValidGame(scores) {
@@ -406,6 +414,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     else winner = 0;
 
     const valid = isValidGame(finalScores);
+    const competitive = !!match.competitive;
     const lineupRed = hydrateLineup(match.lineupRed);
     const lineupBlue = hydrateLineup(match.lineupBlue);
     const byId = new Map([...lineupRed, ...lineupBlue].map((p) => [p.id, p]));
@@ -480,6 +489,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
     return {
       valid,
+      competitive,
       winner,
       scoreRed,
       scoreBlue,
@@ -515,6 +525,19 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     endByVictory = true;
   }
 
+  /**
+   * Placar ou tempo já decidiram: comemoração ainda com o jogo "vivo".
+   * Não é hora de repor vaga — o onGameStop monta o próximo.
+   */
+  function isDecided() {
+    if (!match) return false;
+    if (endByVictory || timeExpiryHandled) return true;
+    const s = snapshotScores() || room.getScores();
+    if (!s) return false;
+    const limit = Number(s.scoreLimit) || config.scoreLimit;
+    return (s.red || 0) >= limit || (s.blue || 0) >= limit;
+  }
+
   function playerTeamInMatch(player) {
     if (player.team === 1 || player.team === 2) return player.team;
     const inList = (list) =>
@@ -527,7 +550,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
   }
 
   /**
-   * Ragequit: quem saiu do time perdedor com o jogo decidido (diff 2+, ou 1 no fim).
+   * Ragequit: quem saiu do time perdedor com o jogo decidido (diff 2+, placar 3, ou 1 no fim).
    * Treino/warmup não conta. Se o 4v4 oficial virou 3v3 no meio (competitive off),
    * ainda conta — senão quit no 3x1 não encerrava.
    */
@@ -566,6 +589,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     finish,
     persistMatch,
     markVictory,
+    isDecided,
     addToLineup,
     notePositionsReset,
     rageQuitReason,

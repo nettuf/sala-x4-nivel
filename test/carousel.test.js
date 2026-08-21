@@ -63,10 +63,10 @@ describe("totais da sala", () => {
     const a = createRoomStats({ filePath: file });
     a.recordCompletedMatch({ goals: 5 });
     a.recordCompletedMatch({ goals: 2 });
-    assert.deepEqual(a.snapshot(), { goals: 7, games: 2, bets: 0, bestStreak: 0, bestStreakHolders: [] });
+    assert.deepEqual(a.snapshot(), { goals: 7, games: 2, bets: 0, viados: 0, bestStreak: 0, bestStreakHolders: [] });
 
     const b = createRoomStats({ filePath: file });
-    assert.deepEqual(b.snapshot(), { goals: 7, games: 2, bets: 0, bestStreak: 0, bestStreakHolders: [] });
+    assert.deepEqual(b.snapshot(), { goals: 7, games: 2, bets: 0, viados: 0, bestStreak: 0, bestStreakHolders: [] });
     fs.unlinkSync(file);
   });
 
@@ -95,6 +95,18 @@ describe("totais da sala", () => {
 
     const b = createRoomStats({ filePath: file });
     assert.equal(b.snapshot().bets, 3);
+    fs.unlinkSync(file);
+  });
+
+  it("persiste o contador de viado", () => {
+    const file = path.join(os.tmpdir(), `sala-x4-viados-${Date.now()}.json`);
+    const a = createRoomStats({ filePath: file });
+    a.recordViado();
+    a.recordViado();
+    assert.equal(a.snapshot().viados, 2);
+
+    const b = createRoomStats({ filePath: file });
+    assert.equal(b.snapshot().viados, 2);
     fs.unlinkSync(file);
   });
 });

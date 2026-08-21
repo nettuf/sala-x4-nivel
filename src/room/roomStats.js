@@ -7,7 +7,7 @@ const { sanitizeHolders } = require("./streak");
 const ROOM_META_ID = "x4";
 
 function emptyTotals() {
-  return { goals: 0, games: 0, bets: 0, bestStreak: 0, bestStreakHolders: [] };
+  return { goals: 0, games: 0, bets: 0, viados: 0, bestStreak: 0, bestStreakHolders: [] };
 }
 
 function sanitize(row) {
@@ -15,6 +15,7 @@ function sanitize(row) {
     goals: Math.max(0, Math.floor(Number(row?.goals) || 0)),
     games: Math.max(0, Math.floor(Number(row?.games) || 0)),
     bets: Math.max(0, Math.floor(Number(row?.bets) || 0)),
+    viados: Math.max(0, Math.floor(Number(row?.viados) || 0)),
     bestStreak: Math.max(0, Math.floor(Number(row?.bestStreak ?? row?.best_streak) || 0)),
     bestStreakHolders: sanitizeHolders(
       row?.bestStreakHolders ?? row?.best_streak_holders
@@ -49,6 +50,17 @@ async function persistBets(n) {
     updated_at: new Date().toISOString(),
   });
   if (error) console.warn("[room-stats] persist bets", error.message);
+}
+
+async function persistViados(n) {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb.from("room_meta").upsert({
+    id: ROOM_META_ID,
+    viados: Math.max(0, Math.floor(Number(n) || 0)),
+    updated_at: new Date().toISOString(),
+  });
+  if (error) console.warn("[room-stats] persist viados", error.message);
 }
 
 /**
@@ -117,6 +129,13 @@ function createRoomStats({ filePath } = {}) {
     return snapshot();
   }
 
+  function recordViado() {
+    state.viados += 1;
+    save();
+    persistViados(state.viados).catch(() => {});
+    return snapshot();
+  }
+
   async function hydrateFromDb() {
     const sb = getSupabase();
     if (!sb) return snapshot();
@@ -126,7 +145,7 @@ function createRoomStats({ filePath } = {}) {
         sb.from("match_goals").select("*", { count: "exact", head: true }).eq("is_own_goal", false),
         sb
           .from("room_meta")
-          .select("best_streak, best_streak_holders, bets")
+          .select("best_streak, best_streak_holders, bets, viados")
           .eq("id", ROOM_META_ID)
           .maybeSingle(),
       ]);
@@ -134,12 +153,14 @@ function createRoomStats({ filePath } = {}) {
         games: gamesRes.count,
         goals: goalsRes.count,
         bets: metaRes.data?.bets,
+        viados: metaRes.data?.viados,
         bestStreak: metaRes.data?.best_streak,
         bestStreakHolders: metaRes.data?.best_streak_holders,
       });
       if (remote.games > state.games) state.games = remote.games;
       if (remote.goals > state.goals) state.goals = remote.goals;
       if (remote.bets > state.bets) state.bets = remote.bets;
+      if (remote.viados > state.viados) state.viados = remote.viados;
       if (remote.bestStreak > state.bestStreak) {
         state.bestStreak = remote.bestStreak;
         state.bestStreakHolders = remote.bestStreakHolders;
@@ -164,13 +185,16 @@ function createRoomStats({ filePath } = {}) {
       if (!metaRes.error && state.bets > remote.bets) {
         persistBets(state.bets).catch(() => {});
       }
+      if (!metaRes.error && state.viados > remote.viados) {
+        persistViados(state.viados).catch(() => {});
+      }
     } catch (err) {
       console.warn("[room-stats] hydrate", err.message);
     }
     return snapshot();
   }
 
-  return { snapshot, recordCompletedMatch, setBestStreak, recordBet, hydrateFromDb };
+  return { snapshot, recordCompletedMatch, setBestStreak, recordBet, recordViado, hydrateFromDb };
 }
 
 module.exports = { createRoomStats, emptyTotals, ROOM_META_ID };

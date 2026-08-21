@@ -1,5 +1,6 @@
 /**
  * !bet — contador eterno de apostas na Haxbooket.
+ * !viado — contador eterno de “vamos virar viado”.
  * !provocar — zoação aleatória.
  * !elogiar — elogio aleatório.
  */
@@ -7,6 +8,11 @@
 function formatBetLine(n) {
   const count = Math.max(1, Math.floor(Number(n) || 1));
   return `🎲 Alguém apostou na Haxbooket pela ${count}ª vez.`;
+}
+
+function formatViadoLine(n) {
+  const count = Math.max(1, Math.floor(Number(n) || 1));
+  return `🌈 Viraram viado pela ${count}ª vez!`;
 }
 
 function bindLines(templates) {
@@ -292,6 +298,7 @@ function resolveTeaseTarget(room, actor, mention, rng = Math.random) {
 
 module.exports = {
   formatBetLine,
+  formatViadoLine,
   TEASE_LINES,
   PRAISE_LINES,
   pickTeaseLine,

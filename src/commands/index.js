@@ -15,7 +15,7 @@ const {
   formatTop5,
 } = require("../db/stats");
 const { formatCurrentStreak, formatBestStreak } = require("../room/streak");
-const { formatBetLine, pickTeaseLine, pickPraiseLine, resolveTeaseTarget } = require("../room/bet");
+const { formatBetLine, formatViadoLine, pickTeaseLine, pickPraiseLine, resolveTeaseTarget } = require("../room/bet");
 const {
   TITLES,
   STAFF_TITLES,
@@ -72,6 +72,7 @@ function playerHelpLines({
     "!gols !assists !golcontra !cs — top 5",
     "!streak — streak atual · !topstreak — recorde da sala",
     "!bet — aposta na Haxbooket",
+    "!viado — viraram viado (contador)",
     "!provocar [#id|nick] — zoação de quem entregou",
     "!elogiar [#id|nick] — elogio de craque",
     "!unis — uniformes disponíveis"
@@ -160,7 +161,7 @@ function createCommandHandler(room, ctx) {
     return true;
   }
 
-  /** !bet !provocar !elogiar !discord !site — um anúncio público por vez na sala. */
+  /** !bet !viado !provocar !elogiar !discord !site — um anúncio público por vez na sala. */
   function blockPublicFun(player) {
     const now = clock();
     const left = Math.max(
@@ -559,6 +560,13 @@ function createCommandHandler(room, ctx) {
       if (blockPublicFun(player)) return true;
       const count = ctx.roomStats?.recordBet?.()?.bets ?? 1;
       room.sendAnnouncement(formatBetLine(count), null, 0xe67e22, "bold", 1);
+      return true;
+    }
+
+    if (cmd === "viado" || cmd === "viados") {
+      if (blockPublicFun(player)) return true;
+      const count = ctx.roomStats?.recordViado?.()?.viados ?? 1;
+      room.sendAnnouncement(formatViadoLine(count), null, 0x9b59b6, "bold", 1);
       return true;
     }
 

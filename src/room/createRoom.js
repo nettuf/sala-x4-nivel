@@ -5,12 +5,17 @@ const { findActiveBan, createBan } = require("../db/bans");
 const { notifyJoin, notifyBan } = require("../discord/webhook");
 const { createChatLogger } = require("../discord/chatLog");
 const { applyStadium, stadiumKindForCount } = require("./maps");
-const { createAfkTracker, shouldCountAutoAfk } = require("./afk");
+const { createAfkTracker, shouldCountAutoAfk, shouldCountActivity } = require("./afk");
 const { createChatFloodGuard } = require("./chatFlood");
 const { diagnoseRoom, createHealthMonitor } = require("./health");
 const { createChooseController, TEAM } = require("./choose");
 const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose } = require("./warmupFlow");
-const { planCompetitiveRecovery, planExactFill, applyExactFill } = require("./recovery");
+const {
+  planCompetitiveRecovery,
+  planExactFill,
+  applyExactFill,
+  isKickoffIdleAfk,
+} = require("./recovery");
 const { createMatchController } = require("./match");
 const { createRoomStats } = require("./roomStats");
 const { createCarousel, buildCarouselSlides } = require("./carousel");
@@ -195,6 +200,10 @@ function createRoom(HBInit) {
 
   let lobbyRevision = 0;
   let postMatchBusy = false;
+  /** Quem teclou ou chutou nesta partida. Vazio = ainda não mexeu desde o start. */
+  const movedThisMatch = new Set();
+  /** RR por AFK no começo: o onGameStop não pode gravar stats nem remontar de novo. */
+  let kickoffAfkRestart = false;
   const slowChat = new Set();
   const chatFlood = createChatFloodGuard({
     limit: config.chatFloodLimit,
@@ -421,6 +430,10 @@ function createRoom(HBInit) {
   }
 
   function recoverCompetitiveLineup() {
+    // Gol da vitória / fim de tempo: o jogo ainda está "vivo" uns segundos.
+    // Reposição aqui pausa e pede pick no meio da comemoração.
+    if (postMatchBusy || match.isDecided()) return;
+
     // Reposição em andamento: nada de puxar gente por fora, só atualizar a
     // lista do capitão (alguém entrou, saiu ou ficou AFK enquanto ele escolhia).
     if (choose.isActive() && choose.isReplacement()) {
@@ -543,8 +556,36 @@ function createRoom(HBInit) {
     laterForCurrentLobby(refreshLobby);
   }
 
-  afk.setOnStateChange(({ type }) => {
+  function restartAfterKickoffAfk(player) {
+    if (kickoffAfkRestart) return;
+    kickoffAfkRestart = true;
+    const competitive = match.isCompetitive();
+    lobbyRevision += 1;
+    match.cancelRecordingOnly();
+    room.sendAnnouncement(
+      `${player.name} AFK no começo — partida reiniciada (sem stats).`,
+      null,
+      0xe67e22,
+      "bold",
+      2
+    );
+    if (room.getScores()) room.stopGame();
+    if (competitive) recoverCompetitiveLineup();
+    else refreshLobby();
+  }
+
+  afk.setOnStateChange(({ type, player }) => {
     if (type === "kick") return;
+    if (kickoffAfkRestart) return;
+
+    if (
+      player &&
+      isKickoffIdleAfk(type, player.id, movedThisMatch) &&
+      room.getScores()
+    ) {
+      restartAfterKickoffAfk(player);
+      return;
+    }
 
     if (match.isCompetitive()) {
       recoverCompetitiveLineup();
@@ -626,6 +667,7 @@ function createRoom(HBInit) {
     slowChat.delete(player.id);
     chatFlood.forget(player.id);
     commands.forgetPlayer(player.id);
+    movedThisMatch.delete(player.id);
   }
 
   function announceRageQuit(player, reason) {
@@ -847,13 +889,24 @@ function createRoom(HBInit) {
     }
   };
 
-  // Tecla / movimento intencional — não empurrão da bola (API oficial do headless).
+  // Pacote de input com teclas 0 ainda dispara onPlayerActivity — isso
+  // zerava o AFK de quem estava parado. Só conta se o disco está andando.
   room.onPlayerActivity = (player) => {
-    if (player?.id) afk.touch(player.id);
+    if (!player?.id) return;
+    let disc = null;
+    try {
+      disc = typeof room.getPlayerDiscProperties === "function" ? room.getPlayerDiscProperties(player.id) : null;
+    } catch {
+      disc = null;
+    }
+    if (!shouldCountActivity(disc)) return;
+    afk.touch(player.id);
+    movedThisMatch.add(player.id);
   };
 
   room.onPlayerBallKick = (player) => {
     afk.touch(player.id);
+    if (player?.id) movedThisMatch.add(player.id);
     match.onBallKick(identified(player));
   };
 
@@ -866,6 +919,8 @@ function createRoom(HBInit) {
   };
 
   room.onGameStart = () => {
+    movedThisMatch.clear();
+    kickoffAfkRestart = false;
     afk.setPaused(false);
     afk.resetClocks();
     uniforms.prepareKickoff();
@@ -953,9 +1008,11 @@ function createRoom(HBInit) {
   };
 
   room.onGameTick = () => {
-    match.onTick();
-    // Apex: o AFK conta no loop da física (60 Hz). Pausa de verdade para o
-    // onGameTick — a flag paused do bot não pode matar o relógio.
+    try {
+      match.onTick();
+    } catch (err) {
+      console.error("[room] onTick", err?.message || err);
+    }
     afk.noteGameTick();
   };
 
@@ -996,32 +1053,33 @@ function createRoom(HBInit) {
   }
 
   function announceTitleUnlocks(unlocks) {
-    if (!unlocks?.length) return Promise.resolve();
-    return (async () => {
-      for (const u of unlocks) {
-        for (const t of u.titles) {
-          const extra = u.equippedChanged ? " — cargo atualizado" : "";
-          room.sendAnnouncement(
-            `${t.emblem} ${u.nick} desbloqueou ${t.name}!${extra}`,
-            null,
-            t.color,
-            "bold",
-            2
-          );
-        }
+    if (!unlocks?.length) return;
+    for (const u of unlocks) {
+      for (const t of u.titles) {
+        const extra = u.equippedChanged ? " — cargo atualizado" : "";
+        room.sendAnnouncement(
+          `${t.emblem} ${u.nick} desbloqueou ${t.name}!${extra}`,
+          null,
+          t.color,
+          "bold",
+          2
+        );
       }
-      for (const p of room.getPlayerList()) {
-        if (!p.id) continue;
-        await commands.loadTitleForPlayer(p);
-      }
-    })();
+    }
   }
 
   function persistMatchInBackground(result) {
     if (!result?.persistPayload) return;
     match
       .persistMatch(result.persistPayload)
-      .then((saved) => announceTitleUnlocks(saved?.titleUnlocks))
+      .then(async (saved) => {
+        await announceTitleUnlocks(saved?.titleUnlocks);
+        // Recarrega mesmo sem desbloqueio novo (ex.: perdeu o cargo Negativo).
+        for (const p of room.getPlayerList()) {
+          if (!p.id) continue;
+          await commands.loadTitleForPlayer(p);
+        }
+      })
       .catch((err) => console.error("[match] persist", err?.message || err));
   }
 
@@ -1063,6 +1121,10 @@ function createRoom(HBInit) {
   }
 
   async function handleGameStop() {
+    if (kickoffAfkRestart) {
+      postMatchBusy = false;
+      return;
+    }
     postMatchBusy = true;
     uniforms.noteMatchEnd();
     let result = null;
@@ -1086,7 +1148,9 @@ function createRoom(HBInit) {
         }
       }
 
-      if (result?.valid && count >= 2 && count < config.teamSize * 2) {
+      // Só zera streak de partida oficial. Treino, troca de mapa e onGameStop
+      // duplicado (finish já rodou → result null) não podem apagar a sequência.
+      if (result?.competitive && result.valid && count >= 2 && count < config.teamSize * 2) {
         if (result.winner === TEAM.RED || result.winner === TEAM.BLUE) {
           const holders = room
             .getPlayerList()
@@ -1096,7 +1160,7 @@ function createRoom(HBInit) {
         } else {
           streak.reset();
         }
-      } else if (!result?.valid) {
+      } else if (result?.competitive && !result.valid) {
         streak.reset();
       }
 

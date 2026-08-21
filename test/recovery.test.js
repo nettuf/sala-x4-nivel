@@ -116,6 +116,17 @@ describe("recuperação do 4v4 competitivo", () => {
   });
 });
 
+describe("AFK no começo da partida", () => {
+  it("auto-AFK sem ter mexido é kickoff; teclou nesta partida não é", () => {
+    const { isKickoffIdleAfk } = require("../src/room/recovery");
+    const moved = new Set([2]);
+    assert.equal(isKickoffIdleAfk("auto-afk", 1, moved), true);
+    assert.equal(isKickoffIdleAfk("auto-afk", 2, moved), false);
+    assert.equal(isKickoffIdleAfk("voluntary-afk", 1, moved), false);
+    assert.equal(isKickoffIdleAfk("kick", 1, moved), false);
+  });
+});
+
 describe("pós-vitória: preencher sem sobra ou pickar", () => {
   it("4 vermelho + 1 azul + 3 spec (exatos 8) → preenche na ordem, sem pick", () => {
     assert.deepEqual(

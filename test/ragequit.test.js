@@ -58,6 +58,17 @@ describe("ragequit no x4 oficial", () => {
     );
   });
 
+  it("3x2 quitando também é ragequit", () => {
+    const host = setup();
+    host.setScores({ red: 3, blue: 2, time: 40 });
+    assert.match(
+      host.match.rageQuitReason(host.players[1]),
+      /abandonou perdendo 3x2/i
+    );
+    host.setScores({ red: 2, blue: 3, time: 40 });
+    assert.match(host.match.rageQuitReason(host.players[0]), /2x3/);
+  });
+
   it("3x1 quitando encerra mesmo sem competitive", () => {
     const host = setup();
     host.setScores({ red: 3, blue: 1 });
@@ -389,5 +400,23 @@ describe("stats da partida x4", () => {
     match.markVictory();
     const result = await match.finish(scores);
     assert.equal(result.players.length, 0);
+  });
+});
+
+describe("partida decidida (janela da vitória)", () => {
+  it("3x0 ou markVictory conta como decidida; 2x1 no meio não", () => {
+    const host = setup();
+    assert.equal(host.match.isDecided(), false);
+    host.setScores({ red: 2, blue: 1 });
+    assert.equal(host.match.isDecided(), false);
+    host.setScores({ red: 3, blue: 1 });
+    assert.equal(host.match.isDecided(), true);
+  });
+
+  it("onTeamVictory (markVictory) decide mesmo em 3x2 cedo", () => {
+    const host = setup();
+    host.setScores({ red: 3, blue: 2, time: 40 });
+    host.match.markVictory();
+    assert.equal(host.match.isDecided(), true);
   });
 });

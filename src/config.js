@@ -70,7 +70,7 @@ const config = {
   chatFloodLimit: Number(process.env.CHAT_FLOOD_LIMIT || 4),
   chatFloodWindowMs: Number(process.env.CHAT_FLOOD_WINDOW_MS || 5000),
   chatFloodMuteMs: Number(process.env.CHAT_FLOOD_MUTE_MS || 30000),
-  // !bet !provocar !elogiar !discord !site: um anúncio público por vez
+  // !bet !viado !provocar !elogiar !discord !site: um anúncio público por vez
   cmdPublicRoomMs: Number(process.env.CMD_PUBLIC_ROOM_MS || 15000),
   cmdPublicPlayerMs: Number(process.env.CMD_PUBLIC_PLAYER_MS || 25000),
   // !gols !stats e rankings: por jogador, pra não martelar o banco

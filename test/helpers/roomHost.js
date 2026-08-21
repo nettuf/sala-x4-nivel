@@ -59,6 +59,7 @@ function bootRoom({ deferTeamChanges = false } = {}) {
     stopRecording: () => new Uint8Array([1]),
     startGame: () => {
       scores = { red: 0, blue: 0, time: 0, scoreLimit: config.scoreLimit, timeLimit: config.timeLimit * 60 };
+      room.onGameStart?.();
     },
     stopGame: () => {
       scores = null;
@@ -145,7 +146,10 @@ function bootRoom({ deferTeamChanges = false } = {}) {
     idle(all, { moving = [], idleMs = config.afkActionMs + 1000 } = {}) {
       const past = Date.now() - idleMs;
       for (const p of all) handles.afk.touch(p.id, past);
-      for (const p of moving) handles.afk.touch(p.id, Date.now());
+      for (const p of moving) {
+        handles.afk.touch(p.id, Date.now());
+        host.activity(p);
+      }
     },
     /** Simula o jogador apertando tecla (onPlayerActivity). */
     activity(target) {

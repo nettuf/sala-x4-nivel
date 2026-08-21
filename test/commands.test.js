@@ -366,6 +366,51 @@ describe("comandos (mock room)", () => {
     assert.match(msgs[1], /pela 2ª vez/);
   });
 
+  it("!viado anuncia o contador em público e respeita cooldown", async () => {
+    const room = mockRoom();
+    let viados = 4;
+    const ctx = withClock({
+      admins: new Map(),
+      mutes: new Map(),
+      roomStats: {
+        recordViado() {
+          viados += 1;
+          return { viados };
+        },
+      },
+    });
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!viado");
+    const msg = room.announcements.find((a) => a.to == null && /🌈/.test(a.msg))?.msg || "";
+    assert.match(msg, /Viraram viado pela 5ª vez/);
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!viado");
+    assert.ok(room.announcements.some((a) => a.to === room._players[0].id && /Espere/i.test(a.msg)));
+    assert.equal(viados, 5);
+  });
+
+  it("!viado incrementa a cada jogador", async () => {
+    const room = mockRoom();
+    let viados = 0;
+    const ctx = withClock({
+      admins: new Map(),
+      mutes: new Map(),
+      roomStats: {
+        recordViado() {
+          viados += 1;
+          return { viados };
+        },
+      },
+    });
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[2], "!viado");
+    ctx.advance(15_000);
+    await cmd.handle(room._players[0], "!viados");
+    const msgs = room.announcements.filter((a) => a.to == null && /🌈/.test(a.msg)).map((a) => a.msg);
+    assert.match(msgs[0], /pela 1ª vez/);
+    assert.match(msgs[1], /pela 2ª vez/);
+  });
+
   it("comandos públicos compartilham cooldown da sala — outro jogador não flooda !bet/!gols/!provocar", async () => {
     const room = mockRoom();
     let bets = 0;

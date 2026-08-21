@@ -7,7 +7,7 @@ const {
   evaluateJoin,
   applyJoinGuards,
 } = require("../src/room/joinGuards");
-const { createAfkTracker, shouldCountAutoAfk, hasMoved } = require("../src/room/afk");
+const { createAfkTracker, shouldCountAutoAfk, shouldCountActivity, hasMoved } = require("../src/room/afk");
 const config = require("../src/config");
 
 function mockRoom(players) {
@@ -421,6 +421,13 @@ describe("AFK: ações e pausa", () => {
       ),
       true
     );
+  });
+
+  it("pacote de input parado (xspeed 0) não conta como tecla", () => {
+    assert.equal(shouldCountActivity({ x: 10, y: 0, xspeed: 0, yspeed: 0 }), false);
+    assert.equal(shouldCountActivity({ x: 10, y: 0, xspeed: 1.2, yspeed: 0 }), true);
+    assert.equal(shouldCountActivity({ x: 10, y: 0 }), true, "sem velocidade (teste) assume tecla");
+    assert.equal(shouldCountActivity(null), true);
   });
 
   it("1v1 parado vai para spect", () => {

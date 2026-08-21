@@ -58,6 +58,22 @@ describe("AFK: relógio, aviso e ação", () => {
     host.cleanup();
   });
 
+  it("input parado (xspeed 0) não zera o AFK", () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    const parado = all[0];
+    host.startMatch();
+
+    const past = Date.now() - config.afkActionMs - 1000;
+    for (const p of all) host.handles.afk.touch(p.id, past);
+    host.discs.set(parado.id, { x: 10, y: 0, xspeed: 0, yspeed: 0 });
+    host.activity(parado);
+    host.handles.afk.tick(Date.now());
+
+    assert.equal(host.handles.afk.isAfk(parado.id), true, "pacote 0 não é tecla");
+    host.cleanup();
+  });
+
   it("quem está no spec nunca vira AFK automático", () => {
     const host = bootRoom();
     const all = fill4v4(host);
@@ -176,6 +192,7 @@ describe("AFK: pausa, gol e kickoff", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.startMatch();
+    for (const p of all) host.activity(p);
     const pausasAntes = host.pauses.length;
 
     host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
@@ -227,6 +244,7 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     host.addPlayer(TEAM.SPEC);
     host.addPlayer(TEAM.SPEC);
     host.startMatch();
+    for (const p of all) host.activity(p);
 
     host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
     host.handles.afk.tick(Date.now());
@@ -243,6 +261,51 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     assert.equal(host.teamCount(TEAM.RED), 4, "vaga preenchida");
     assert.equal(host.lastPause(), false, "a partida volta a rodar");
     assert.ok(host.live());
+    host.cleanup();
+  });
+
+  it("AFK no começo do 4v4: RR sem stats, capitão só repõe a vaga", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.handles.streak.recordWin(TEAM.RED, ["A"]);
+    host.startMatch();
+
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await new Promise((r) => setTimeout(r, 400));
+
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
+    assert.equal(host.find(all[0].id).team, TEAM.SPEC);
+    assert.equal(host.live(), null, "partida do começo é RR");
+    assert.equal(host.handles.streak.get(), 1, "streak não zera");
+    assert.ok(host.said(/AFK no começo/i));
+    assert.equal(host.handles.choose.isReplacement(), true, "só a vaga do AFK");
+    assert.equal(host.handles.choose.currentCaptain()?.team, TEAM.RED);
+
+    const cap = host.handles.choose.currentCaptain();
+    await host.chat(cap, "1");
+    await new Promise((r) => setTimeout(r, 400));
+
+    assert.equal(host.teamCount(TEAM.RED), 4);
+    assert.ok(host.live(), "partida nova 0-0");
+    assert.equal(host.handles.afk.isAfk(all[0].id), true, "AFK segue excluído até !voltar");
+    host.cleanup();
+  });
+
+  it("AFK no começo sem spec: 4v4 cai para 3v3", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch();
+
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await new Promise((r) => setTimeout(r, 400));
+
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
+    assert.equal(host.teamCount(TEAM.RED) + host.teamCount(TEAM.BLUE), 6, "vira 3v3");
+    assert.equal(host.teamCount(TEAM.RED), host.teamCount(TEAM.BLUE));
     host.cleanup();
   });
 
@@ -763,6 +826,45 @@ describe("choose: reposição em partida", () => {
 
     assert.equal(host.teamCount(TEAM.RED), 4, "a vaga foi preenchida");
     assert.equal(host.lastPause(), false);
+    host.cleanup();
+  });
+
+  it("saída depois do gol da vitória não abre pick de reposição", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+
+    const scores = host.live();
+    Object.assign(scores, { red: config.scoreLimit, blue: 1 });
+    host.room.onTeamVictory();
+
+    host.quit(all[0]);
+    await settle();
+
+    assert.equal(host.handles.choose.isActive(), false, "não pede pick na comemoração");
+    assert.equal(host.handles.choose.isReplacement(), false);
+    assert.ok(host.live(), "o stopGame da vitória ainda não rodou");
+    host.cleanup();
+  });
+
+  it("perdedor kita no 3x2 da vitória também não pede reposição", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+
+    const scores = host.live();
+    Object.assign(scores, { red: config.scoreLimit, blue: 2, time: 50 });
+    host.room.onTeamVictory();
+
+    host.quit(all[4]);
+    await settle();
+
+    assert.equal(host.handles.choose.isReplacement(), false, "jogo já acabou — não abre reposição");
+    assert.equal(host.handles.choose.isActive(), false);
     host.cleanup();
   });
 });

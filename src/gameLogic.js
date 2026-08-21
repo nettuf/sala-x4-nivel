@@ -13,24 +13,52 @@ function sameTouchPlayer(a, b) {
   return false;
 }
 
+function isKickTouch(t) {
+  return !!t && t.kind !== "body";
+}
+
+function findAssist(list, scorer, scoringTeam) {
+  for (const t of list || []) {
+    if (!t || t.team !== scoringTeam) continue;
+    if (sameTouchPlayer(t, scorer)) continue;
+    return t;
+  }
+  return null;
+}
+
 function attributeGoal(touches, scoringTeam) {
   const list = touches || [];
-  const t0 = list[0] || null;
-  if (!t0) {
+  if (!list.length) {
     return { scorer: null, assist: null, isOwnGoal: false };
   }
-  if (t0.team !== scoringTeam) {
-    return { scorer: t0, assist: null, isOwnGoal: true };
+
+  // Proximidade/corpo do rival não conta como chute. Gol contra só se o
+  // último chute de verdade foi do time que sofreu.
+  const lastKick = list.find(isKickTouch) || null;
+  const last = lastKick || list[0];
+
+  if (last.team === scoringTeam) {
+    return {
+      scorer: last,
+      assist: findAssist(list, last, scoringTeam),
+      isOwnGoal: false,
+    };
   }
-  let assist = null;
-  for (let i = 1; i < list.length; i++) {
-    const t = list[i];
-    if (!t || t.team !== scoringTeam) continue;
-    if (sameTouchPlayer(t, t0)) continue;
-    assist = t;
-    break;
+
+  if (lastKick && lastKick.team !== scoringTeam) {
+    return { scorer: lastKick, assist: null, isOwnGoal: true };
   }
-  return { scorer: t0, assist, isOwnGoal: false };
+
+  const teammate = list.find((t) => t && t.team === scoringTeam);
+  if (teammate) {
+    return {
+      scorer: teammate,
+      assist: findAssist(list, teammate, scoringTeam),
+      isOwnGoal: false,
+    };
+  }
+
+  return { scorer: last, assist: null, isOwnGoal: true };
 }
 
 function isValidMatchScores(scores, { scoreLimit = 3, timeLimitMin = 4, endByVictory = false } = {}) {
@@ -125,9 +153,10 @@ function detectRageQuit({ redCount, blueCount, scores }) {
   const timeLimit = scores.timeLimit || 0;
   if (!(timeLimit > 0 && scores.time >= timeLimit * (5 / 6))) return null;
 
+  const limit = Number(scores.scoreLimit) || 3;
   if (redCount < blueCount) {
-    if (scores.blue - scores.red >= 2) return { winner: 2 };
-  } else if (scores.red - scores.blue >= 2) {
+    if (scores.blue - scores.red >= 2 || scores.blue >= limit) return { winner: 2 };
+  } else if (scores.red - scores.blue >= 2 || scores.red >= limit) {
     return { winner: 1 };
   }
   return null;
@@ -143,9 +172,11 @@ function remainingMatchSeconds(scores) {
   return Math.max(0, limit - t);
 }
 
-/** Diff 2+ sempre; diff 1 só no fim da partida. */
+/** Diff 2+ sempre; placar 3 (limite) sempre; diff 1 só no último minuto. */
 function isDecidedLosingScore(scores) {
   if (!scores) return false;
+  const limit = Number(scores.scoreLimit) || 3;
+  if ((scores.red || 0) >= limit || (scores.blue || 0) >= limit) return true;
   const diff = Math.abs((scores.red || 0) - (scores.blue || 0));
   if (diff >= 2) return true;
   return diff === 1 && remainingMatchSeconds(scores) <= RAGEQUIT_ONE_GOAL_REMAINING_SEC;

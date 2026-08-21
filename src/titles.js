@@ -209,12 +209,16 @@ function newlyUnlockedPlayerTitles(prevStats, nextStats) {
 
 /**
  * Se desbloqueou um cargo de jogador superior ao selecionado, equipa o novo.
- * Cargos de staff escolhidos (ou fallback de admin) não são trocados.
+ * Se o selecionado não vale mais (ex.: Negativo com WR ≥ 50%), volta ao melhor ainda válido.
+ * Cargos de staff escolhidos não são trocados.
  */
 function applyUnlockUpgrade(selectedId, prevStats, nextStats) {
+  if (selectedId && isStaffTitle(selectedId)) return selectedId;
+  if (selectedId && !isUnlocked(nextStats, selectedId)) {
+    return bestPlayerTitle(nextStats).id;
+  }
   const newly = newlyUnlockedPlayerTitles(prevStats, nextStats);
   if (!newly.length) return selectedId || null;
-  if (selectedId && isStaffTitle(selectedId)) return selectedId;
   if (!selectedId) return null;
   const bestNew = newly[newly.length - 1];
   const selIdx = playerTitleIndex(selectedId);

@@ -117,4 +117,17 @@ function applyExactFill(room, specs, { redNeed = 0, blueNeed = 0 } = {}) {
   }
 }
 
-module.exports = { planCompetitiveRecovery, planExactFill, applyExactFill };
+/**
+ * Auto-AFK de quem nunca teclou nesta partida (relógio zerado no onGameStart).
+ * Empurrão e chat não contam — só onPlayerActivity / chute.
+ */
+function isKickoffIdleAfk(type, playerId, movedIds) {
+  return type === "auto-afk" && playerId != null && !movedIds.has(playerId);
+}
+
+module.exports = {
+  planCompetitiveRecovery,
+  planExactFill,
+  applyExactFill,
+  isKickoffIdleAfk,
+};

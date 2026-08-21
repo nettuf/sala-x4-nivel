@@ -288,6 +288,38 @@ describe("winner stays ignora AFK no spec", () => {
     assert.equal(host.teamCount(TEAM.BLUE), 2);
     host.cleanup();
   });
+
+  it("!streak mostra a vitória; treino e segundo stop não apagam", async () => {
+    const host = bootRoom();
+    fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+
+    const scores = host.live();
+    Object.assign(scores, { red: config.scoreLimit, blue: 0, time: 240 });
+    host.handles.match.onTick();
+    host.handles.match.markVictory();
+    host.room.stopGame();
+    await host.room.onGameStop();
+
+    assert.equal(host.handles.streak.get(), 1);
+    const who = host.players[0];
+    host.chat(who, "!streak");
+    assert.ok(
+      host.said(/Streak atual: 1/, who.id),
+      `!streak devia mostrar 1, got ${JSON.stringify(host.announcements.slice(-4))}`
+    );
+
+    await host.room.onGameStop();
+    assert.equal(host.handles.streak.get(), 1, "segundo onGameStop não zera");
+
+    host.startMatch({ competitive: false });
+    host.room.stopGame();
+    await host.room.onGameStop();
+    assert.equal(host.handles.streak.get(), 1, "parar o treino não zera o streak do 4v4");
+
+    host.cleanup();
+  });
 });
 
 describe("ações de admin", () => {

@@ -133,6 +133,32 @@ describe("gameLogic", () => {
     assert.equal(g.assist, null);
   });
 
+  it("attributeGoal: zagueiro perto da bola não vira gol contra", () => {
+    const g = attributeGoal(
+      [
+        { id: 9, name: "Zaga", auth: "z", team: 2, kind: "body" },
+        { id: 1, name: "A", auth: "a", team: 1, kind: "kick" },
+        { id: 2, name: "B", auth: "b", team: 1, kind: "kick" },
+      ],
+      1
+    );
+    assert.equal(g.isOwnGoal, false);
+    assert.equal(g.scorer.name, "A");
+    assert.equal(g.assist.name, "B");
+  });
+
+  it("attributeGoal: chute do rival na própria rede continua GC", () => {
+    const g = attributeGoal(
+      [
+        { id: 9, name: "Zaga", auth: "z", team: 2, kind: "kick" },
+        { id: 1, name: "A", auth: "a", team: 1, kind: "kick" },
+      ],
+      1
+    );
+    assert.equal(g.isOwnGoal, true);
+    assert.equal(g.scorer.name, "Zaga");
+  });
+
   it("pickGoalkeeper: vermelho mais à esquerda, azul mais à direita", () => {
     const samples = [
       { id: 1, team: 1, xAvg: -40 },
@@ -229,6 +255,8 @@ describe("gameLogic", () => {
   it("isDecidedLosingScore: 2+ sempre; 1 gol só no último minuto", () => {
     assert.equal(isDecidedLosingScore({ red: 2, blue: 0, time: 10, timeLimit: 240 }), true);
     assert.equal(isDecidedLosingScore({ red: 3, blue: 1, time: 20, timeLimit: 240 }), true);
+    assert.equal(isDecidedLosingScore({ red: 3, blue: 2, time: 20, timeLimit: 240 }), true);
+    assert.equal(isDecidedLosingScore({ red: 2, blue: 3, time: 30, timeLimit: 240 }), true);
     assert.equal(isDecidedLosingScore({ red: 1, blue: 0, time: 40, timeLimit: 240 }), false);
     assert.equal(isDecidedLosingScore({ red: 1, blue: 0, time: 170, timeLimit: 240 }), false);
     assert.equal(isDecidedLosingScore({ red: 1, blue: 0, time: 185, timeLimit: 240 }), true);
@@ -461,6 +489,28 @@ describe("titles / cargos", () => {
     assert.equal(applyUnlockUpgrade("completo", prev, next), "craque");
     assert.equal(applyUnlockUpgrade("chefe", prev, next), "chefe");
     assert.equal(applyUnlockUpgrade(null, prev, next), null);
+  });
+
+  it("saiu do Negativo: perde o cargo e volta ao melhor ainda válido", () => {
+    assert.equal(
+      applyUnlockUpgrade("negativo", { games: 10, wins: 4 }, { games: 11, wins: 6 }),
+      "novato"
+    );
+    assert.equal(
+      applyUnlockUpgrade("negativo", { games: 99, wins: 49 }, { games: 100, wins: 50 }),
+      "estreante"
+    );
+    assert.equal(
+      applyUnlockUpgrade("negativo", { games: 19, wins: 9, goals: 200 }, { games: 20, wins: 11, goals: 200 }),
+      "artilheiro"
+    );
+    assert.equal(
+      applyUnlockUpgrade("negativo", { games: 10, wins: 4 }, { games: 11, wins: 4 }),
+      "negativo"
+    );
+    assert.equal(applyUnlockUpgrade("chefe", { games: 10, wins: 4 }, { games: 11, wins: 6 }), "chefe");
+    assert.equal(resolveTitle({ games: 12, wins: 6 }, "negativo").id, "novato");
+    assert.equal(resolveTitle({ games: 100, wins: 50 }, "negativo").id, "estreante");
   });
 });
 

@@ -166,6 +166,7 @@ async function bumpPlayerStats(p) {
 
   const prev = {
     games: row.games,
+    wins: row.wins || 0,
     goals: row.goals,
     assists: row.assists,
     mvps: row.mvps || 0,

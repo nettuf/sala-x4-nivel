@@ -15,12 +15,27 @@ const MOVE_EPS = 8;
 /** Haxball: onGameTick = 60 Hz. Apex incrementa ACT nesse loop. */
 const TICK_HZ = 60;
 const MS_PER_TICK = 1000 / TICK_HZ;
+/**
+ * O headless chama onPlayerActivity em TODO pacote de input, inclusive 0
+ * (cliente parado ainda manda “soltei as teclas”). Só conta se o disco
+ * estiver se mexendo de verdade. Sem xspeed (testes) assume tecla.
+ */
+const ACTIVITY_SPEED = 0.4;
+const ACTIVITY_SPEED_SQ = ACTIVITY_SPEED * ACTIVITY_SPEED;
 
 function hasMoved(prev, next, eps = MOVE_EPS) {
   if (!prev || !next) return false;
   const dx = next.x - prev.x;
   const dy = next.y - prev.y;
   return dx * dx + dy * dy >= eps * eps;
+}
+
+function shouldCountActivity(disc) {
+  if (!disc) return true;
+  const hasSpeed = Number.isFinite(Number(disc.xspeed)) || Number.isFinite(Number(disc.yspeed));
+  if (!hasSpeed) return true;
+  const sp = (Number(disc.xspeed) || 0) ** 2 + (Number(disc.yspeed) || 0) ** 2;
+  return sp >= ACTIVITY_SPEED_SQ;
 }
 
 function afkRemainSec() {
@@ -349,7 +364,9 @@ module.exports = {
   createAfkTracker,
   fieldPlayerCount,
   shouldCountAutoAfk,
+  shouldCountActivity,
   hasMoved,
   MOVE_EPS,
+  ACTIVITY_SPEED,
   TICK_HZ,
 };
