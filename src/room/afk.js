@@ -33,13 +33,10 @@ function afkRemainSec() {
 /**
  * AFK é um estado só, venha do !afk ou de ficar parado em campo.
  *
- * Relógio = parede (8s aviso, 12s spec). Só zera se o disco ANDAR neste tick
- * (velocidade ou salto de posição). Jitter acumulado do host NÃO zera —
- * era isso que fazia o parado nunca estourar.
- * Tecla no lugar não conta. getPlayerDiscProperties em try/catch: se lançar,
- * o tick segue e o setInterval de 1s ainda pune.
- * onGameTick não existe com o jogo pausado de verdade; a flag paused só
- * segura o setInterval (se ficar presa, a física ainda pune).
+ * Relógio = parede (8s aviso, 12s spec). Só zera se o disco ANDAR no tick
+ * da física (delta de posição). Velocidade do host e o setInterval de 1s
+ * NÃO zeram — 1s de deriva passava de 1.5 e o AFK nunca estourava.
+ * Tecla no lugar não conta.
  */
 function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number, lastPos: {x:number,y:number}|null }>} */
@@ -98,21 +95,16 @@ function createAfkTracker(room, opts = {}) {
   }
 
   /**
-   * Andou NESTE tick? Compara com o tick anterior (não acumula deriva).
-   * Velocidade manda: parado tem ~0, andar passa de SPEED_EPS.
+   * Andou NESTE frame da física? Só posição, como o map.txt.
+   * Velocidade do haxball.js vem suja e zerava o relógio o tempo todo.
+   * lastPos atualiza sempre, para jitter de 0.3/tick não somar até 1.5.
    */
   function applyMotion(p, st, wallNow) {
     const pos = playerPos(p);
-    let moving = false;
-    if (pos && Number.isFinite(pos.xspeed) && Number.isFinite(pos.yspeed)) {
-      const sp2 = pos.xspeed * pos.xspeed + pos.yspeed * pos.yspeed;
-      if (sp2 >= SPEED_EPS * SPEED_EPS) moving = true;
-    }
-    if (pos) {
-      if (st.lastPos && hasMoved(st.lastPos, pos, MOVE_EPS)) moving = true;
-      st.lastPos = { x: pos.x, y: pos.y };
-    }
-    if (!moving) return false;
+    if (!pos) return false;
+    const moved = !!(st.lastPos && hasMoved(st.lastPos, pos, MOVE_EPS));
+    st.lastPos = { x: pos.x, y: pos.y };
+    if (!moved) return false;
     st.lastActive = wallNow;
     st.warned = false;
     st.idleTicks = 0;
@@ -339,9 +331,8 @@ function createAfkTracker(room, opts = {}) {
   }
 
   /**
-   * Fallback de 1s. NÃO desiste se o onGameTick rodou há pouco — era isso
-   * que matava o AFK quando o tick zerava o relógio no jitter e o intervalo
-   * achava que a física estava no controle.
+   * Fallback de 1s: só olha o relógio. NÃO compara posição —
+   * 1s de deriva do disco passava de 1.5 e zerava o AFK na VM.
    */
   function tick(wallNow = Date.now()) {
     if (paused) {
@@ -354,7 +345,6 @@ function createAfkTracker(room, opts = {}) {
     }
 
     forEachFieldPlayer(wallNow, (p, st, full) => {
-      if (applyMotion(p, st, wallNow)) return;
       punishIdle(p, idleMs(st, wallNow), full);
     });
     ensureReserveSlots();

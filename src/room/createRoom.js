@@ -995,7 +995,7 @@ function createRoom(HBInit) {
   };
 
   room.onPlayerBallKick = (player) => {
-    afk.touch(player.id);
+    // Chute sem andar não zera o AFK (map.txt). Só marca que já jogou nesta partida.
     if (player?.id) movedThisMatch.add(player.id);
     match.onBallKick(identified(player));
   };

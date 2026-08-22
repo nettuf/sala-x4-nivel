@@ -119,6 +119,24 @@ describe("AFK: relógio, aviso e ação", () => {
     host.cleanup();
   });
 
+  it("digitar no chat ou chutar sem andar também conta como inativo", () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    const parado = all[0];
+    host.startMatch();
+
+    const past = Date.now() - config.afkActionMs - 1000;
+    for (const p of all) host.handles.afk.touch(p.id, past);
+    host.activity(parado);
+    host.chat(parado, "to aqui");
+    host.room.onPlayerBallKick(host.find(parado.id));
+    host.handles.afk.tick(Date.now());
+
+    assert.equal(host.find(parado.id).team, TEAM.SPEC, "12s parado → spec");
+    assert.equal(host.handles.afk.isAfk(parado.id), true, "chat/tecla/chute sem andar não salvam");
+    host.cleanup();
+  });
+
   it("quem está no spec nunca vira AFK automático", () => {
     const host = bootRoom();
     const all = fill4v4(host);

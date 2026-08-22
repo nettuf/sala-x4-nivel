@@ -640,11 +640,11 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("velocidade de andar zera; residual da física não", () => {
+  it("velocidade suja do host não zera; só salto de posição zera", () => {
     const { room, players } = afkSetup(4);
     const discs = new Map([
-      [1, { x: 0, y: 0, xspeed: 0.02, yspeed: 0 }],
-      [2, { x: 0, y: 0, xspeed: 0.6, yspeed: 0 }],
+      [1, { x: 0, y: 0, xspeed: 0.8, yspeed: 0.8 }],
+      [2, { x: 0, y: 0, xspeed: 0, yspeed: 0 }],
     ]);
     room.getPlayerDiscProperties = (id) => discs.get(id);
     const afk = createAfkTracker(room);
@@ -653,12 +653,39 @@ describe("AFK: ações e pausa", () => {
     config.afkActionMs = 12000;
     const t0 = 1_700_000_000_000;
     afk.resetClocks(t0);
+    afk.noteGameTick(t0);
     for (let i = 1; i <= 13; i++) {
-      discs.set(2, { x: i * 2, y: 0, xspeed: 0.6, yspeed: 0 });
+      discs.set(1, { x: 0.2, y: 0, xspeed: 0.8, yspeed: 0.8 });
+      discs.set(2, { x: i * 8, y: 0, xspeed: 0, yspeed: 0 });
       afk.noteGameTick(t0 + i * 1000);
     }
-    assert.equal(players.find((p) => p.id === 1).team, 0);
-    assert.equal(players.find((p) => p.id === 2).team, 2, "quem está andando segue em campo");
+    assert.equal(players.find((p) => p.id === 1).team, 0, "xspeed sujo não impede o AFK");
+    assert.equal(players.find((p) => p.id === 2).team, 2, "quem andou de verdade segue em campo");
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("deriva de 1s no setInterval não zera o AFK", () => {
+    const { room, players } = afkSetup(4);
+    const discs = new Map([
+      [1, { x: 0, y: 0 }],
+      [2, { x: 0, y: 0 }],
+    ]);
+    room.getPlayerDiscProperties = (id) => discs.get(id);
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const t0 = 1_700_000_000_000;
+    afk.resetClocks(t0);
+    afk.noteGameTick(t0);
+    for (let i = 1; i <= 13; i++) {
+      discs.set(1, { x: i * 3, y: 0 });
+      afk.tick(t0 + i * 1000);
+    }
+    assert.equal(players.find((p) => p.id === 1).team, 0, "1s de deriva não conta como andar");
+    assert.equal(afk.isAfk(1), true);
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();

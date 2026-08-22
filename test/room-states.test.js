@@ -11,7 +11,7 @@ const {
 } = require("./helpers/roomHost");
 
 describe("AFK do jogador parado", () => {
-  it("parado em campo cai pro spec e fica AFK; quem tecla continua jogando", () => {
+  it("parado em campo cai pro spec e fica AFK; quem andou continua jogando", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     const parado = all[0];
@@ -22,7 +22,7 @@ describe("AFK do jogador parado", () => {
 
     assert.equal(host.find(parado.id).team, TEAM.SPEC, "parado devia ir pro spec");
     assert.equal(host.handles.afk.isAfk(parado.id), true);
-    assert.equal(host.handles.afk.isAfk(all[1].id), false, "quem teclou continua ativo");
+    assert.equal(host.handles.afk.isAfk(all[1].id), false, "quem andou continua ativo");
     assert.equal(host.kicks.length, 0, "sala com vaga não kicka por AFK");
     assert.ok(host.announcements.some((a) => /parado/i.test(a.msg)));
     host.cleanup();

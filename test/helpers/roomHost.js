@@ -144,16 +144,18 @@ function bootRoom({ deferTeamChanges = false } = {}) {
       return room.onPlayerChat(snapshot(live), message);
     },
     /**
-     * Deixa os jogadores parados há `idleMs`. `moving` zera o relógio
-     * (como se o disco tivesse andado). Tecla sozinha não conta.
+     * Deixa os jogadores parados há `idleMs`. `moving` anda o disco
+     * (único jeito de zerar o relógio). Chat/tecla/chute não entram aqui.
      */
     idle(all, { moving = [], idleMs = config.afkActionMs + 1000 } = {}) {
       const past = Date.now() - idleMs;
       for (const p of all) handles.afk.touch(p.id, past);
+      handles.afk.sampleMovement(past);
       for (const p of moving) {
-        handles.afk.touch(p.id, Date.now());
-        host.activity(p);
+        const d = discs.get(p.id) || { x: 0, y: 0 };
+        discs.set(p.id, { x: (d.x || 0) + 80, y: d.y || 0 });
       }
+      handles.afk.sampleMovement(Date.now());
     },
     /** Simula o jogador apertando tecla (onPlayerActivity). */
     activity(target) {
