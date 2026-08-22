@@ -32,15 +32,11 @@ function planCompetitiveRecovery({
       return { action: "rebalance" };
     }
 
-    // Time menor ainda tem gente em campo: repor do spec (1 pick ou vários,
-    // se o capitão também caiu AFK e o buraco ficou maior que 1).
+    // Time menor ainda tem gente em campo: vagas = opções → auto;
+    // mais gente no spec que vagas → capitão escolhe.
     if (Math.min(redCount, blueCount) > 0) {
-      if (specCount === 1) {
-        return { action: "fill-one", targetTeam };
-      }
-      if (specCount > 1) {
-        return { action: "choose", targetTeam };
-      }
+      const fill = planSpecFill(targetTeam, deficit, specCount);
+      if (fill) return fill;
     }
 
     // 4v3 sem spec: o extra do time maior vai ao spec e o 3v3 segue.
@@ -76,13 +72,8 @@ function planCompetitiveRecovery({
     return { action: "rebalance" };
   }
 
-  if (specCount === 1) {
-    return { action: "fill-one", targetTeam, restart: true };
-  }
-
-  if (specCount > 1) {
-    return { action: "choose", targetTeam, restart: true };
-  }
+  const stopped = planSpecFill(targetTeam, deficit, specCount, { restart: true });
+  if (stopped) return stopped;
 
   return { action: "rebalance" };
 }
@@ -122,10 +113,55 @@ function applyExactFill(room, specs, { redNeed = 0, blueNeed = 0 } = {}) {
 
 /**
  * Auto-AFK de quem nunca teclou nesta partida (relógio zerado no onGameStart).
+ * Vale para treino 1v1–3v3 e 4v4: RR sem stats, depois o capitão escolhe.
  * Empurrão e chat não contam — só onPlayerActivity / chute.
  */
 function isKickoffIdleAfk(type, playerId, movedIds) {
   return type === "auto-afk" && playerId != null && !movedIds.has(playerId);
+}
+
+/**
+ * 1 vaga e 1 no spec → auto. 2 vagas e 2 no spec → auto. Sobra opção → pick.
+ */
+function planSpecFill(targetTeam, need, specCount, extra = {}) {
+  const holes = Number(need) || 0;
+  const specs = Number(specCount) || 0;
+  if (holes <= 0 || specs <= 0) return null;
+  if (specs === holes) {
+    return holes === 1
+      ? { action: "fill-one", targetTeam, ...extra }
+      : { action: "fill-exact", targetTeam, count: holes, ...extra };
+  }
+  if (specs > holes) return { action: "choose", targetTeam, ...extra };
+  return specs === 1
+    ? { action: "fill-one", targetTeam, ...extra }
+    : { action: "fill-exact", targetTeam, count: specs, ...extra };
+}
+
+/**
+ * Depois do RR no começo: mantém o formato (2v2 fica 2v2).
+ * Vagas = opções no spec → puxa auto. Sobra gente → capitão escolhe.
+ * Sem spec, o lobby desce de formato (4v4→3v3).
+ */
+function planKickoffAfkRecovery({ redCount = 0, blueCount = 0, specCount = 0 } = {}) {
+  const formatSize = Math.max(Number(redCount) || 0, Number(blueCount) || 0);
+  if (formatSize <= 0) return { action: "refresh" };
+  if (redCount === blueCount) {
+    return { action: "start", teamSize: formatSize };
+  }
+  const targetTeam = redCount < blueCount ? TEAM.RED : TEAM.BLUE;
+  const need = formatSize - Math.min(Number(redCount) || 0, Number(blueCount) || 0);
+  const fill = planSpecFill(targetTeam, need, specCount, { teamSize: formatSize });
+  if (!fill) return { action: "refresh" };
+  if (fill.action === "choose") {
+    return { action: "choose", targetTeam, teamSize: formatSize };
+  }
+  return {
+    action: "fill",
+    targetTeam,
+    teamSize: formatSize,
+    count: fill.count || 1,
+  };
 }
 
 module.exports = {
@@ -133,4 +169,6 @@ module.exports = {
   planExactFill,
   applyExactFill,
   isKickoffIdleAfk,
+  planKickoffAfkRecovery,
+  planSpecFill,
 };

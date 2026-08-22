@@ -442,6 +442,33 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
+  it("onGameTick lento (longe de 60Hz) ainda pune pelos 12s no 2v2", () => {
+    const players = [
+      { id: 1, name: "A", team: 1, auth: "a1" },
+      { id: 2, name: "B", team: 1, auth: "a2" },
+      { id: 3, name: "C", team: 2, auth: "a3" },
+      { id: 4, name: "D", team: 2, auth: "a4" },
+    ];
+    const room = mockRoom(players);
+    const afk = createAfkTracker(room, {
+      shouldAutoAfk: () => shouldCountAutoAfk(room.getPlayerList()),
+    });
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const t0 = 1_700_000_000_000;
+    afk.resetClocks(t0);
+
+    // ~1 Hz: 12 callbacks em 12s. Só ticks dariam ~200ms e ninguém caía.
+    for (let i = 1; i <= 12; i++) afk.noteGameTick(t0 + i * 1000);
+
+    assert.equal(players.find((p) => p.id === 1).team, 0, "relógio de parede manda pro spec");
+    assert.equal(afk.isAfk(1), true);
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
   it("1v1 parado vai para spect", () => {
     const players = [
       { id: 1, name: "A", team: 1, auth: "a1" },

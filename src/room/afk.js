@@ -31,13 +31,13 @@ function afkRemainSec() {
 /**
  * AFK é um estado só, venha do !afk ou de ficar parado em campo.
  *
- * Padrão Apex / wiki Haxball (issues #609, #634, #1331, #1462):
- *   onPlayerActivity → zera o relógio (é o sinal de tecla; não filtrar por
- *     velocidade do disco — empurrão da bola não dispara esse evento, e
- *     tecla no kickoff chega com xspeed 0).
- *   onGameTick → incrementa; quem nunca teclou também conta (#1462).
- * onGameTick NÃO dispara com o jogo pausado — a pausa congela sozinha.
- * A flag paused só congela o fallback do setInterval, não o tick da física.
+ * onPlayerActivity → zera o relógio (tecla; empurrão da bola não conta).
+ * onGameTick → mede o tempo. O haxball.js NÃO entrega 60 Hz estável —
+ *   contar só ticks fazia o parado nunca estourar (2v2/treino). Por isso
+ *   o idle é o máximo entre ticks*16.6ms e relógio de parede.
+ * onGameTick não existe com o jogo pausado; a pausa congela sozinha.
+ * A flag paused só segura o setInterval; se ela ficar presa e a física
+ *   continuar, o tick da física ainda pune.
  */
 function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number }>} */
@@ -45,9 +45,8 @@ function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, number>} id → AFK desde quando (para kickar o mais antigo) */
   const afks = new Map();
   let paused = false;
-  /** Tempo de parede acumulado em pausa (só o fallback do setInterval). */
-  let holdAccumMs = 0;
-  let holdStartedAt = 0;
+  /** Início da pausa atual (relógio de parede). */
+  let pauseAt = 0;
   /** Último onGameTick — se recente, o setInterval não conta de novo. */
   let lastSimTickAt = 0;
   /** Kick de AFK por vaga não precisa de 60 Hz. */
@@ -56,24 +55,8 @@ function createAfkTracker(room, opts = {}) {
   const shouldAutoAfk = typeof opts.shouldAutoAfk === "function" ? opts.shouldAutoAfk : () => true;
 
   function effectiveNow(wallNow = Date.now()) {
-    const open = holdStartedAt > 0 ? wallNow - holdStartedAt : 0;
-    return wallNow - holdAccumMs - open;
-  }
-
-  function beginHold(wallNow = Date.now()) {
-    if (holdStartedAt > 0) return;
-    holdStartedAt = wallNow;
-  }
-
-  function endHold(wallNow = Date.now()) {
-    if (holdStartedAt <= 0) return;
-    holdAccumMs += wallNow - holdStartedAt;
-    holdStartedAt = 0;
-  }
-
-  function syncHold(wallNow = Date.now()) {
-    if (paused) beginHold(wallNow);
-    else endHold(wallNow);
+    if (paused && pauseAt) return pauseAt;
+    return wallNow;
   }
 
   function blankState(now) {
@@ -82,9 +65,8 @@ function createAfkTracker(room, opts = {}) {
 
   function touch(playerId, wallNow = Date.now()) {
     if (afks.has(playerId)) return;
-    const now = effectiveNow(wallNow);
-    const cur = state.get(playerId) || blankState(now);
-    cur.lastActive = now;
+    const cur = state.get(playerId) || blankState(wallNow);
+    cur.lastActive = wallNow;
     cur.warned = false;
     cur.idleTicks = 0;
     state.set(playerId, cur);
@@ -243,19 +225,28 @@ function createAfkTracker(room, opts = {}) {
 
   /** Só no início de partida: todo mundo começa o relógio do zero. */
   function resetClocks(wallNow = Date.now()) {
-    holdAccumMs = 0;
-    holdStartedAt = 0;
+    pauseAt = 0;
     lastSimTickAt = 0;
-    const now = effectiveNow(wallNow);
     for (const p of room.getPlayerList()) {
       if (p.id === 0 || afks.has(p.id)) continue;
-      state.set(p.id, blankState(now));
+      state.set(p.id, blankState(wallNow));
     }
   }
 
   function setPaused(on, wallNow = Date.now()) {
-    paused = !!on;
-    syncHold(wallNow);
+    if (on) {
+      if (!paused) pauseAt = wallNow;
+      paused = true;
+      return;
+    }
+    if (paused && pauseAt) {
+      const held = Math.max(0, wallNow - pauseAt);
+      for (const st of state.values()) {
+        st.lastActive += held;
+      }
+    }
+    paused = false;
+    pauseAt = 0;
   }
 
   function maybeReserveSlots() {
@@ -265,31 +256,35 @@ function createAfkTracker(room, opts = {}) {
     ensureReserveSlots();
   }
 
+  function scoresLive() {
+    return typeof room.getScores !== "function" || !!room.getScores();
+  }
+
+  function idleMs(st, wallNow) {
+    const tickIdle = (Number(st.idleTicks) || 0) * MS_PER_TICK;
+    const wallIdle = wallNow - st.lastActive;
+    return Math.max(tickIdle, wallIdle);
+  }
+
   /**
-   * Apex: chamado 60x/s enquanto a física roda. Ignora a flag paused —
-   * onGameTick só existe com o jogo despausado. Se a flag ficar presa depois
-   * do choose, o parado ainda cai.
+   * Física rodando. Conta ticks (testes/60Hz) E relógio de parede —
+   * o host não entrega 60 callbacks por segundo com estabilidade.
+   * Ignora a flag paused: se a física está no ar, o parado cai.
    */
   function noteGameTick(wallNow = Date.now()) {
     lastSimTickAt = wallNow;
-    if (!shouldAutoAfk()) {
-      maybeReserveSlots();
-      return;
-    }
-    if (typeof room.getScores === "function" && !room.getScores()) {
+    if (!shouldAutoAfk() || !scoresLive()) {
       maybeReserveSlots();
       return;
     }
     forEachFieldPlayer(wallNow, (p, st, full) => {
       st.idleTicks = (Number(st.idleTicks) || 0) + 1;
-      punishIdle(p, st.idleTicks * MS_PER_TICK, full);
+      punishIdle(p, idleMs(st, wallNow), full);
     });
     maybeReserveSlots();
   }
 
   function tick(wallNow = Date.now()) {
-    syncHold(wallNow);
-
     // O loop do jogo está no controle: não contar duas vezes.
     if (lastSimTickAt > 0 && wallNow - lastSimTickAt < 1500) {
       ensureReserveSlots();
@@ -300,18 +295,13 @@ function createAfkTracker(room, opts = {}) {
       ensureReserveSlots();
       return;
     }
-    if (!shouldAutoAfk()) {
-      ensureReserveSlots();
-      return;
-    }
-    if (typeof room.getScores === "function" && !room.getScores()) {
+    if (!shouldAutoAfk() || !scoresLive()) {
       ensureReserveSlots();
       return;
     }
 
-    const now = effectiveNow(wallNow);
     forEachFieldPlayer(wallNow, (p, st, full) => {
-      punishIdle(p, now - st.lastActive, full);
+      punishIdle(p, idleMs(st, wallNow), full);
     });
     ensureReserveSlots();
   }

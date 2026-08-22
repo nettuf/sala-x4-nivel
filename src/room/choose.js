@@ -41,7 +41,9 @@ function createChooseController(room, {
   }
 
   function currentTeamSize() {
-    if (replacement) return config.teamSize;
+    if (replacement) {
+      return Number(replacement.teamSize) || config.teamSize;
+    }
     if (active && lockedSize) return lockedSize;
     return computeTeamSize();
   }
@@ -138,7 +140,14 @@ function createChooseController(room, {
     if (!team) return null;
     const side = team === TEAM.RED ? red : blue;
     // AFK que ainda aparece no time (lista stale) não herda o pick.
-    return side.find((p) => !excluded(p)) || null;
+    const cap = side.find((p) => !excluded(p));
+    if (cap) return cap;
+    // 1v1 no começo: o time ficou vazio, quem restou escolhe o adversário.
+    if (replacement && Number(replacement.teamSize) === 1) {
+      const other = team === TEAM.RED ? blue : red;
+      return other.find((p) => !excluded(p)) || null;
+    }
+    return null;
   }
 
   function teamForCaptain(cap) {
@@ -168,9 +177,8 @@ function createChooseController(room, {
   }
 
   /**
-   * Completa sozinho só o time da vez, quando o spec tem exatamente as vagas
-   * dele (ex.: azul precisa de 3 e tem 3 specs). Nunca preenche os dois times
-   * de uma vez — isso pulava o pick dos capitães. Reposição: auto só com 1.
+   * Completa sozinho o time da vez quando o spec tem exatamente as vagas
+   * (1=1, 2=2, 3=3). Mais opções que vagas → o capitão escolhe.
    */
   function tryFillExactHoles() {
     if (!active) return false;
@@ -180,12 +188,31 @@ function createChooseController(room, {
       const holes = holesByTeam();
       const need =
         replacement.targetTeam === TEAM.RED ? holes.red : holes.blue;
-      if (need <= 0 || !currentCaptain()) return false;
-      if (specReady.length === 1) {
-        applyCaptainPick(currentCaptain(), specReady[0], replacement.targetTeam, "");
-        return true;
+      if (need <= 0 || specReady.length !== need) return false;
+      const names = [];
+      let last = null;
+      for (let n = 0; n < need; n++) {
+        const p = specReady[n];
+        if (!p) return false;
+        if (typeof onPickFromSpec === "function") onPickFromSpec(p, replacement.targetTeam);
+        setTeam(p.id, replacement.targetTeam);
+        names.push(p.name);
+        last = p;
       }
-      return false;
+      const arrow = replacement.targetTeam === TEAM.RED ? "🔴" : "🔵";
+      room.sendAnnouncement(
+        need === 1
+          ? `${names[0]} entrou automaticamente (única opção) → ${arrow}`
+          : `${names.join(", ")} entraram automaticamente (${need} vagas, ${need} opções) → ${arrow}`,
+        null,
+        0x2ecc71,
+        "bold",
+        1
+      );
+      const onReady = replacement.onReady;
+      deactivate();
+      afterTeamChange(() => onReady?.({ chosen: last }));
+      return true;
     }
 
     const team = pickingTeam();
@@ -243,8 +270,7 @@ function createChooseController(room, {
     if (!replacement && !teamHasHole(team)) return;
 
     const { specReady, spec } = list();
-    // Única opção restante: entra sozinho. Com 2+ specs o capitão escolhe sempre
-    // (mesmo se já tiver usado top/bottom antes — não encadear no automático).
+    // Única opção restante: entra sozinho. Mais opções que vagas → capitão escolhe.
     if (specReady.length === 1 && teamHasHole(team)) {
       applyCaptainPick(cap, specReady[0], team, "");
       return;
@@ -378,14 +404,22 @@ function createChooseController(room, {
   }
 
   /**
-   * Há uma vaga e mais de um candidato: o capitão do time desfalcado escolhe.
+   * Há vaga(s) no time desfalcado. Auto se vagas = opções; senão o capitão escolhe.
+   * `opts.teamSize` mantém o formato (2v2/3v3); o padrão é 4v4.
    */
-  function startReplacement(targetTeam, onReady) {
+  function startReplacement(targetTeam, onReady, opts = {}) {
     clearCapTimeout();
-    replacement = { targetTeam, onReady };
+    const teamSize = Math.max(
+      1,
+      Math.min(config.teamSize, Number(opts.teamSize) || config.teamSize)
+    );
+    replacement = { targetTeam, onReady, teamSize };
     active = true;
-    lockedSize = config.teamSize;
-    if (list().specReady.length !== 1) {
+    lockedSize = teamSize;
+    const { red, blue, specReady } = list();
+    const have = targetTeam === TEAM.RED ? red.length : blue.length;
+    const need = Math.max(0, teamSize - have);
+    if (specReady.length !== need) {
       room.sendAnnouncement(
         `🔄 Reposição: capitão ${targetTeam === TEAM.RED ? "vermelho" : "azul"} escolhe um jogador do spec.`,
         null,

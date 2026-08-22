@@ -7,8 +7,8 @@ const { TEAM } = require("./choose");
  * - 1 elegível: treino no vermelho.
  * - Times iguais + 1 spec: aguarda.
  * - Times iguais + 2+ specs: sobe pares automaticamente.
- * - Time menor + 1 spec: preenche automaticamente.
- * - Time menor + 2+ specs: capitão do time menor escolhe.
+ * - Time menor + N specs e N vagas: preenche automaticamente.
+ * - Time menor + mais specs que vagas: capitão do time menor escolhe.
  * - Sem spec para preencher: último do time maior desce.
  */
 function planWarmup(players, { isExcluded, teamSize = 4 } = {}) {
@@ -81,6 +81,28 @@ function planWarmup(players, { isExcluded, teamSize = 4 } = {}) {
     move(list(TEAM.SPEC)[0] || list(TEAM.RED).at(-1), TEAM.BLUE);
   }
 
+  let red = list(TEAM.RED);
+  let blue = list(TEAM.BLUE);
+  let specs = list(TEAM.SPEC);
+
+  // Vagas = opções → puxa auto antes de descer gente do time maior.
+  if (red.length !== blue.length && specs.length > 0) {
+    const smaller = red.length < blue.length ? TEAM.RED : TEAM.BLUE;
+    const need = Math.abs(red.length - blue.length);
+    if (specs.length === need) {
+      for (let i = 0; i < need; i++) move(specs[i], smaller);
+    } else if (specs.length > need) {
+      return {
+        eligibleCount: eligible.length,
+        moves,
+        replacementTeam: smaller,
+        shouldStart: false,
+      };
+    } else {
+      for (let i = 0; i < specs.length; i++) move(list(TEAM.SPEC)[0], smaller);
+    }
+  }
+
   // Diferenças maiores que 1: os últimos do time maior descem.
   while (Math.abs(list(TEAM.RED).length - list(TEAM.BLUE).length) > 1) {
     const larger =
@@ -88,9 +110,9 @@ function planWarmup(players, { isExcluded, teamSize = 4 } = {}) {
     move(list(larger).at(-1), TEAM.SPEC);
   }
 
-  let red = list(TEAM.RED);
-  let blue = list(TEAM.BLUE);
-  let specs = list(TEAM.SPEC);
+  red = list(TEAM.RED);
+  blue = list(TEAM.BLUE);
+  specs = list(TEAM.SPEC);
 
   if (red.length !== blue.length) {
     const smaller = red.length < blue.length ? TEAM.RED : TEAM.BLUE;

@@ -138,6 +138,24 @@ describe("máquina de estados do treino/warmup", () => {
     assert.equal(plan.moves.length, 0);
   });
 
+  it("time desfalcado 2 vagas e 2 specs → preenche os dois automaticamente", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(3, TEAM.BLUE),
+      p(4, TEAM.BLUE),
+      p(5),
+      p(6),
+    ];
+    const plan = planWarmup(players);
+    assert.equal(plan.replacementTeam, null);
+    assert.deepEqual(finalTeams(players, plan), {
+      red: [1, 5, 6],
+      blue: [2, 3, 4],
+      spec: [],
+    });
+  });
+
   it("AFK voluntário no spec não entra nos pares nem nas escolhas", () => {
     const players = [p(1, TEAM.RED), p(2, TEAM.BLUE), p(3), p(4)];
     const plan = planWarmup(players, { isExcluded: (player) => player.id === 3 });

@@ -138,6 +138,7 @@ describe("capitão e lista de pick", () => {
   });
 
   it("capitão sai e o que estava abaixo assume o pick", () => {
+    // 2 vagas e 4 opções: o capitão escolhe. (2=2 puxaria auto.)
     const players = [
       p(1, TEAM.RED),
       p(11, TEAM.RED),
@@ -145,6 +146,8 @@ describe("capitão e lista de pick", () => {
       p(3, TEAM.BLUE),
       p(4),
       p(5),
+      p(6),
+      p(7),
     ];
     const { choose, announcements } = setup(players);
     choose.startReplacement(TEAM.RED);
@@ -175,10 +178,54 @@ describe("capitão e lista de pick", () => {
     assert.ok(announcements.some((row) => /única opção/i.test(row.msg)));
   });
 
-  it("reposição: 2 specs e um sai → o que sobrou entra sozinho", () => {
+  it("reposição 2 vagas e 2 specs → puxa os dois sem pick", () => {
     const players = [
       p(1, TEAM.RED),
       p(11, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(22, TEAM.BLUE),
+      p(3, TEAM.BLUE),
+      p(4, TEAM.BLUE),
+      p(5),
+      p(6),
+    ];
+    const { choose, announcements } = setup(players);
+    let result = null;
+    choose.startReplacement(TEAM.RED, (payload) => {
+      result = payload;
+    });
+    assert.equal(choose.isActive(), false);
+    assert.equal(players.find((row) => row.id === 5).team, TEAM.RED);
+    assert.equal(players.find((row) => row.id === 6).team, TEAM.RED);
+    assert.equal(choose.list().red.length, 4);
+    assert.ok(result && result.chosen);
+    assert.ok(announcements.some((row) => /2 vagas, 2 opções/i.test(row.msg)));
+  });
+
+  it("reposição 3 vagas e 3 specs → puxa os três sem pick", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(22, TEAM.BLUE),
+      p(3, TEAM.BLUE),
+      p(4, TEAM.BLUE),
+      p(5),
+      p(6),
+      p(7),
+    ];
+    const { choose } = setup(players);
+    choose.startReplacement(TEAM.RED);
+    assert.equal(choose.isActive(), false);
+    assert.equal(choose.list().red.length, 4);
+    assert.equal(choose.list().blue.length, 4);
+  });
+
+  it("reposição: 2 specs e um sai → o que sobrou entra sozinho", () => {
+    // 1 vaga e 2 opções: capitão escolhe. Quando sobra 1=1, puxa auto.
+    const players = [
+      p(1, TEAM.RED),
+      p(11, TEAM.RED),
+      p(12, TEAM.RED),
       p(2, TEAM.BLUE),
       p(3, TEAM.BLUE),
       p(4, TEAM.BLUE),
@@ -296,9 +343,11 @@ describe("capitão e lista de pick", () => {
   });
 
   it("reposição com jogo pausado: join atualiza a lista do capitão restante", () => {
+    // 1 vaga e 2 opções: o capitão continua no pick; o join vira [3] na lista.
     const players = [
       p(1, TEAM.RED),
       p(11, TEAM.RED),
+      p(12, TEAM.RED),
       p(2, TEAM.BLUE),
       p(3, TEAM.BLUE),
       p(4, TEAM.BLUE),

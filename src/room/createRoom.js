@@ -15,6 +15,7 @@ const {
   planExactFill,
   applyExactFill,
   isKickoffIdleAfk,
+  planKickoffAfkRecovery,
 } = require("./recovery");
 const { createMatchController } = require("./match");
 const { createRoomStats } = require("./roomStats");
@@ -491,7 +492,7 @@ function createRoom(HBInit) {
       match.addToLineup(specs[0], plan.targetTeam);
       if (live) {
         room.sendAnnouncement(
-          `${specs[0].name} entrou no time ${plan.targetTeam === TEAM.RED ? "vermelho" : "azul"} — jogo segue.`,
+          `${specs[0].name} entrou automaticamente (1 vaga, 1 opção) — jogo segue.`,
           null,
           0x2ecc71,
           "bold",
@@ -500,6 +501,26 @@ function createRoom(HBInit) {
         return;
       }
       laterForCurrentLobby(startCompetitiveFromCurrentField);
+      return;
+    }
+
+    if (plan.action === "fill-exact") {
+      const n = Number(plan.count) || specs.length;
+      const names = [];
+      for (let i = 0; i < n; i++) {
+        if (!specs[i]) break;
+        room.setPlayerTeam(specs[i].id, plan.targetTeam);
+        match.addToLineup(specs[i], plan.targetTeam);
+        names.push(specs[i].name);
+      }
+      room.sendAnnouncement(
+        `${names.join(", ")} entraram automaticamente (${names.length} vagas, ${names.length} opções).`,
+        null,
+        0x2ecc71,
+        "bold",
+        1
+      );
+      if (!live) laterForCurrentLobby(startCompetitiveFromCurrentField);
       return;
     }
 
@@ -556,10 +577,72 @@ function createRoom(HBInit) {
     laterForCurrentLobby(refreshLobby);
   }
 
+  function recoverAfterKickoffAfk() {
+    parkAfkOnField();
+    const players = room
+      .getPlayerList()
+      .filter((p) => p.id !== 0 && !afk.isAfk(p.id));
+    const red = players.filter((p) => p.team === TEAM.RED);
+    const blue = players.filter((p) => p.team === TEAM.BLUE);
+    const specs = players.filter((p) => p.team === TEAM.SPEC);
+    const plan = planKickoffAfkRecovery({
+      redCount: red.length,
+      blueCount: blue.length,
+      specCount: specs.length,
+    });
+
+    if (plan.action === "choose") {
+      laterForCurrentLobby(() => {
+        choose.deactivate();
+        choose.startReplacement(
+          plan.targetTeam,
+          ({ chosen, cancelled } = {}) => {
+            if (cancelled || !chosen) {
+              laterForCurrentLobby(refreshLobby);
+              return;
+            }
+            laterForCurrentLobby(startFromCurrentField);
+          },
+          { teamSize: plan.teamSize }
+        );
+      });
+      return;
+    }
+
+    if (plan.action === "fill") {
+      const n = Number(plan.count) || 1;
+      const names = [];
+      for (let i = 0; i < n; i++) {
+        if (!specs[i]) break;
+        room.setPlayerTeam(specs[i].id, plan.targetTeam);
+        names.push(specs[i].name);
+      }
+      if (names.length) {
+        room.sendAnnouncement(
+          names.length === 1
+            ? `${names[0]} entrou automaticamente (1 vaga, 1 opção).`
+            : `${names.join(", ")} entraram automaticamente (${names.length} vagas, ${names.length} opções).`,
+          null,
+          0x2ecc71,
+          "bold",
+          1
+        );
+      }
+      laterForCurrentLobby(startFromCurrentField);
+      return;
+    }
+
+    if (plan.action === "start") {
+      laterForCurrentLobby(startFromCurrentField);
+      return;
+    }
+
+    laterForCurrentLobby(refreshLobby);
+  }
+
   function restartAfterKickoffAfk(player) {
     if (kickoffAfkRestart) return;
     kickoffAfkRestart = true;
-    const competitive = match.isCompetitive();
     lobbyRevision += 1;
     match.cancelRecordingOnly();
     room.sendAnnouncement(
@@ -570,27 +653,26 @@ function createRoom(HBInit) {
       2
     );
     if (room.getScores()) room.stopGame();
-    if (competitive) recoverCompetitiveLineup();
-    else refreshLobby();
+    recoverAfterKickoffAfk();
   }
 
   afk.setOnStateChange(({ type, player }) => {
     if (type === "kick") return;
     if (kickoffAfkRestart) return;
 
-    // 4v4: parado vai ao spec e o capitão escolhe (se tiver spec).
-    // RR no kickoff abortava essa reposição — o jogo segue, só troca o AFK.
-    if (match.isCompetitive()) {
-      recoverCompetitiveLineup();
-      return;
-    }
-
+    // Começo da partida (nunca teclou/chutou): RR sem stats em 1v1–4v4.
+    // Depois o capitão escolhe o substituto se tiver spec.
     if (
       player &&
       isKickoffIdleAfk(type, player.id, movedThisMatch) &&
       room.getScores()
     ) {
       restartAfterKickoffAfk(player);
+      return;
+    }
+
+    if (match.isCompetitive()) {
+      recoverCompetitiveLineup();
       return;
     }
 

@@ -16,6 +16,51 @@ const {
  */
 
 describe("AFK: relógio, aviso e ação", () => {
+  it("2v2 treino no começo: RR sem stats e não devolve o AFK pro campo", async () => {
+    const host = bootRoom();
+    const all = [
+      host.addPlayer(TEAM.RED),
+      host.addPlayer(TEAM.RED),
+      host.addPlayer(TEAM.BLUE),
+      host.addPlayer(TEAM.BLUE),
+    ];
+    host.startMatch({ competitive: false });
+    for (const p of all.slice(1)) host.activity(p);
+
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await settle();
+
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
+    assert.equal(host.find(all[0].id).team, TEAM.SPEC, "não volta pro 2v2");
+    assert.ok(host.said(/AFK no começo/i), "RR no kickoff do treino");
+    assert.equal(host.handles.choose.isReplacement(), false, "sem spec o capitão não tem quem escolher");
+    host.cleanup();
+  });
+
+  it("2v2 depois de teclar: spec e vira 1v1, sem RR", async () => {
+    const host = bootRoom();
+    const all = [
+      host.addPlayer(TEAM.RED),
+      host.addPlayer(TEAM.RED),
+      host.addPlayer(TEAM.BLUE),
+      host.addPlayer(TEAM.BLUE),
+    ];
+    host.startMatch({ competitive: false });
+    for (const p of all) host.activity(p);
+
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await settle();
+
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
+    assert.equal(host.find(all[0].id).team, TEAM.SPEC);
+    assert.equal(host.said(/AFK no começo/i), false);
+    assert.equal(host.teamCount(TEAM.RED), 1);
+    assert.equal(host.teamCount(TEAM.BLUE), 1);
+    host.cleanup();
+  });
+
   it("avisa no tempo do aviso e só manda pro spec no tempo da ação", () => {
     const host = bootRoom();
     const all = fill4v4(host);
@@ -280,7 +325,7 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     host.cleanup();
   });
 
-  it("AFK no começo do 4v4: spec e capitão escolhe, jogo segue", async () => {
+  it("AFK no começo do 4v4: RR sem stats, spec e capitão escolhe", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.addPlayer(TEAM.SPEC);
@@ -294,9 +339,9 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
 
     assert.equal(host.handles.afk.isAfk(all[0].id), true);
     assert.equal(host.find(all[0].id).team, TEAM.SPEC);
-    assert.ok(host.live(), "sem RR — o jogo continua");
+    assert.equal(host.live(), null, "RR — a partida para e recomeça depois");
     assert.equal(host.handles.streak.get(), 1, "streak não zera");
-    assert.equal(host.said(/AFK no começo/i), false);
+    assert.ok(host.said(/AFK no começo/i));
     assert.equal(host.handles.choose.isReplacement(), true, "só a vaga do AFK");
     assert.equal(host.handles.choose.currentCaptain()?.team, TEAM.RED);
 
@@ -305,8 +350,85 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     await new Promise((r) => setTimeout(r, 400));
 
     assert.equal(host.teamCount(TEAM.RED), 4);
-    assert.ok(host.live(), "jogo segue depois do pick");
+    assert.ok(host.live(), "jogo novo depois do pick");
     assert.equal(host.handles.afk.isAfk(all[0].id), true, "AFK segue excluído até !voltar");
+    host.cleanup();
+  });
+
+  it("AFK no começo do 4v4 com 1 spec: puxa automático, sem pick", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await new Promise((r) => setTimeout(r, 400));
+
+    assert.ok(host.said(/AFK no começo/i));
+    assert.ok(host.said(/1 vaga, 1 opção/i));
+    assert.equal(host.handles.choose.isReplacement(), false);
+    assert.equal(host.teamCount(TEAM.RED), 4);
+    assert.equal(host.teamCount(TEAM.BLUE), 4);
+    assert.ok(host.live());
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
+    host.cleanup();
+  });
+
+  it("2v2 no começo com spec: RR e capitão escolhe, continua 2v2", async () => {
+    const host = bootRoom();
+    const all = [
+      host.addPlayer(TEAM.RED),
+      host.addPlayer(TEAM.RED),
+      host.addPlayer(TEAM.BLUE),
+      host.addPlayer(TEAM.BLUE),
+    ];
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch({ competitive: false });
+
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await new Promise((r) => setTimeout(r, 400));
+
+    assert.ok(host.said(/AFK no começo/i));
+    assert.equal(host.live(), null, "RR");
+    assert.equal(host.handles.choose.isReplacement(), true);
+    assert.equal(host.handles.choose.currentCaptain()?.team, TEAM.RED);
+
+    const cap = host.handles.choose.currentCaptain();
+    await host.chat(cap, "1");
+    await new Promise((r) => setTimeout(r, 400));
+
+    assert.equal(host.teamCount(TEAM.RED), 2);
+    assert.equal(host.teamCount(TEAM.BLUE), 2);
+    assert.ok(host.live(), "2v2 recomeça com o escolhido");
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
+    host.cleanup();
+  });
+
+  it("3v3 no começo com spec: RR e capitão escolhe, continua 3v3", async () => {
+    const host = bootRoom();
+    const all = [];
+    for (let i = 0; i < 3; i++) all.push(host.addPlayer(TEAM.RED));
+    for (let i = 0; i < 3; i++) all.push(host.addPlayer(TEAM.BLUE));
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch({ competitive: false });
+
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await new Promise((r) => setTimeout(r, 400));
+
+    assert.ok(host.said(/AFK no começo/i));
+    assert.equal(host.handles.choose.isReplacement(), true);
+    const cap = host.handles.choose.currentCaptain();
+    await host.chat(cap, "1");
+    await new Promise((r) => setTimeout(r, 400));
+
+    assert.equal(host.teamCount(TEAM.RED), 3);
+    assert.equal(host.teamCount(TEAM.BLUE), 3);
+    assert.ok(host.live());
     host.cleanup();
   });
 
@@ -322,6 +444,7 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     assert.equal(host.handles.afk.isAfk(all[0].id), true);
     assert.equal(host.teamCount(TEAM.RED) + host.teamCount(TEAM.BLUE), 6, "vira 3v3");
     assert.equal(host.teamCount(TEAM.RED), host.teamCount(TEAM.BLUE));
+    assert.ok(host.said(/AFK no começo/i), "RR no kickoff sem spec");
     host.cleanup();
   });
 

@@ -69,13 +69,18 @@ describe("recuperação do 4v4 competitivo", () => {
     assert.equal(plan({ redCount: 3, blueCount: 3, specCount: 0 }).action, "keep-play");
   });
 
-  it("buraco de 2 no mesmo time com spec → capitão escolhe até completar", () => {
+  it("buraco de 2 no mesmo time: 2 specs puxa auto; 1 spec preenche um; 3 specs o capitão escolhe", () => {
     assert.deepEqual(plan({ redCount: 2, blueCount: 4, specCount: 2 }), {
-      action: "choose",
+      action: "fill-exact",
       targetTeam: TEAM.RED,
+      count: 2,
     });
     assert.deepEqual(plan({ redCount: 2, blueCount: 4, specCount: 1 }), {
       action: "fill-one",
+      targetTeam: TEAM.RED,
+    });
+    assert.deepEqual(plan({ redCount: 2, blueCount: 4, specCount: 3 }), {
+      action: "choose",
       targetTeam: TEAM.RED,
     });
   });
@@ -124,6 +129,52 @@ describe("AFK no começo da partida", () => {
     assert.equal(isKickoffIdleAfk("auto-afk", 2, moved), false);
     assert.equal(isKickoffIdleAfk("voluntary-afk", 1, moved), false);
     assert.equal(isKickoffIdleAfk("kick", 1, moved), false);
+  });
+
+  it("vagas = opções no spec puxa auto; sobra gente o capitão escolhe", () => {
+    const { planKickoffAfkRecovery } = require("../src/room/recovery");
+    assert.deepEqual(planKickoffAfkRecovery({ redCount: 1, blueCount: 2, specCount: 2 }), {
+      action: "choose",
+      targetTeam: TEAM.RED,
+      teamSize: 2,
+    });
+    assert.deepEqual(planKickoffAfkRecovery({ redCount: 3, blueCount: 4, specCount: 1 }), {
+      action: "fill",
+      targetTeam: TEAM.RED,
+      teamSize: 4,
+      count: 1,
+    });
+    assert.deepEqual(planKickoffAfkRecovery({ redCount: 2, blueCount: 4, specCount: 2 }), {
+      action: "fill",
+      targetTeam: TEAM.RED,
+      teamSize: 4,
+      count: 2,
+    });
+    assert.deepEqual(planKickoffAfkRecovery({ redCount: 1, blueCount: 4, specCount: 3 }), {
+      action: "fill",
+      targetTeam: TEAM.RED,
+      teamSize: 4,
+      count: 3,
+    });
+    assert.deepEqual(planKickoffAfkRecovery({ redCount: 2, blueCount: 3, specCount: 2 }), {
+      action: "choose",
+      targetTeam: TEAM.RED,
+      teamSize: 3,
+    });
+    assert.deepEqual(planKickoffAfkRecovery({ redCount: 3, blueCount: 4, specCount: 2 }), {
+      action: "choose",
+      targetTeam: TEAM.RED,
+      teamSize: 4,
+    });
+    assert.deepEqual(planKickoffAfkRecovery({ redCount: 0, blueCount: 1, specCount: 2 }), {
+      action: "choose",
+      targetTeam: TEAM.RED,
+      teamSize: 1,
+    });
+    assert.equal(
+      planKickoffAfkRecovery({ redCount: 3, blueCount: 4, specCount: 0 }).action,
+      "refresh"
+    );
   });
 });
 
