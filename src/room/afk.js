@@ -10,8 +10,10 @@ function shouldCountAutoAfk(players) {
   return fieldPlayerCount(players) >= 2;
 }
 
-/** Distância mínima (legado/testes). AFK real usa tecla (onPlayerActivity). */
-const MOVE_EPS = 8;
+/** Salto grande neste tick (empurrão / corrida). Jitter acumulado NÃO conta. */
+const MOVE_EPS = 1.5;
+/** Velocidade de andar de verdade. Residual da física (~0) não zera o AFK. */
+const SPEED_EPS = 0.25;
 /** Haxball: onGameTick = 60 Hz. Apex incrementa ACT nesse loop. */
 const TICK_HZ = 60;
 const MS_PER_TICK = 1000 / TICK_HZ;
@@ -31,16 +33,16 @@ function afkRemainSec() {
 /**
  * AFK é um estado só, venha do !afk ou de ficar parado em campo.
  *
- * onPlayerActivity → zera o relógio (tecla; empurrão da bola não conta).
- * onGameTick → mede o tempo. O haxball.js NÃO entrega 60 Hz estável —
- *   contar só ticks fazia o parado nunca estourar (2v2/treino). Por isso
- *   o idle é o máximo entre ticks*16.6ms e relógio de parede.
- * onGameTick não existe com o jogo pausado; a pausa congela sozinha.
- * A flag paused só segura o setInterval; se ela ficar presa e a física
- *   continuar, o tick da física ainda pune.
+ * Relógio = parede (8s aviso, 12s spec). Só zera se o disco ANDAR neste tick
+ * (velocidade ou salto de posição). Jitter acumulado do host NÃO zera —
+ * era isso que fazia o parado nunca estourar.
+ * Tecla no lugar não conta. getPlayerDiscProperties em try/catch: se lançar,
+ * o tick segue e o setInterval de 1s ainda pune.
+ * onGameTick não existe com o jogo pausado de verdade; a flag paused só
+ * segura o setInterval (se ficar presa, a física ainda pune).
  */
 function createAfkTracker(room, opts = {}) {
-  /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number }>} */
+  /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number, lastPos: {x:number,y:number}|null }>} */
   const state = new Map();
   /** @type {Map<number, number>} id → AFK desde quando (para kickar o mais antigo) */
   const afks = new Map();
@@ -53,6 +55,7 @@ function createAfkTracker(room, opts = {}) {
   let reserveCheckTicks = 0;
   let onStateChange = null;
   const shouldAutoAfk = typeof opts.shouldAutoAfk === "function" ? opts.shouldAutoAfk : () => true;
+  const onFieldMove = typeof opts.onFieldMove === "function" ? opts.onFieldMove : null;
 
   function effectiveNow(wallNow = Date.now()) {
     if (paused && pauseAt) return pauseAt;
@@ -60,7 +63,7 @@ function createAfkTracker(room, opts = {}) {
   }
 
   function blankState(now) {
-    return { lastActive: now, warned: false, idleTicks: 0 };
+    return { lastActive: now, warned: false, idleTicks: 0, lastPos: null };
   }
 
   function touch(playerId, wallNow = Date.now()) {
@@ -69,7 +72,52 @@ function createAfkTracker(room, opts = {}) {
     cur.lastActive = wallNow;
     cur.warned = false;
     cur.idleTicks = 0;
+    cur.lastPos = null;
     state.set(playerId, cur);
+  }
+
+  function readDisc(p) {
+    try {
+      if (typeof room.getPlayerDiscProperties !== "function") return null;
+      return room.getPlayerDiscProperties(p.id) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function playerPos(p) {
+    const disc = readDisc(p);
+    if (disc && Number.isFinite(disc.x) && Number.isFinite(disc.y)) {
+      return { x: disc.x, y: disc.y, xspeed: disc.xspeed, yspeed: disc.yspeed };
+    }
+    const pos = p.position;
+    if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
+      return { x: pos.x, y: pos.y };
+    }
+    return null;
+  }
+
+  /**
+   * Andou NESTE tick? Compara com o tick anterior (não acumula deriva).
+   * Velocidade manda: parado tem ~0, andar passa de SPEED_EPS.
+   */
+  function applyMotion(p, st, wallNow) {
+    const pos = playerPos(p);
+    let moving = false;
+    if (pos && Number.isFinite(pos.xspeed) && Number.isFinite(pos.yspeed)) {
+      const sp2 = pos.xspeed * pos.xspeed + pos.yspeed * pos.yspeed;
+      if (sp2 >= SPEED_EPS * SPEED_EPS) moving = true;
+    }
+    if (pos) {
+      if (st.lastPos && hasMoved(st.lastPos, pos, MOVE_EPS)) moving = true;
+      st.lastPos = { x: pos.x, y: pos.y };
+    }
+    if (!moving) return false;
+    st.lastActive = wallNow;
+    st.warned = false;
+    st.idleTicks = 0;
+    onFieldMove?.(p.id);
+    return true;
   }
 
   function remove(playerId) {
@@ -219,7 +267,12 @@ function createAfkTracker(room, opts = {}) {
       }
       if (p.team === 0) continue;
       if (!state.has(p.id)) touch(p.id, wallNow);
-      onEach(p, state.get(p.id), full);
+      try {
+        onEach(p, state.get(p.id), full);
+      } catch {
+        const st = state.get(p.id);
+        if (st) punishIdle(p, idleMs(st, wallNow), full);
+      }
     }
   }
 
@@ -267,8 +320,8 @@ function createAfkTracker(room, opts = {}) {
   }
 
   /**
-   * Física rodando. Conta ticks (testes/60Hz) E relógio de parede —
-   * o host não entrega 60 callbacks por segundo com estabilidade.
+   * Física rodando. Inatividade = disco parado neste tick.
+   * Conta ticks E relógio de parede — o host não entrega 60 Hz estável.
    * Ignora a flag paused: se a física está no ar, o parado cai.
    */
   function noteGameTick(wallNow = Date.now()) {
@@ -278,19 +331,19 @@ function createAfkTracker(room, opts = {}) {
       return;
     }
     forEachFieldPlayer(wallNow, (p, st, full) => {
+      if (applyMotion(p, st, wallNow)) return;
       st.idleTicks = (Number(st.idleTicks) || 0) + 1;
       punishIdle(p, idleMs(st, wallNow), full);
     });
     maybeReserveSlots();
   }
 
+  /**
+   * Fallback de 1s. NÃO desiste se o onGameTick rodou há pouco — era isso
+   * que matava o AFK quando o tick zerava o relógio no jitter e o intervalo
+   * achava que a física estava no controle.
+   */
   function tick(wallNow = Date.now()) {
-    // O loop do jogo está no controle: não contar duas vezes.
-    if (lastSimTickAt > 0 && wallNow - lastSimTickAt < 1500) {
-      ensureReserveSlots();
-      return;
-    }
-
     if (paused) {
       ensureReserveSlots();
       return;
@@ -301,9 +354,23 @@ function createAfkTracker(room, opts = {}) {
     }
 
     forEachFieldPlayer(wallNow, (p, st, full) => {
+      if (applyMotion(p, st, wallNow)) return;
       punishIdle(p, idleMs(st, wallNow), full);
     });
     ensureReserveSlots();
+  }
+
+  function sampleMovement(wallNow = Date.now()) {
+    forEachFieldPlayer(wallNow, (p, st) => {
+      applyMotion(p, st, wallNow);
+    });
+  }
+
+  /** Gol/kickoff teleporta o disco: não conta como ter andado. */
+  function notePositionsReset() {
+    for (const st of state.values()) {
+      st.lastPos = null;
+    }
   }
 
   const interval = setInterval(tick, 1000);
@@ -318,7 +385,8 @@ function createAfkTracker(room, opts = {}) {
     },
     setAfk,
     ensureReserveSlots,
-    sampleMovement() {},
+    sampleMovement,
+    notePositionsReset,
     resetClocks,
     setOnStateChange(handler) {
       onStateChange = typeof handler === "function" ? handler : null;
@@ -341,5 +409,6 @@ module.exports = {
   shouldCountAutoAfk,
   hasMoved,
   MOVE_EPS,
+  SPEED_EPS,
   TICK_HZ,
 };

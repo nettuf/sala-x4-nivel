@@ -28,7 +28,11 @@ function bootRoom({ deferTeamChanges = false } = {}) {
   }
 
   const room = {
-    getPlayerList: () => players.map(snapshot),
+    getPlayerList: () =>
+      players.map((p) => {
+        const disc = discs.get(p.id);
+        return { ...p, position: disc ? { x: disc.x, y: disc.y } : p.position };
+      }),
     getScores: () => scores,
     getBallPosition: () => ({ x: 0, y: 0 }),
     getDiscProperties: () => ({ xspeed: 0, yspeed: 0 }),
@@ -140,8 +144,8 @@ function bootRoom({ deferTeamChanges = false } = {}) {
       return room.onPlayerChat(snapshot(live), message);
     },
     /**
-     * Deixa os jogadores parados há `idleMs` e marca atividade (tecla) em `moving`.
-     * Espelha onPlayerActivity do headless — empurrão de posição não conta.
+     * Deixa os jogadores parados há `idleMs`. `moving` zera o relógio
+     * (como se o disco tivesse andado). Tecla sozinha não conta.
      */
     idle(all, { moving = [], idleMs = config.afkActionMs + 1000 } = {}) {
       const past = Date.now() - idleMs;

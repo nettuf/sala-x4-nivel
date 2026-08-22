@@ -130,8 +130,13 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("parado em campo vira AFK; quem aperta tecla não", () => {
+  it("parado em campo vira AFK; quem anda o disco não", () => {
     const { room, players } = afkSetup(4);
+    const discs = new Map([
+      [1, { x: 0, y: 0 }],
+      [2, { x: 0, y: 0 }],
+    ]);
+    room.getPlayerDiscProperties = (id) => discs.get(id) || null;
     const afk = createAfkTracker(room);
     const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
     config.afkWarnMs = 8000;
@@ -140,16 +145,18 @@ describe("AFK: ações e pausa", () => {
 
     afk.touch(1, at);
     afk.touch(2, at);
-    // P2 tecla (onPlayerActivity); P1 fica plantado
+    afk.noteGameTick(at);
+    // P2 anda; P1 fica plantado. Tecla não entra nesta conta.
     for (let i = 1; i <= 5; i++) {
-      afk.touch(2, at + i * 1000);
+      discs.set(2, { x: i * 10, y: 0 });
+      afk.noteGameTick(at + i * 1000);
     }
 
     afk.tick(at + 13000);
 
     assert.equal(players.find((p) => p.id === 1).team, 0, "parado devia ir pro spec");
     assert.equal(afk.isAfk(1), true);
-    assert.equal(players.find((p) => p.id === 2).team, 2, "quem teclou continua em campo");
+    assert.equal(players.find((p) => p.id === 2).team, 2, "quem andou continua em campo");
     assert.equal(afk.isAfk(2), false);
 
     config.afkWarnMs = prev.warn;
@@ -174,7 +181,7 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("empurrão na posição não zera AFK; tecla (activity) zera", () => {
+  it("disco andou → zera AFK; tecla no lugar não zera", () => {
     const { room, players } = afkSetup(4);
     const discs = new Map([
       [1, { x: 0, y: 0 }],
@@ -188,17 +195,14 @@ describe("AFK: ações e pausa", () => {
     const at = Date.now();
     afk.touch(1, at);
     afk.touch(2, at);
+    afk.sampleMovement(at);
 
-    // Bola empurra os dois — sampleMovement é no-op e não salva ninguém.
     discs.set(1, { x: 80, y: 40 });
-    discs.set(2, { x: 90, y: 50 });
     afk.sampleMovement(at + 4000);
-    // Só P2 tecla de verdade.
-    afk.touch(2, at + 4000);
 
     afk.tick(at + 13000);
-    assert.equal(players.find((p) => p.id === 1).team, 0, "empurrão não conta como atividade");
-    assert.equal(players.find((p) => p.id === 2).team, 2, "quem teclou segue em campo");
+    assert.equal(players.find((p) => p.id === 1).team, 1, "andar o disco zera o relógio");
+    assert.equal(players.find((p) => p.id === 2).team, 0, "tecla no lugar não impede o AFK");
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();
@@ -559,10 +563,111 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
+  it("onGameTick lento ainda avisa aos 8s e manda spec aos 12s com disco parado", () => {
+    const { room, players } = afkSetup(4);
+    const discs = new Map([
+      [1, { x: 0, y: 0 }],
+      [2, { x: 10, y: 0 }],
+    ]);
+    room.getPlayerDiscProperties = (id) => discs.get(id) || { x: 0, y: 0 };
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const t0 = 1_700_000_000_000;
+    afk.resetClocks(t0);
+
+    afk.noteGameTick(t0 + 1000);
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+    assert.ok(!room.announcements.some((a) => /faltam 4s/i.test(a.msg)));
+
+    afk.noteGameTick(t0 + 9000);
+    assert.ok(room.announcements.some((a) => /faltam 4s/i.test(a.msg)));
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+
+    afk.noteGameTick(t0 + 13000);
+    assert.equal(players.find((p) => p.id === 1).team, 0);
+    assert.equal(afk.isAfk(1), true);
+
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("jitter do disco (0.3 por tick) NÃO zera o AFK — o parado cai aos 12s", () => {
+    const { room, players } = afkSetup(4);
+    const discs = new Map([
+      [1, { x: 0, y: 0, xspeed: 0, yspeed: 0 }],
+      [2, { x: 10, y: 0, xspeed: 0, yspeed: 0 }],
+    ]);
+    room.getPlayerDiscProperties = (id) => discs.get(id) || { x: 0, y: 0, xspeed: 0, yspeed: 0 };
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const t0 = 1_700_000_000_000;
+    afk.resetClocks(t0);
+    afk.noteGameTick(t0);
+
+    // Deriva pequena a cada tick: o código antigo somava e zerava o relógio.
+    for (let i = 1; i <= 13; i++) {
+      discs.set(1, { x: i * 0.3, y: 0, xspeed: 0.02, yspeed: 0 });
+      afk.noteGameTick(t0 + i * 1000);
+    }
+
+    assert.equal(players.find((p) => p.id === 1).team, 0, "jitter não é movimento");
+    assert.equal(afk.isAfk(1), true);
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("setInterval pune mesmo se o onGameTick acabou de rodar", () => {
+    const { room, players } = afkSetup(4);
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const t0 = 1_700_000_000_000;
+    afk.resetClocks(t0);
+    afk.noteGameTick(t0 + 11500);
+    afk.tick(t0 + 12000);
+
+    assert.equal(players.find((p) => p.id === 1).team, 0, "fallback de 1s não espera o tick sumir");
+    assert.equal(afk.isAfk(1), true);
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("velocidade de andar zera; residual da física não", () => {
+    const { room, players } = afkSetup(4);
+    const discs = new Map([
+      [1, { x: 0, y: 0, xspeed: 0.02, yspeed: 0 }],
+      [2, { x: 0, y: 0, xspeed: 0.6, yspeed: 0 }],
+    ]);
+    room.getPlayerDiscProperties = (id) => discs.get(id);
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const t0 = 1_700_000_000_000;
+    afk.resetClocks(t0);
+    for (let i = 1; i <= 13; i++) {
+      discs.set(2, { x: i * 2, y: 0, xspeed: 0.6, yspeed: 0 });
+      afk.noteGameTick(t0 + i * 1000);
+    }
+    assert.equal(players.find((p) => p.id === 1).team, 0);
+    assert.equal(players.find((p) => p.id === 2).team, 2, "quem está andando segue em campo");
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
   it("ocioso só conta se o boneco andou de verdade", () => {
     assert.equal(hasMoved(null, { x: 0, y: 0 }), false);
     assert.equal(hasMoved({ x: 0, y: 0 }, { x: 0.1, y: 0 }), false);
-    assert.equal(hasMoved({ x: 0, y: 0 }, { x: 3, y: 0 }), false);
+    assert.equal(hasMoved({ x: 0, y: 0 }, { x: 3, y: 0 }), true);
     assert.equal(hasMoved({ x: 0, y: 0 }, { x: 10, y: 0 }), true);
   });
 });

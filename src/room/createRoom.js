@@ -69,8 +69,10 @@ function createRoom(HBInit) {
     chatLog: null,
   };
 
+  const movedThisMatch = new Set();
   const afk = createAfkTracker(room, {
     shouldAutoAfk: () => shouldCountAutoAfk(room.getPlayerList()),
+    onFieldMove: (id) => movedThisMatch.add(id),
   });
   ctx.afk = afk;
   const uniforms = createUniformManager(room);
@@ -201,8 +203,6 @@ function createRoom(HBInit) {
 
   let lobbyRevision = 0;
   let postMatchBusy = false;
-  /** Quem teclou ou chutou nesta partida. Vazio = ainda não mexeu desde o start. */
-  const movedThisMatch = new Set();
   /** RR por AFK no começo do treino: o onGameStop não pode gravar stats nem remontar de novo. */
   let kickoffAfkRestart = false;
   const slowChat = new Set();
@@ -987,11 +987,10 @@ function createRoom(HBInit) {
     }
   };
 
-  // Apex / wiki: onPlayerActivity É a tecla. Não filtrar por velocidade —
-  // disco parado no kickoff ou empurrado pela bola quebrava o relógio.
+  // Tecla no lugar NÃO zera o relógio de AFK (map.txt). Só marca que
+  // já mexeu nesta partida, para o RR do começo não valer.
   room.onPlayerActivity = (player) => {
     if (!player?.id) return;
-    afk.touch(player.id);
     movedThisMatch.add(player.id);
   };
 
@@ -1007,6 +1006,7 @@ function createRoom(HBInit) {
 
   room.onPositionsReset = () => {
     match.notePositionsReset();
+    afk.notePositionsReset();
   };
 
   room.onGameStart = () => {

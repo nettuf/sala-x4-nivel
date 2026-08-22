@@ -82,28 +82,28 @@ describe("AFK: relógio, aviso e ação", () => {
     host.cleanup();
   });
 
-  it("empurrão na posição não salva do AFK; tecla salva", () => {
+  it("empurrão na posição zera o AFK; tecla no lugar não", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     const empurrado = all[0];
-    const ativo = all[1];
+    const parado = all[1];
     host.startMatch();
 
     const past = Date.now() - config.afkActionMs - 1000;
     for (const p of all) host.handles.afk.touch(p.id, past);
-    // Disco voa longe: isso não conta mais como atividade.
+    host.handles.afk.sampleMovement(past);
     const at = host.discs.get(empurrado.id);
     host.discs.set(empurrado.id, { x: at.x + 90, y: at.y + 40 });
     host.handles.afk.sampleMovement(Date.now());
-    host.activity(ativo);
+    host.activity(parado);
     host.handles.afk.tick(Date.now());
 
-    assert.equal(host.handles.afk.isAfk(empurrado.id), true, "empurrão não conta");
-    assert.equal(host.handles.afk.isAfk(ativo.id), false, "tecla conta");
+    assert.equal(host.handles.afk.isAfk(empurrado.id), false, "disco andou");
+    assert.equal(host.handles.afk.isAfk(parado.id), true, "tecla no lugar não conta");
     host.cleanup();
   });
 
-  it("tecla zera o AFK mesmo com disco parado (kickoff / Apex)", () => {
+  it("tecla no lugar não zera o AFK com o disco parado", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     const parado = all[0];
@@ -115,7 +115,7 @@ describe("AFK: relógio, aviso e ação", () => {
     host.activity(parado);
     host.handles.afk.tick(Date.now());
 
-    assert.equal(host.handles.afk.isAfk(parado.id), false, "onPlayerActivity é tecla, não velocidade");
+    assert.equal(host.handles.afk.isAfk(parado.id), true, "map.txt: tecla sem andar é AFK");
     host.cleanup();
   });
 
@@ -1004,6 +1004,87 @@ describe("choose: reposição em partida", () => {
 
     assert.equal(host.handles.choose.isReplacement(), false, "jogo já acabou — não abre reposição");
     assert.equal(host.handles.choose.isActive(), false);
+    host.cleanup();
+  });
+});
+
+/**
+ * Contrato da ociosidade em partida (não é treino solo):
+ * aviso 8s, spec 12s; kickoff = RR sem stats; RR não zera streak, só derrota.
+ */
+describe("partida 4v4: ociosidade 8s/12s, RR no começo, streak só na derrota", () => {
+  it("no meio do 4v4: 8s avisa, 12s AFK no spec, sem RR", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch({ competitive: true });
+    for (const p of all) host.activity(p);
+
+    const parado = all[0];
+    const ativos = all.slice(1);
+
+    host.idle(all, { moving: ativos, idleMs: config.afkWarnMs + 500 });
+    host.handles.afk.tick(Date.now());
+    assert.ok(host.said(/mexa-se/, parado.id), "aviso privado aos 8s");
+    assert.equal(host.find(parado.id).team, TEAM.RED, "aviso não tira do time");
+    assert.equal(host.handles.afk.isAfk(parado.id), false);
+    assert.ok(host.live(), "partida segue");
+
+    host.idle(all, { moving: ativos, idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await settle();
+
+    assert.equal(host.find(parado.id).team, TEAM.SPEC, "12s → spec AFK");
+    assert.equal(host.handles.afk.isAfk(parado.id), true);
+    assert.equal(host.said(/AFK no começo/i), false, "já tinha mexido: não é RR");
+    assert.ok(host.live(), "jogo não reinicia no meio");
+    host.cleanup();
+  });
+
+  it("no kickoff do 4v4 (nunca mexeu): 12s dá RR sem stats e não zera streak", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.handles.streak.recordWin(TEAM.RED, ["A"]);
+    host.handles.streak.recordWin(TEAM.RED, ["A"]);
+    assert.equal(host.handles.streak.get(), 2);
+
+    host.startMatch({ competitive: true });
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await new Promise((r) => setTimeout(r, 400));
+
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
+    assert.equal(host.find(all[0].id).team, TEAM.SPEC);
+    assert.ok(host.said(/AFK no começo/i), "RR no começo");
+    assert.equal(host.live(), null, "partida parou para reiniciar");
+    assert.equal(host.handles.streak.get(), 2, "RR não zera streak");
+    host.cleanup();
+  });
+
+  it("stop/RR no 4v4 não zeram streak; só vitória do azul (derrota) recomeça", async () => {
+    const host = bootRoom();
+    fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.handles.streak.recordWin(TEAM.RED, ["A"]);
+    host.handles.streak.recordWin(TEAM.RED, ["A"]);
+    assert.equal(host.handles.streak.get(), 2);
+
+    host.startMatch({ competitive: true });
+    host.room.stopGame();
+    await host.room.onGameStop();
+    assert.equal(host.handles.streak.get(), 2, "admin/RR no meio não zera");
+
+    host.startMatch({ competitive: true });
+    const scores = host.live();
+    Object.assign(scores, { red: 0, blue: config.scoreLimit, time: 180 });
+    host.handles.match.onTick();
+    host.handles.match.markVictory();
+    host.room.stopGame();
+    await host.room.onGameStop();
+
+    assert.equal(host.handles.streak.get(), 1, "azul ganhou: streak recomeça com os novos vencedores");
     host.cleanup();
   });
 });
