@@ -117,9 +117,10 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
-  it("!afk é bloqueado no 4v4 oficial", async () => {
+  it("!afk no 4v4 ao vivo com spec manda para spec", async () => {
     const room = mockRoom();
     room.getScores = () => ({ red: 0, blue: 0, time: 12, timeLimit: 180 });
+    room.pauseGame = () => {};
     const afk = createAfkTracker(room);
     const ctx = {
       admins: new Map(),
@@ -129,9 +130,57 @@ describe("comandos (mock room)", () => {
     };
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!afk");
-    assert.equal(room._players[0].team, 1);
+    assert.equal(room._players[0].team, 0);
+    assert.equal(afk.isAfk(1), true);
+    afk.stop();
+  });
+
+  it("!afk no 4v4 ao vivo sem spec é recusado", async () => {
+    const players = [];
+    for (let i = 1; i <= 8; i++) {
+      players.push({ id: i, name: `P${i}`, team: i <= 4 ? 1 : 2, auth: `a${i}` });
+    }
+    const announcements = [];
+    const room = {
+      announcements,
+      getPlayerList: () => players,
+      getScores: () => ({ red: 0, blue: 0, time: 12, timeLimit: 180 }),
+      sendAnnouncement: (msg, to, color) => announcements.push({ msg, to, color }),
+      setPlayerTeam: (id, team) => {
+        const p = players.find((x) => x.id === id);
+        if (p) p.team = team;
+      },
+    };
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      match: { isCompetitive: () => true },
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(players[0], "!afk");
+    assert.equal(players[0].team, 1);
     assert.equal(afk.isAfk(1), false);
-    assert.ok(room.announcements.some((a) => /4v4/i.test(a.msg)));
+    assert.ok(announcements.some((a) => /não pode usar !afk no 4v4/i.test(a.msg)));
+    afk.stop();
+  });
+
+  it("!afk no 4v4 antes da partida começar é permitido", async () => {
+    const room = mockRoom();
+    room.getScores = () => null;
+    room.pauseGame = () => {};
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      match: { isCompetitive: () => true },
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!afk");
+    assert.equal(room._players[0].team, 0);
+    assert.equal(afk.isAfk(1), true);
     afk.stop();
   });
 
@@ -485,7 +534,7 @@ describe("comandos (mock room)", () => {
     assert.ok(room.announcements.some((a) => a.to === room._players[0].id && /Espere/i.test(a.msg)));
   });
 
-  it("!gordo e !ego colocam cargo 1h e têm cooldown de 15min separado", async () => {
+  it("!gordo e !aura duram 20min e o cooldown de 15min é da sala", async () => {
     const room = mockRoom();
     const ctx = withClock({
       admins: new Map(),
@@ -496,34 +545,52 @@ describe("comandos (mock room)", () => {
     });
     const cmd = createCommandHandler(room, ctx);
     const red = room._players[0];
+    const blue = room._players[1];
     const spec = room._players[2];
 
     await cmd.handle(red, "!gordo Spec");
-    assert.ok(room.announcements.some((a) => a.to == null && /🐷/.test(a.msg) && /Spec/.test(a.msg)));
+    assert.ok(
+      room.announcements.some(
+        (a) => a.to == null && /CaçadorDeGordo achou mais uma vítima: Spec/.test(a.msg)
+      )
+    );
     assert.equal(ctx.titles.get(3).id, "gordo");
-    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🐷 /);
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🍔 /);
 
     room.announcements.length = 0;
     await cmd.handle(red, "!gordo Spec");
     assert.ok(room.announcements.some((a) => a.to === red.id && /Espere/.test(a.msg) && /gordo/.test(a.msg)));
 
     room.announcements.length = 0;
-    await cmd.handle(red, "!ego Spec");
-    assert.ok(room.announcements.some((a) => a.to == null && /🦚/.test(a.msg)));
-    assert.equal(ctx.titles.get(3).id, "ego");
-    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🦚 /);
+    await cmd.handle(blue, "!gordo RedCap");
+    assert.ok(
+      room.announcements.some((a) => a.to === blue.id && /Espere/.test(a.msg)),
+      "cooldown é da sala, não por jogador"
+    );
 
     room.announcements.length = 0;
-    await cmd.handle(red, "!ego Spec");
-    assert.ok(room.announcements.some((a) => a.to === red.id && /Espere/.test(a.msg) && /ego/.test(a.msg)));
+    await cmd.handle(red, "!aura Spec");
+    assert.ok(
+      room.announcements.some(
+        (a) =>
+          a.to == null &&
+          /Spec recebeu a bênção do ProdLuz e agora está com ego elevado/.test(a.msg)
+      )
+    );
+    assert.equal(ctx.titles.get(3).id, "aura");
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🗿 /);
+
+    room.announcements.length = 0;
+    await cmd.handle(blue, "!ego Spec");
+    assert.ok(room.announcements.some((a) => a.to === blue.id && /Espere/.test(a.msg) && /aura/.test(a.msg)));
 
     ctx.advance(15 * 60 * 1000);
     room.announcements.length = 0;
-    await cmd.handle(red, "!gordo Spec");
-    assert.ok(room.announcements.some((a) => a.to == null && /🐷/.test(a.msg)));
+    await cmd.handle(blue, "!gordo Spec");
+    assert.ok(room.announcements.some((a) => a.to == null && /🍔/.test(a.msg)));
     assert.equal(ctx.titles.get(3).id, "gordo");
 
-    ctx.advance(60 * 60 * 1000);
+    ctx.advance(20 * 60 * 1000);
     assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🌱 /);
     assert.equal(ctx.titles.get(3).id, "novato");
   });
@@ -554,8 +621,11 @@ describe("comandos (mock room)", () => {
       titles: new Map([[1, { emblem: "🌱", name: "Novato", color: 0xbdc3c7 }]]),
     };
     const cmd = createCommandHandler(room, ctx);
-    const { line } = cmd.formatPlayerChat(room._players[0], "oi");
+    const { line, color } = cmd.formatPlayerChat(room._players[0], "oi");
     assert.equal(line, "🌱 RedCap: oi");
+    assert.equal(color, 0xff5c5c, "vermelho no time vermelho");
+    assert.equal(cmd.formatPlayerChat(room._players[1], "oi").color, 0x5aa7ff, "azul no time azul");
+    assert.equal(cmd.formatPlayerChat(room._players[2], "oi").color, 0xcfd3d8, "spec neutro");
     afk.stop();
   });
 
@@ -566,11 +636,12 @@ describe("comandos (mock room)", () => {
       admins: new Map([[1, { level: 4, title: "Chefe" }]]),
       mutes: new Map(),
       afk,
-      titles: new Map([[1, { emblem: "👑", name: "Chefe", color: 0xe74c3c, id: "chefe" }]]),
+      titles: new Map([[1, { emblem: "👑", name: "Chefe", color: 0xe74c3c, id: "chefe", kind: "staff", level: 4 }]]),
     };
     const cmd = createCommandHandler(room, ctx);
-    const { line } = cmd.formatPlayerChat(room._players[0], "s");
+    const { line, color } = cmd.formatPlayerChat(room._players[0], "s");
     assert.equal(line, "👑 RedCap: s");
+    assert.equal(color, 0xffd54a, "Chefe usa dourado, não a cor do time");
     afk.stop();
   });
 

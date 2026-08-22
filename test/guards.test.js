@@ -7,7 +7,7 @@ const {
   evaluateJoin,
   applyJoinGuards,
 } = require("../src/room/joinGuards");
-const { createAfkTracker, shouldCountAutoAfk, shouldCountActivity, hasMoved } = require("../src/room/afk");
+const { createAfkTracker, shouldCountAutoAfk, hasMoved } = require("../src/room/afk");
 const config = require("../src/config");
 
 function mockRoom(players) {
@@ -423,11 +423,23 @@ describe("AFK: ações e pausa", () => {
     );
   });
 
-  it("pacote de input parado (xspeed 0) não conta como tecla", () => {
-    assert.equal(shouldCountActivity({ x: 10, y: 0, xspeed: 0, yspeed: 0 }), false);
-    assert.equal(shouldCountActivity({ x: 10, y: 0, xspeed: 1.2, yspeed: 0 }), true);
-    assert.equal(shouldCountActivity({ x: 10, y: 0 }), true, "sem velocidade (teste) assume tecla");
-    assert.equal(shouldCountActivity(null), true);
+  it("quem nunca teclou ainda cai no AFK pelo onGameTick", () => {
+    const { room, players } = afkSetup(4);
+    const { TICK_HZ } = require("../src/room/afk");
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    afk.resetClocks();
+
+    const ticks = Math.ceil((12000 / 1000) * TICK_HZ) + 2;
+    for (let i = 0; i < ticks; i++) afk.noteGameTick();
+
+    assert.equal(players.find((p) => p.id === 1).team, 0, "parado sem tecla vai pro spec");
+    assert.equal(afk.isAfk(1), true);
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
   });
 
   it("1v1 parado vai para spect", () => {

@@ -58,7 +58,7 @@ describe("AFK: relógio, aviso e ação", () => {
     host.cleanup();
   });
 
-  it("input parado (xspeed 0) não zera o AFK", () => {
+  it("tecla zera o AFK mesmo com disco parado (kickoff / Apex)", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     const parado = all[0];
@@ -70,7 +70,7 @@ describe("AFK: relógio, aviso e ação", () => {
     host.activity(parado);
     host.handles.afk.tick(Date.now());
 
-    assert.equal(host.handles.afk.isAfk(parado.id), true, "pacote 0 não é tecla");
+    assert.equal(host.handles.afk.isAfk(parado.id), false, "onPlayerActivity é tecla, não velocidade");
     host.cleanup();
   });
 
@@ -224,17 +224,19 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     host.cleanup();
   });
 
-  it("!afk é recusado dentro do 4v4 oficial", async () => {
+  it("!afk no 4v4 oficial com spec manda para spec e abre reposição", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
     host.startMatch();
 
     await host.chat(all[0], "!afk");
     await settle();
 
-    assert.equal(host.handles.afk.isAfk(all[0].id), false, "não dá para abandonar o 4v4 no !afk");
-    assert.equal(host.find(all[0].id).team, TEAM.RED);
-    assert.ok(host.said(/Não pode usar !afk no 4v4/, all[0].id));
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
+    assert.equal(host.find(all[0].id).team, TEAM.SPEC);
+    assert.equal(host.handles.choose.isReplacement(), true, "o time desfalcado repõe");
     host.cleanup();
   });
 
@@ -264,7 +266,21 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     host.cleanup();
   });
 
-  it("AFK no começo do 4v4: RR sem stats, capitão só repõe a vaga", async () => {
+  it("!afk no 4v4 ao vivo sem spec é recusado", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch();
+
+    await host.chat(all[0], "!afk");
+    await settle();
+
+    assert.equal(host.handles.afk.isAfk(all[0].id), false);
+    assert.equal(host.find(all[0].id).team, TEAM.RED);
+    assert.ok(host.said(/não pode usar !afk no 4v4/i, all[0].id));
+    host.cleanup();
+  });
+
+  it("AFK no começo do 4v4: spec e capitão escolhe, jogo segue", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.addPlayer(TEAM.SPEC);
@@ -278,9 +294,9 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
 
     assert.equal(host.handles.afk.isAfk(all[0].id), true);
     assert.equal(host.find(all[0].id).team, TEAM.SPEC);
-    assert.equal(host.live(), null, "partida do começo é RR");
+    assert.ok(host.live(), "sem RR — o jogo continua");
     assert.equal(host.handles.streak.get(), 1, "streak não zera");
-    assert.ok(host.said(/AFK no começo/i));
+    assert.equal(host.said(/AFK no começo/i), false);
     assert.equal(host.handles.choose.isReplacement(), true, "só a vaga do AFK");
     assert.equal(host.handles.choose.currentCaptain()?.team, TEAM.RED);
 
@@ -289,7 +305,7 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     await new Promise((r) => setTimeout(r, 400));
 
     assert.equal(host.teamCount(TEAM.RED), 4);
-    assert.ok(host.live(), "partida nova 0-0");
+    assert.ok(host.live(), "jogo segue depois do pick");
     assert.equal(host.handles.afk.isAfk(all[0].id), true, "AFK segue excluído até !voltar");
     host.cleanup();
   });

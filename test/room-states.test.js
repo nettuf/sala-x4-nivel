@@ -318,6 +318,11 @@ describe("winner stays ignora AFK no spec", () => {
     await host.room.onGameStop();
     assert.equal(host.handles.streak.get(), 1, "parar o treino não zera o streak do 4v4");
 
+    host.startMatch({ competitive: true });
+    host.room.stopGame();
+    await host.room.onGameStop();
+    assert.equal(host.handles.streak.get(), 1, "admin parar o 4v4 no meio não zera o streak");
+
     host.cleanup();
   });
 });

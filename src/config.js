@@ -75,9 +75,9 @@ const config = {
   cmdPublicPlayerMs: Number(process.env.CMD_PUBLIC_PLAYER_MS || 25000),
   // !gols !stats e rankings: por jogador, pra não martelar o banco
   cmdLookupPlayerMs: Number(process.env.CMD_LOOKUP_PLAYER_MS || 10000),
-  // !gordo / !ego: cooldown do comando (por tipo) e duração no alvo
+  // !gordo / !aura: cooldown global da sala (por tipo) e duração no alvo
   tempTitleCooldownMs: Number(process.env.TEMP_TITLE_COOLDOWN_MS || 15 * 60 * 1000),
-  tempTitleMs: Number(process.env.TEMP_TITLE_MS || 60 * 60 * 1000),
+  tempTitleMs: Number(process.env.TEMP_TITLE_MS || 20 * 60 * 1000),
   maxPerConn: Number(process.env.MAX_PER_CONN || 2),
   ghostKick: bool(process.env.GHOST_KICK, true),
   supabaseUrl: process.env.SUPABASE_URL || "",

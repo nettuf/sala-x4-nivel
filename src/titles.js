@@ -100,14 +100,16 @@ const TITLES = [
     id: "craque",
     name: "Craque",
     emblem: "🏆",
-    color: 0x8e44ad,
+    color: 0xd8a4ff,
+    chatHighlight: true,
     req: { games: 600, goals: 500, assists: 400, mvps: 160 },
   },
   {
     id: "lenda",
     name: "Lenda",
     emblem: "🐉",
-    color: 0xe67e22,
+    color: 0xffc04d,
+    chatHighlight: true,
     req: { games: 1600, goals: 1200, assists: 800, mvps: 500 },
   },
 ];
@@ -138,10 +140,24 @@ function meetsReq(stats, req = {}) {
   return true;
 }
 
-/** Cargos-piada (!gordo / !ego): só overlay no chat, 1h. Não entram em !cargos. */
+/** Cargos-piada (!gordo / !aura): só overlay no chat. Não entram em !cargos. */
 const JOKE_TITLES = {
-  gordo: { id: "gordo", name: "Gordo", emblem: "🐷", color: 0xe67e22, kind: "joke" },
-  ego: { id: "ego", name: "Ego", emblem: "🦚", color: 0x9b59b6, kind: "joke" },
+  gordo: {
+    id: "gordo",
+    name: "Gordo",
+    emblem: "🍔",
+    color: 0xffb347,
+    chatHighlight: true,
+    kind: "joke",
+  },
+  aura: {
+    id: "aura",
+    name: "Aura",
+    emblem: "🗿",
+    color: 0xd4a5ff,
+    chatHighlight: true,
+    kind: "joke",
+  },
 };
 
 const STAFF_TITLES = Object.entries(config.adminLevels)
@@ -238,8 +254,31 @@ function formatChatPrefix(title) {
   return emblem ? `${emblem} ` : "";
 }
 
-function chatColor(title) {
-  return title?.color ?? 0xecf0f1;
+/** Vermelho/azul bem visíveis no fundo escuro; spec cinza-claro. */
+const CHAT_COLOR_RED = 0xff5c5c;
+const CHAT_COLOR_BLUE = 0x5aa7ff;
+const CHAT_COLOR_SPEC = 0xcfd3d8;
+/** Chefe no chat: dourado, pra não misturar com o time vermelho. */
+const CHAT_COLOR_CHEFE = 0xffd54a;
+
+function isTopChatTitle(title) {
+  if (!title) return false;
+  if (title.kind === "staff") return Number(title.level) >= 4;
+  return !!title.chatHighlight;
+}
+
+/**
+ * Cor da linha do chat: time (vermelho / azul / spec).
+ * Craque, Lenda, Chefe, Gordo e Aura pintam diferente.
+ */
+function chatColor(title, team) {
+  if (isTopChatTitle(title)) {
+    if (title.kind === "staff") return CHAT_COLOR_CHEFE;
+    return title.color || CHAT_COLOR_SPEC;
+  }
+  if (Number(team) === 1) return CHAT_COLOR_RED;
+  if (Number(team) === 2) return CHAT_COLOR_BLUE;
+  return CHAT_COLOR_SPEC;
 }
 
 /** Contribuição: gols*2 + assists − GC*2. */
@@ -343,6 +382,11 @@ module.exports = {
   applyUnlockUpgrade,
   formatChatPrefix,
   chatColor,
+  isTopChatTitle,
+  CHAT_COLOR_RED,
+  CHAT_COLOR_BLUE,
+  CHAT_COLOR_SPEC,
+  CHAT_COLOR_CHEFE,
   pickMatchMvps,
   pickMatchWorst,
   matchContribution,

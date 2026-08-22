@@ -15,27 +15,12 @@ const MOVE_EPS = 8;
 /** Haxball: onGameTick = 60 Hz. Apex incrementa ACT nesse loop. */
 const TICK_HZ = 60;
 const MS_PER_TICK = 1000 / TICK_HZ;
-/**
- * O headless chama onPlayerActivity em TODO pacote de input, inclusive 0
- * (cliente parado ainda manda “soltei as teclas”). Só conta se o disco
- * estiver se mexendo de verdade. Sem xspeed (testes) assume tecla.
- */
-const ACTIVITY_SPEED = 0.4;
-const ACTIVITY_SPEED_SQ = ACTIVITY_SPEED * ACTIVITY_SPEED;
 
 function hasMoved(prev, next, eps = MOVE_EPS) {
   if (!prev || !next) return false;
   const dx = next.x - prev.x;
   const dy = next.y - prev.y;
   return dx * dx + dy * dy >= eps * eps;
-}
-
-function shouldCountActivity(disc) {
-  if (!disc) return true;
-  const hasSpeed = Number.isFinite(Number(disc.xspeed)) || Number.isFinite(Number(disc.yspeed));
-  if (!hasSpeed) return true;
-  const sp = (Number(disc.xspeed) || 0) ** 2 + (Number(disc.yspeed) || 0) ** 2;
-  return sp >= ACTIVITY_SPEED_SQ;
 }
 
 function afkRemainSec() {
@@ -46,13 +31,13 @@ function afkRemainSec() {
 /**
  * AFK é um estado só, venha do !afk ou de ficar parado em campo.
  *
- * Apex (sala parceira): onGameTick incrementa um contador; onPlayerActivity
- * zera. onGameTick NÃO dispara com o jogo pausado — a pausa congela sozinha.
- * Não usam flag `paused` à parte: se o bot pausa pro choose e o unpause não
- * dispara, o relógio antigo ficava morto pra sempre.
- *
- * Aqui: o loop do jogo (noteGameTick) é a fonte da verdade. A flag paused só
- * congela o fallback do setInterval, não o tick da física.
+ * Padrão Apex / wiki Haxball (issues #609, #634, #1331, #1462):
+ *   onPlayerActivity → zera o relógio (é o sinal de tecla; não filtrar por
+ *     velocidade do disco — empurrão da bola não dispara esse evento, e
+ *     tecla no kickoff chega com xspeed 0).
+ *   onGameTick → incrementa; quem nunca teclou também conta (#1462).
+ * onGameTick NÃO dispara com o jogo pausado — a pausa congela sozinha.
+ * A flag paused só congela o fallback do setInterval, não o tick da física.
  */
 function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number }>} */
@@ -364,9 +349,7 @@ module.exports = {
   createAfkTracker,
   fieldPlayerCount,
   shouldCountAutoAfk,
-  shouldCountActivity,
   hasMoved,
   MOVE_EPS,
-  ACTIVITY_SPEED,
   TICK_HZ,
 };

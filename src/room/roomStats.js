@@ -107,16 +107,12 @@ function createRoomStats({ filePath } = {}) {
     const v = Math.max(0, Math.floor(Number(n) || 0));
     const names = sanitizeHolders(holders);
     if (v < state.bestStreak) return snapshot();
-    if (v === state.bestStreak) {
-      if (names.length && !(state.bestStreakHolders || []).length) {
-        state.bestStreakHolders = names;
-        save();
-        persistBestStreak(state.bestStreak, state.bestStreakHolders).catch(() => {});
-      }
-      return snapshot();
-    }
+    const sameHolders =
+      names.length === (state.bestStreakHolders || []).length &&
+      names.every((name, i) => name === state.bestStreakHolders[i]);
+    if (v === state.bestStreak && (sameHolders || !names.length)) return snapshot();
     state.bestStreak = v;
-    state.bestStreakHolders = names;
+    if (names.length) state.bestStreakHolders = names;
     save();
     persistBestStreak(state.bestStreak, state.bestStreakHolders).catch(() => {});
     return snapshot();

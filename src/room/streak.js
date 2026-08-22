@@ -53,13 +53,15 @@ function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
   }
 
   function maybeRecordBest(holders) {
-    if (streak <= bestStreak) return;
+    if (streak <= 0 || streak < bestStreak) return;
     bestStreak = streak;
     bestStreakHolders = sanitizeHolders(holders);
     if (typeof onBest === "function") onBest(bestStreak, bestStreakHolders);
   }
 
   /**
+   * Só 4v4 com vencedor. Empate / abort / RR não zera.
+   * Azul ganhar é derrota de quem segura: streak recomeça em 1.
    * @param {1|2|0} winner
    * @param {string[]} [holders] nicks do time que segura o streak
    * @returns {number} streak atual após update
@@ -70,7 +72,7 @@ function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
     } else if (winner === TEAM.BLUE) {
       streak = 1;
     } else {
-      streak = 0;
+      return streak;
     }
     maybeRecordBest(holders);
     return streak;
@@ -103,7 +105,7 @@ function formatBestStreak(best, current = 0, holders = []) {
  * Monta o campo pós-partida para choose: vencedores no vermelho + 1º spec no azul.
  * @returns {{ mode: "choose"|"keep", streak: number }}
  */
-function applyWinnerStays(room, winner, streakTracker, { isExcluded } = {}) {
+function applyWinnerStays(room, winner, streakTracker, { isExcluded, recordStreak = true } = {}) {
   const players = room.getPlayerList().filter((p) => p.id !== 0);
   const eligible = (p) =>
     p && p.id !== 0 && !(typeof isExcluded === "function" && isExcluded(p));
@@ -118,12 +120,13 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded } = {}) {
   }
 
   const holders = (winner === TEAM.RED ? red : blue).map((p) => p.name);
-  const nextStreak = streakTracker.recordWin(winner, holders);
+  const nextStreak = recordStreak ? streakTracker.recordWin(winner, holders) : streakTracker.get();
+  const streakBit = recordStreak ? ` · ${streakTracker.label()}` : "";
 
   if (winner === TEAM.RED) {
     for (const p of blue) room.setPlayerTeam(p.id, TEAM.SPEC);
     room.sendAnnouncement(
-      `✨ Vermelho venceu! Ficam no campo · ${streakTracker.label()}`,
+      `✨ Vermelho venceu! Ficam no campo${streakBit}`,
       null,
       0xe74c3c,
       "bold",
@@ -134,7 +137,7 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded } = {}) {
     const bluesNow = room.getPlayerList().filter((p) => p.team === TEAM.BLUE);
     for (const p of bluesNow) room.setPlayerTeam(p.id, TEAM.RED);
     room.sendAnnouncement(
-      `✨ Azul venceu! Vão para o vermelho · ${streakTracker.label()}`,
+      `✨ Azul venceu! Vão para o vermelho${streakBit}`,
       null,
       0x3498db,
       "bold",

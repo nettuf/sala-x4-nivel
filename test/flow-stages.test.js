@@ -398,6 +398,7 @@ function createMockRoomHost() {
     if (result && shouldUseWinnerStays(count, result.valid, result.winner)) {
       const { mode } = applyWinnerStays(room, result.winner, streak, {
         isExcluded: (p) => voluntaryAfk.has(p.id),
+        recordStreak: !!(result.valid && result.decided),
       });
       if (mode === "choose") {
         const eligible = players.filter((p) => p.id !== 0 && !voluntaryAfk.has(p.id));
@@ -438,9 +439,6 @@ function createMockRoomHost() {
           else if (p.team === TEAM.BLUE) p.team = TEAM.RED;
         }
       }
-      if (result.winner === TEAM.RED || result.winner === TEAM.BLUE) {
-        streak.recordWin(result.winner);
-      } else streak.reset();
     }
 
     refreshLobby();

@@ -76,8 +76,8 @@ function playerHelpLines({
     "!viado — viraram viado (contador)",
     "!provocar [#id|nick] — zoação de quem entregou",
     "!elogiar [#id|nick] — elogio de craque",
-    "!gordo [#id|nick] — cargo 🐷 Gordo por 1h",
-    "!ego [#id|nick] — cargo 🦚 Ego por 1h",
+    "!gordo [#id|nick] — cargo 🍔 Gordo por 20min",
+    "!aura / !ego [#id|nick] — cargo 🗿 Aura por 20min",
     "!unis — uniformes disponíveis"
   );
   if (canChangeUni) {
@@ -95,6 +95,26 @@ function playerHelpLines({
 
 function playerHelpText(opts) {
   return playerHelpLines(opts).join("\n");
+}
+
+/** Specs que o capitão pode puxar (AFK no spec não conta). */
+function eligibleSpecCount(room, afk) {
+  return (room?.getPlayerList?.() || []).filter(
+    (p) => p.id !== 0 && p.team === 0 && !afk?.isAfk?.(p.id)
+  ).length;
+}
+
+/**
+ * !afk no 4v4 ao vivo só se tiver gente no spec pra repor.
+ * Antes da partida (sem placar) ou em treino/choose: sempre pode.
+ * No spec, ou pra sair do AFK, também sempre pode.
+ */
+function canVoluntaryAfk(player, room, ctx) {
+  if (!player || player.team === 0) return true;
+  if (!ctx?.match?.isCompetitive?.()) return true;
+  const scores = typeof room?.getScores === "function" ? room.getScores() : null;
+  if (!scores) return true;
+  return eligibleSpecCount(room, ctx.afk) > 0;
 }
 
 function adminHelpText() {
@@ -132,10 +152,10 @@ function createCommandHandler(room, ctx) {
   const FUN_ROOM_MS = config.cmdPublicRoomMs || 15000;
   const LOOKUP_MS = config.cmdLookupPlayerMs || 10000;
   const JOKE_CD_MS = config.tempTitleCooldownMs || 15 * 60 * 1000;
-  const JOKE_MS = config.tempTitleMs || 60 * 60 * 1000;
+  const JOKE_MS = config.tempTitleMs || 20 * 60 * 1000;
   /** @type {Map<string, { kind: string, title: object, endsAt: number, previous: object|null }>} */
   const jokeTitles = new Map();
-  /** @type {Map<string, number>} casterKey:kind → last cast */
+  /** @type {Map<string, number>} kind → last cast (cooldown da sala, não por jogador) */
   const lastJokeCastAt = new Map();
 
   function resolveAuth(player) {
@@ -144,10 +164,6 @@ function createCommandHandler(room, ctx) {
 
   function jokeSubjectKey(player) {
     return resolveAuth(player) || `id:${player.id}`;
-  }
-
-  function jokeCastKey(player, kind) {
-    return `${jokeSubjectKey(player)}:${kind}`;
   }
 
   function ensureTitlesMap() {
@@ -203,7 +219,7 @@ function createCommandHandler(room, ctx) {
       return true;
     }
     const now = clock();
-    const left = cooldownLeftSec(lastJokeCastAt.get(jokeCastKey(player, kind)), JOKE_CD_MS, now);
+    const left = cooldownLeftSec(lastJokeCastAt.get(kind), JOKE_CD_MS, now);
     if (left > 0) {
       room.sendAnnouncement(
         `Espere ${formatJokeWait(left)} para usar !${kind} de novo.`,
@@ -214,7 +230,7 @@ function createCommandHandler(room, ctx) {
       );
       return true;
     }
-    lastJokeCastAt.set(jokeCastKey(player, kind), now);
+    lastJokeCastAt.set(kind, now);
     const previous = peekJoke(target)?.previous || ensureTitlesMap().get(target.id) || null;
     const safePrev = previous?.kind === "joke" ? null : previous;
     jokeTitles.set(jokeSubjectKey(target), {
@@ -224,13 +240,11 @@ function createCommandHandler(room, ctx) {
       previous: safePrev,
     });
     wearJoke(target, spec);
-    room.sendAnnouncement(
-      `${spec.emblem} ${target.name} está ${spec.name} por 1h.`,
-      null,
-      spec.color,
-      "bold",
-      1
-    );
+    const line =
+      kind === "gordo"
+        ? `${spec.emblem} CaçadorDeGordo achou mais uma vítima: ${target.name}`
+        : `${spec.emblem} ${target.name} recebeu a bênção do ProdLuz e agora está com ego elevado`;
+    room.sendAnnouncement(line, null, spec.color, "bold", 1);
     return true;
   }
 
@@ -299,9 +313,11 @@ function createCommandHandler(room, ctx) {
 
   function formatPlayerChat(player, message) {
     const title = wearJoke(player, ensureTitlesMap().get(player.id));
+    const live = room.getPlayerList().find((p) => p.id === player.id);
+    const team = live?.team ?? player.team;
     return {
       line: `${formatChatPrefix(title)}${player.name}: ${message}`,
-      color: chatColor(title),
+      color: chatColor(title, team),
     };
   }
 
@@ -337,7 +353,8 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
-    const color = chatColor(ctx.titles.get(player.id));
+    const live = room.getPlayerList().find((p) => p.id === player.id);
+    const color = chatColor(ctx.titles.get(player.id), live?.team ?? player.team);
     room.sendAnnouncement(
       `📩 PV de @${player.name}: ${parsed.body}`,
       target.id,
@@ -378,8 +395,6 @@ function createCommandHandler(room, ctx) {
     const admin = ctx.admins.get(player.id);
 
     if (cmd === "help" || cmd === "comandos" || cmd === "ajuda") {
-      const scores = typeof room.getScores === "function" ? room.getScores() : null;
-      const inOfficial = !!ctx.match?.isCompetitive?.();
       const isAfk = !!ctx.afk?.isAfk?.(player.id);
       const captains = ctx.uniforms?.captains?.() || {};
       const canChangeUni = !!(
@@ -392,8 +407,8 @@ function createCommandHandler(room, ctx) {
           isAdmin: !!admin,
           canChangeUni,
           onField: player.team !== 0,
-          canAfk: isAfk || !(player.team !== 0 && scores && inOfficial),
           isAfk,
+          canAfk: canVoluntaryAfk(player, room, ctx),
           canChoose: !!(cap && cap.id === player.id),
         }),
         player.id,
@@ -434,20 +449,18 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "afk") {
-      // Vale tanto para o !afk quanto para quem o bot tirou por estar parado.
+      // Sair do AFK sempre pode. Entrar: no 4v4 ao vivo só com gente no spec.
       if (ctx.afk?.isAfk(player.id)) {
         ctx.afk.setAfk(player, false);
         return true;
       }
-      const scores = typeof room.getScores === "function" ? room.getScores() : null;
-      const inOfficial = !!ctx.match?.isCompetitive?.();
-      if (player.team !== 0 && scores && inOfficial) {
+      if (!canVoluntaryAfk(player, room, ctx)) {
         room.sendAnnouncement(
-          "Não pode usar !afk no 4v4. Saia do time ou aguarde o jogo terminar.",
+          "Não pode usar !afk no 4v4 sem gente no spec. Só antes da partida ou se tiver spec pra repor.",
           player.id,
           0xe74c3c,
-          "bold",
-          2
+          "normal",
+          1
         );
         return true;
       }
@@ -713,8 +726,8 @@ function createCommandHandler(room, ctx) {
       return applyJokeTitle(player, args, "gordo");
     }
 
-    if (cmd === "ego") {
-      return applyJokeTitle(player, args, "ego");
+    if (cmd === "aura" || cmd === "ego") {
+      return applyJokeTitle(player, args, "aura");
     }
 
     if (cmd === "status" || cmd === "stats" || cmd === "stat" || cmd === "elo") {
@@ -1134,4 +1147,4 @@ function createCommandHandler(room, ctx) {
   };
 }
 
-module.exports = { createCommandHandler };
+module.exports = { createCommandHandler, canVoluntaryAfk };

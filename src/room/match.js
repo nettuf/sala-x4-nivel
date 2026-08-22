@@ -435,6 +435,10 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
     const valid = isValidGame(finalScores);
     const competitive = !!match.competitive;
+    const scoreLimit = Number(finalScores?.scoreLimit) || config.scoreLimit;
+    const hitScore = scoreRed >= scoreLimit || scoreBlue >= scoreLimit;
+    // Admin stop / RR: sem gol da vitória e sem fim de tempo. Não conta streak.
+    const decided = !!endByVictory || !!timeExpiryHandled || hitScore;
     const lineupRed = hydrateLineup(match.lineupRed);
     const lineupBlue = hydrateLineup(match.lineupBlue);
     const byId = new Map([...lineupRed, ...lineupBlue].map((p) => [p.id, p]));
@@ -467,6 +471,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     forcedWinner = 0;
     goldenGoal = false;
     timeExpiryHandled = false;
+    endByVictory = false;
     activePlay = false;
     redPoss = 0;
     bluePoss = 0;
@@ -511,6 +516,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     return {
       valid,
       competitive,
+      decided,
       winner,
       scoreRed,
       scoreBlue,

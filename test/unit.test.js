@@ -33,6 +33,11 @@ const {
   pickMatchMvps,
   pickMatchWorst,
   formatChatPrefix,
+  chatColor,
+  CHAT_COLOR_RED,
+  CHAT_COLOR_BLUE,
+  CHAT_COLOR_SPEC,
+  CHAT_COLOR_CHEFE,
   applyUnlockUpgrade,
   reqLabel,
   getTitleById,
@@ -279,12 +284,12 @@ describe("streak / winner stays", () => {
   } = require("../src/room/streak");
   const { TEAM } = require("../src/room/choose");
 
-  it("recordWin: red++, blue=1, empate=0", () => {
+  it("recordWin: red++, blue=1, empate não zera", () => {
     const s = createStreakTracker();
     assert.equal(s.recordWin(TEAM.RED), 1);
     assert.equal(s.recordWin(TEAM.RED), 2);
+    assert.equal(s.recordWin(0), 2, "empate/abort não apaga a streak");
     assert.equal(s.recordWin(TEAM.BLUE), 1);
-    assert.equal(s.recordWin(0), 0);
   });
 
   it("guarda o maior streak, os nomes e chama onBest", () => {
@@ -298,13 +303,18 @@ describe("streak / winner stays", () => {
     assert.equal(s.getBest(), 2);
     s.recordWin(TEAM.RED, ["A", "B"]);
     s.recordWin(TEAM.RED, ["A", "B"]);
-    assert.equal(s.getBest(), 2);
-    assert.deepEqual(hits, []);
+    assert.equal(s.get(), 2);
+    assert.equal(s.getBest(), 2, "igualar o recorde também atualiza");
+    assert.deepEqual(s.getBestHolders(), ["A", "B"]);
+    assert.deepEqual(hits, [{ n: 2, holders: ["A", "B"] }]);
     s.recordWin(TEAM.RED, ["A", "B", "C", "D"]);
     assert.equal(s.get(), 3);
     assert.equal(s.getBest(), 3);
     assert.deepEqual(s.getBestHolders(), ["A", "B", "C", "D"]);
-    assert.deepEqual(hits, [{ n: 3, holders: ["A", "B", "C", "D"] }]);
+    assert.deepEqual(hits, [
+      { n: 2, holders: ["A", "B"] },
+      { n: 3, holders: ["A", "B", "C", "D"] },
+    ]);
     s.recordWin(TEAM.BLUE, ["X"]);
     assert.equal(s.get(), 1);
     assert.equal(s.getBest(), 3);
@@ -342,6 +352,28 @@ describe("streak / winner stays", () => {
     assert.equal(players.find((p) => p.id === 2).team, TEAM.SPEC);
   });
 
+  it("recordStreak false (3v3/RR) não mexe na sequência do 4v4", () => {
+    const players = [
+      { id: 1, name: "R1", team: TEAM.RED },
+      { id: 2, name: "B1", team: TEAM.BLUE },
+      { id: 3, name: "S1", team: TEAM.SPEC },
+    ];
+    const room = {
+      getPlayerList: () => players,
+      setPlayerTeam: (id, team) => {
+        const p = players.find((x) => x.id === id);
+        if (p) p.team = team;
+      },
+      sendAnnouncement: () => {},
+    };
+    const streak = createStreakTracker();
+    streak.recordWin(TEAM.RED, ["A"]);
+    streak.recordWin(TEAM.RED, ["A"]);
+    applyWinnerStays(room, TEAM.BLUE, streak, { recordStreak: false });
+    assert.equal(streak.get(), 2);
+    assert.equal(players.find((p) => p.id === 2).team, TEAM.RED);
+  });
+
   it("7 pessoas 3v3: quem já estava no spec vira capitão, mesmo se entrou primeiro", () => {
     const players = [
       { id: 7, name: "S1", team: TEAM.SPEC },
@@ -373,11 +405,11 @@ describe("streak / winner stays", () => {
 });
 
 describe("titles / cargos", () => {
-  it("gordo e ego são overlay de chat, não cargo desbloqueável", () => {
-    assert.equal(JOKE_TITLES.gordo.emblem, "🐷");
-    assert.equal(JOKE_TITLES.ego.emblem, "🦚");
+  it("gordo e aura são overlay de chat, não cargo desbloqueável", () => {
+    assert.equal(JOKE_TITLES.gordo.emblem, "🍔");
+    assert.equal(JOKE_TITLES.aura.emblem, "🗿");
     assert.equal(getTitleById("gordo"), null);
-    assert.equal(getTitleById("ego"), null);
+    assert.equal(getTitleById("aura"), null);
     assert.equal(
       listUnlocked({ games: 9999, goals: 9999, assists: 9999, mvps: 9999 }).some((t) => t.id === "gordo"),
       false
@@ -481,6 +513,20 @@ describe("titles / cargos", () => {
     assert.equal(formatChatPrefix({ emblem: "👑", name: "Chefe" }), "👑 ");
     assert.equal(formatChatPrefix({ emblem: "🐉", name: "Lenda" }), "🐉 ");
     assert.equal(formatChatPrefix(null), "");
+  });
+
+  it("chat: vermelho/azul/spec; Craque, Lenda, Chefe, Gordo e Aura pintam diferente", () => {
+    const novato = { id: "novato", emblem: "🌱", color: 0xbdc3c7 };
+    assert.equal(chatColor(novato, 1), CHAT_COLOR_RED);
+    assert.equal(chatColor(novato, 2), CHAT_COLOR_BLUE);
+    assert.equal(chatColor(novato, 0), CHAT_COLOR_SPEC);
+    assert.equal(chatColor({ id: "mvp", color: 0xf1c40f }, 1), CHAT_COLOR_RED);
+    assert.equal(chatColor(JOKE_TITLES.gordo, 2), JOKE_TITLES.gordo.color);
+    assert.equal(chatColor(JOKE_TITLES.aura, 1), JOKE_TITLES.aura.color);
+    assert.equal(chatColor({ id: "craque", chatHighlight: true, color: 0xd8a4ff }, 1), 0xd8a4ff);
+    assert.equal(chatColor({ id: "lenda", chatHighlight: true, color: 0xffc04d }, 2), 0xffc04d);
+    assert.equal(chatColor({ id: "chefe", kind: "staff", level: 4, color: 0xe74c3c }, 2), CHAT_COLOR_CHEFE);
+    assert.equal(chatColor({ id: "moderador", kind: "staff", level: 2, color: 0x3498db }, 1), CHAT_COLOR_RED);
   });
 
   it("admin sem seleção usa cargo de staff", () => {

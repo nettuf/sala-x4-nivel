@@ -5,7 +5,7 @@ const { findActiveBan, createBan } = require("../db/bans");
 const { notifyJoin, notifyBan } = require("../discord/webhook");
 const { createChatLogger } = require("../discord/chatLog");
 const { applyStadium, stadiumKindForCount } = require("./maps");
-const { createAfkTracker, shouldCountAutoAfk, shouldCountActivity } = require("./afk");
+const { createAfkTracker, shouldCountAutoAfk } = require("./afk");
 const { createChatFloodGuard } = require("./chatFlood");
 const { diagnoseRoom, createHealthMonitor } = require("./health");
 const { createChooseController, TEAM } = require("./choose");
@@ -202,7 +202,7 @@ function createRoom(HBInit) {
   let postMatchBusy = false;
   /** Quem teclou ou chutou nesta partida. Vazio = ainda não mexeu desde o start. */
   const movedThisMatch = new Set();
-  /** RR por AFK no começo: o onGameStop não pode gravar stats nem remontar de novo. */
+  /** RR por AFK no começo do treino: o onGameStop não pode gravar stats nem remontar de novo. */
   let kickoffAfkRestart = false;
   const slowChat = new Set();
   const chatFlood = createChatFloodGuard({
@@ -578,17 +578,19 @@ function createRoom(HBInit) {
     if (type === "kick") return;
     if (kickoffAfkRestart) return;
 
+    // 4v4: parado vai ao spec e o capitão escolhe (se tiver spec).
+    // RR no kickoff abortava essa reposição — o jogo segue, só troca o AFK.
+    if (match.isCompetitive()) {
+      recoverCompetitiveLineup();
+      return;
+    }
+
     if (
       player &&
       isKickoffIdleAfk(type, player.id, movedThisMatch) &&
       room.getScores()
     ) {
       restartAfterKickoffAfk(player);
-      return;
-    }
-
-    if (match.isCompetitive()) {
-      recoverCompetitiveLineup();
       return;
     }
 
@@ -903,17 +905,10 @@ function createRoom(HBInit) {
     }
   };
 
-  // Pacote de input com teclas 0 ainda dispara onPlayerActivity — isso
-  // zerava o AFK de quem estava parado. Só conta se o disco está andando.
+  // Apex / wiki: onPlayerActivity É a tecla. Não filtrar por velocidade —
+  // disco parado no kickoff ou empurrado pela bola quebrava o relógio.
   room.onPlayerActivity = (player) => {
     if (!player?.id) return;
-    let disc = null;
-    try {
-      disc = typeof room.getPlayerDiscProperties === "function" ? room.getPlayerDiscProperties(player.id) : null;
-    } catch {
-      disc = null;
-    }
-    if (!shouldCountActivity(disc)) return;
     afk.touch(player.id);
     movedThisMatch.add(player.id);
   };
@@ -1009,7 +1004,7 @@ function createRoom(HBInit) {
     }
 
     const { line, color } = commands.formatPlayerChat(who, message);
-    room.sendAnnouncement(line, null, color, "normal", 1);
+    room.sendAnnouncement(line, null, color, "bold", 1);
     chatLog.push({ nick: who.name, text: message, kind: "chat" });
     return false;
   };
@@ -1027,7 +1022,11 @@ function createRoom(HBInit) {
     } catch (err) {
       console.error("[room] onTick", err?.message || err);
     }
-    afk.noteGameTick();
+    try {
+      afk.noteGameTick();
+    } catch (err) {
+      console.error("[room] afk.tick", err?.message || err);
+    }
   };
 
   room.onGameStop = async () => {
@@ -1100,6 +1099,8 @@ function createRoom(HBInit) {
   async function remountWinnerStays(result) {
     const { mode } = applyWinnerStays(room, result.winner, streak, {
       isExcluded: (p) => afk.isAfk(p.id),
+      // Streak só em 4v4 que realmente acabou (placar/tempo/vitória).
+      recordStreak: !!(result.valid && result.decided),
     });
     uniforms.onWinnerStays(result.winner);
     if (mode !== "choose") {
@@ -1152,8 +1153,9 @@ function createRoom(HBInit) {
       result = await match.finish(undefined, { persist: false });
       const humans = room.getPlayerList().filter((p) => p.id !== 0);
       const count = humans.filter((p) => !afk.isAfk(p.id)).length;
+      const official4v4Done = !!(result?.valid && result?.decided);
 
-      if (result && shouldUseWinnerStays(count, result.valid, result.winner)) {
+      if (result && shouldUseWinnerStays(count, official4v4Done, result.winner)) {
         await remountWinnerStays(result);
         return;
       }
@@ -1168,21 +1170,8 @@ function createRoom(HBInit) {
         }
       }
 
-      // Só zera streak de partida oficial. Treino, troca de mapa e onGameStop
-      // duplicado (finish já rodou → result null) não podem apagar a sequência.
-      if (result?.competitive && result.valid && count >= 2 && count < config.teamSize * 2) {
-        if (result.winner === TEAM.RED || result.winner === TEAM.BLUE) {
-          const holders = room
-            .getPlayerList()
-            .filter((p) => p.id !== 0 && p.team === result.winner)
-            .map((p) => p.name);
-          streak.recordWin(result.winner, holders);
-        } else {
-          streak.reset();
-        }
-      } else if (result?.competitive && !result.valid) {
-        streak.reset();
-      }
+      // Streak só conta 4v4 que acabou de verdade. Stop de admin, RR,
+      // treino e 3v3 não zeram nem incrementam.
 
       laterForCurrentLobby(refreshLobby, 1200);
     } finally {
