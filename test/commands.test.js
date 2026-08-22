@@ -291,6 +291,7 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /@nick/);
     assert.match(msg, /!gols/);
     assert.match(msg, /!topstreak/);
+    assert.match(msg, /!listacargos/);
     assert.equal(/!uni /.test(msg), false);
     assert.equal(msg.includes("!t "), false);
     afk.stop();
@@ -341,6 +342,7 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /!banauth/);
     assert.match(msg, /!unbanauth/);
     assert.match(msg, /!unmute/);
+    assert.equal(msg.includes("!provocaradm"), false, "gerente não vê comando de Chefe");
     afk.stop();
   });
 
@@ -522,6 +524,40 @@ describe("comandos (mock room)", () => {
     assert.ok(room.announcements.some((a) => a.to == null && /🎲/.test(a.msg)));
   });
 
+  it("!provocaradm manda texto livre só se for Chefe", async () => {
+    const room = mockRoom();
+    const ctx = withClock({
+      admins: new Map([
+        [1, { level: 4, title: "Chefe" }],
+        [2, { level: 3, title: "Gerente" }],
+      ]),
+      mutes: new Map(),
+    });
+    const cmd = createCommandHandler(room, ctx);
+
+    await cmd.handle(room._players[2], "!provocaradm o red entrega demais");
+    assert.ok(room.announcements.some((a) => a.to === 3 && /Só o Chefe/i.test(a.msg)));
+    assert.equal(room.announcements.some((a) => a.to == null), false);
+    room.announcements.length = 0;
+
+    await cmd.handle(room._players[1], "!provocaradm o red entrega demais");
+    assert.ok(room.announcements.some((a) => a.to === 2 && /Só o Chefe/i.test(a.msg)));
+    assert.equal(room.announcements.some((a) => a.to == null), false);
+    room.announcements.length = 0;
+
+    await cmd.handle(room._players[0], "!provocaradm");
+    assert.ok(room.announcements.some((a) => a.to === 1 && /Uso: !provocaradm/i.test(a.msg)));
+    room.announcements.length = 0;
+
+    await cmd.handle(room._players[0], "!provocaradm o red entrega demais");
+    const pub = room.announcements.find((a) => a.to == null);
+    assert.equal(pub?.msg, "🎲 o red entrega demais");
+    assert.equal(pub?.color, 0xe67e22);
+
+    await cmd.handle(room._players[0], "!ajudaadm");
+    assert.ok(room.announcements.some((a) => /!provocaradm/.test(a.msg)));
+  });
+
   it("!elogiar elogia o alvo em público e respeita cooldown", async () => {
     const room = mockRoom();
     const ctx = withClock({ admins: new Map(), mutes: new Map() });
@@ -676,6 +712,21 @@ describe("comandos (mock room)", () => {
     await cmd.handle(room._players[0], "!site");
     assert.ok(room.announcements.some((a) => /haxbook\.com\.br/i.test(a.msg)));
     afk.stop();
+  });
+
+  it("!listacargos mostra todos os emblemas e a condição, mesmo sem ter", async () => {
+    const room = mockRoom();
+    const ctx = withClock({ admins: new Map(), mutes: new Map() });
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[2], "!listacargos");
+    const msg = room.announcements.find((a) => a.to === 3)?.msg || "";
+    assert.match(msg, /Novato — livre/);
+    assert.match(msg, /Lenda — 1600 jogos/);
+    assert.match(msg, /Negativo — 10 jogos/);
+    assert.equal(msg.includes("Gordo"), false);
+    room.announcements.length = 0;
+    await cmd.handle(room._players[2], "!listacargos");
+    assert.ok(room.announcements.some((a) => a.to === 3 && /Espere/i.test(a.msg)));
   });
 
   it("!gols !assists !golcontra !cs mostram top 5", async () => {

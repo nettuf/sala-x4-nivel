@@ -24,6 +24,7 @@ const {
   resolveTitle,
   getTitleById,
   reqLabel,
+  formatTitleCatalog,
   chatColor,
   formatChatPrefix,
   JOKE_TITLES,
@@ -61,6 +62,7 @@ function playerHelpLines({
     "!site — stats e rankings no Haxbook",
     "!status / !stats — estatísticas (jogos, gols, CS, MVP, WR, cargo)",
     "!cargos — emblemas desbloqueados",
+    "!listacargos — todos os emblemas e como desbloquear",
     "!cargo <id|n> — escolher emblema",
   ];
   if (isAfk) lines.push("!voltar — sair do AFK");
@@ -117,8 +119,8 @@ function canVoluntaryAfk(player, room, ctx) {
   return eligibleSpecCount(room, ctx.afk) > 0;
 }
 
-function adminHelpText() {
-  return [
+function adminHelpText(level = 0) {
+  const lines = [
     "!ajudaadm — comandos de admin",
     "!ban <#id|nick> [tempo] [motivo] — tempo: 30m, 2h, 1d, perm",
     "!banauth <auth> [tempo] [motivo] — bane pela auth (mesmo fora da sala)",
@@ -131,7 +133,11 @@ function adminHelpText() {
     "!uni random — sorteia os dois times",
     "!uni red|blue random — sorteia um lado",
     "!uni reset — volta os uniformes ao padrão",
-  ].join("\n");
+  ];
+  if ((level || 0) >= 4) {
+    lines.push("!provocaradm <texto> — provoca com texto livre (só Chefe)");
+  }
+  return lines.join("\n");
 }
 
 function cooldownLeftSec(lastAt, ms, now) {
@@ -421,7 +427,7 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "ajudaadm" || cmd === "helpadm" || cmd === "comandosadm") {
       if (!admin) return true;
-      room.sendAnnouncement(adminHelpText(), player.id, 0xecf0f1, "small", 1);
+      room.sendAnnouncement(adminHelpText(admin.level), player.id, 0xecf0f1, "small", 1);
       return true;
     }
 
@@ -682,6 +688,21 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
+    if (cmd === "provocaradm" || cmd === "provoadm") {
+      if ((admin?.level || 0) < 4) {
+        room.sendAnnouncement("Só o Chefe pode usar !provocaradm.", player.id, 0xe74c3c, "bold", 2);
+        return true;
+      }
+      const body = args.join(" ").trim();
+      if (!body) {
+        room.sendAnnouncement("Uso: !provocaradm <texto>", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const line = body.startsWith("🎲") ? body : `🎲 ${body}`;
+      room.sendAnnouncement(line, null, 0xe67e22, "bold", 1);
+      return true;
+    }
+
     if (cmd === "provocar" || cmd === "provoca" || cmd === "entregou") {
       const mention = args.join(" ").trim();
       const target = resolveTeaseTarget(room, player, mention || null);
@@ -758,6 +779,12 @@ function createCommandHandler(room, ctx) {
       const adminLevel = ctx.admins.get(target.id)?.level || 0;
       const title = resolveTitle(s, s.selected_title, adminLevel);
       room.sendAnnouncement(formatStatusCard(target.name, s, title), player.id, title.color, "bold", 1);
+      return true;
+    }
+
+    if (cmd === "listacargos" || cmd === "todososcargos" || cmd === "cargoslista") {
+      if (blockLookup(player, "catalog")) return true;
+      room.sendAnnouncement(formatTitleCatalog(), player.id, 0xecf0f1, "small", 1);
       return true;
     }
 

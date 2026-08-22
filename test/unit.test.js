@@ -40,6 +40,7 @@ const {
   CHAT_COLOR_CHEFE,
   applyUnlockUpgrade,
   reqLabel,
+  formatTitleCatalog,
   getTitleById,
   JOKE_TITLES,
 } = require("../src/titles");
@@ -449,6 +450,16 @@ describe("titles / cargos", () => {
   it("listUnlocked cresce com stats", () => {
     assert.ok(listUnlocked({}).some((t) => t.id === "novato"));
     assert.ok(listUnlocked({ games: 100 }).some((t) => t.id === "estreante"));
+  });
+
+  it("catálogo lista todos os cargos e a condição, mesmo bloqueados", () => {
+    const text = formatTitleCatalog();
+    assert.match(text, /Novato — livre/);
+    assert.match(text, /Negativo — 10 jogos \+ WR < 50%/);
+    assert.match(text, /Lenda — 1600 jogos \+ 1200 gols \+ 800 assists \+ 500 MVP/);
+    assert.match(text, /Craque — 600 jogos/);
+    assert.match(text, /Chefe/);
+    assert.ok(!/Gordo/.test(text), "piada não entra no catálogo");
   });
 
   it("pickMatchMvps por gols*2+assists só no time que ganhou", () => {

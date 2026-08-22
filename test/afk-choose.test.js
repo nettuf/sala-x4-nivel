@@ -164,7 +164,7 @@ describe("AFK: relógio, aviso e ação", () => {
     host.cleanup();
   });
 
-  it("sala cheia: o parado é kickado em vez de ir pro spec", () => {
+  it("sala com 12+ ainda manda o parado pro spec, sem kick em massa", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     for (let i = 0; i < config.afkFullThreshold - 8; i++) all.push(host.addPlayer(TEAM.SPEC));
@@ -174,8 +174,9 @@ describe("AFK: relógio, aviso e ação", () => {
     host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
     host.handles.afk.tick(Date.now());
 
-    assert.ok(host.kicks.some((k) => k.id === parado.id), "sem vaga o AFK é kickado");
-    assert.match(host.kicks[0].reason, /AFK/i);
+    assert.equal(host.kicks.length, 0, "12+ não kicka o AFK");
+    assert.equal(host.find(parado.id).team, TEAM.SPEC);
+    assert.equal(host.handles.afk.isAfk(parado.id), true);
     host.cleanup();
   });
 });

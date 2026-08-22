@@ -65,8 +65,9 @@ const config = {
   afkActionMs: Number(process.env.AFK_ACTION_MS || 12000),
   afkCommandCooldownMs: Number(process.env.AFK_COMMAND_COOLDOWN_MS || 10000),
   afkFullThreshold: Number(process.env.AFK_FULL_THRESHOLD || 12),
-  // Kicka AFK mais antigo quando restam no máximo estes slots livres
-  afkReserveSlots: Number(process.env.AFK_RESERVE_SLOTS || 5),
+  // Kicka 1 AFK (o mais antigo) só quando restam no máximo estes slots livres.
+  // 30 na sala / reserva 2 → no 28 kicka 1 e fica 27. Próximo join, de novo.
+  afkReserveSlots: Number(process.env.AFK_RESERVE_SLOTS || 2),
   chatFloodLimit: Number(process.env.CHAT_FLOOD_LIMIT || 4),
   chatFloodWindowMs: Number(process.env.CHAT_FLOOD_WINDOW_MS || 5000),
   chatFloodMuteMs: Number(process.env.CHAT_FLOOD_MUTE_MS || 30000),

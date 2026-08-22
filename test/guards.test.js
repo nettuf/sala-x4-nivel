@@ -250,7 +250,7 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("sala cheia (>= limiar): AFK é kickado", () => {
+  it("sala com 12+ ainda manda o parado pro spec, não kicka", () => {
     const { room, players } = afkSetup(config.afkFullThreshold);
     const afk = createAfkTracker(room);
     const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
@@ -259,9 +259,9 @@ describe("AFK: ações e pausa", () => {
 
     afk.tick();
 
-    assert.ok(room.kicks.length > 0);
-    assert.match(room.kicks[0].reason, /AFK/i);
-    // Specs não são avaliados como AFK.
+    assert.equal(room.kicks.length, 0);
+    assert.equal(players.find((p) => p.id === 1).team, 0);
+    assert.equal(afk.isAfk(1), true);
     assert.ok(players.some((p) => p.id === 3 && p.team === 0));
 
     config.afkWarnMs = prev.warn;
@@ -320,26 +320,36 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("faltando 5 vagas kicka só o AFK mais antigo; os outros ficam", () => {
+  it("26 na sala não kicka AFK; no 28 kicka só o mais antigo", () => {
     const { room, players } = afkSetup(26);
     const afk = createAfkTracker(room);
-    const prevMax = config.maxPlayers;
-    config.maxPlayers = 40;
+    const prev = { max: config.maxPlayers, reserve: config.afkReserveSlots };
+    config.maxPlayers = 30;
+    config.afkReserveSlots = 2;
     const first = players.find((p) => p.id === 20);
     const second = players.find((p) => p.id === 21);
     const third = players.find((p) => p.id === 22);
     afk.setAfk(first, true);
     afk.setAfk(second, true);
     afk.setAfk(third, true);
-    assert.equal(room.kicks.length, 0);
-    config.maxPlayers = prevMax;
     afk.ensureReserveSlots();
+    assert.equal(room.kicks.length, 0, "26 ainda tem vaga, AFK fica");
 
-    assert.ok(room.kicks.some((k) => k.id === 20));
-    assert.ok(room.kicks.some((k) => k.id === 21));
-    assert.equal(room.kicks.some((k) => k.id === 22), false);
+    players.push({ id: 27, name: "P27", team: 0, auth: "a27" });
+    players.push({ id: 28, name: "P28", team: 0, auth: "a28" });
+    afk.ensureReserveSlots();
+    assert.deepEqual(room.kicks.map((k) => k.id), [20], "no 28 sai só o AFK mais antigo");
+    assert.equal(players.length, 27);
+    assert.equal(afk.isAfk(21), true);
     assert.equal(afk.isAfk(22), true);
-    assert.equal(players.length, 24);
+
+    players.push({ id: 29, name: "P29", team: 0, auth: "a29" });
+    afk.ensureReserveSlots();
+    assert.deepEqual(room.kicks.map((k) => k.id), [20, 21], "próximo join kicka o próximo antigo");
+    assert.equal(players.length, 27);
+
+    config.maxPlayers = prev.max;
+    config.afkReserveSlots = prev.reserve;
     afk.stop();
   });
 

@@ -169,24 +169,23 @@ function createAfkTracker(room, opts = {}) {
   }
 
   function ensureReserveSlots() {
-    const reserve = Number(config.afkReserveSlots) || 5;
+    const reserve = Number(config.afkReserveSlots);
+    const keep = Number.isFinite(reserve) ? reserve : 2;
     const maxPlayers = Number(config.maxPlayers) || 30;
-    for (let i = 0; i < 32; i++) {
-      const free = maxPlayers - humans().length;
-      if (free > reserve) return;
-      const p = oldestAfkPlayer();
-      if (!p) return;
-      onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
-      room.sendAnnouncement(
-        `${p.name} foi kickado por AFK (sala com poucas vagas).`,
-        null,
-        0xe67e22,
-        "normal",
-        1
-      );
-      room.kickPlayer(p.id, kickReason("AFK (sala quase cheia)"), false);
-      remove(p.id);
-    }
+    const free = maxPlayers - humans().length;
+    if (free > keep) return;
+    const p = oldestAfkPlayer();
+    if (!p) return;
+    onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
+    room.sendAnnouncement(
+      `${p.name} foi kickado por AFK (sala com poucas vagas).`,
+      null,
+      0xe67e22,
+      "normal",
+      1
+    );
+    room.kickPlayer(p.id, kickReason("AFK (sala quase cheia)"), false);
+    remove(p.id);
   }
 
   function setAfk(player, on) {
@@ -208,11 +207,7 @@ function createAfkTracker(room, opts = {}) {
     if (on) ensureReserveSlots();
   }
 
-  function playingCount() {
-    return humans().length;
-  }
-
-  function punishIdle(p, idleMs, full) {
+  function punishIdle(p, idleMs) {
     const st = state.get(p.id);
     if (!st) return;
     if (idleMs >= config.afkWarnMs && !st.warned) {
@@ -227,12 +222,6 @@ function createAfkTracker(room, opts = {}) {
     }
     if (idleMs < config.afkActionMs) return false;
 
-    if (full) {
-      onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
-      room.kickPlayer(p.id, kickReason("AFK (sala cheia)"), false);
-      remove(p.id);
-      return true;
-    }
     if (p.team !== 0) {
       const previousTeam = p.team;
       markAfk(p.id);
@@ -250,7 +239,6 @@ function createAfkTracker(room, opts = {}) {
   }
 
   function forEachFieldPlayer(wallNow, onEach) {
-    const full = playingCount() >= config.afkFullThreshold;
     for (const p of room.getPlayerList()) {
       if (p.id === 0) continue;
       if (afks.has(p.id)) {
@@ -260,10 +248,10 @@ function createAfkTracker(room, opts = {}) {
       if (p.team === 0) continue;
       if (!state.has(p.id)) touch(p.id, wallNow);
       try {
-        onEach(p, state.get(p.id), full);
+        onEach(p, state.get(p.id));
       } catch {
         const st = state.get(p.id);
-        if (st) punishIdle(p, idleMs(st, wallNow), full);
+        if (st) punishIdle(p, idleMs(st, wallNow));
       }
     }
   }
@@ -322,10 +310,10 @@ function createAfkTracker(room, opts = {}) {
       maybeReserveSlots();
       return;
     }
-    forEachFieldPlayer(wallNow, (p, st, full) => {
+    forEachFieldPlayer(wallNow, (p, st) => {
       if (applyMotion(p, st, wallNow)) return;
       st.idleTicks = (Number(st.idleTicks) || 0) + 1;
-      punishIdle(p, idleMs(st, wallNow), full);
+      punishIdle(p, idleMs(st, wallNow));
     });
     maybeReserveSlots();
   }
@@ -344,8 +332,8 @@ function createAfkTracker(room, opts = {}) {
       return;
     }
 
-    forEachFieldPlayer(wallNow, (p, st, full) => {
-      punishIdle(p, idleMs(st, wallNow), full);
+    forEachFieldPlayer(wallNow, (p, st) => {
+      punishIdle(p, idleMs(st, wallNow));
     });
     ensureReserveSlots();
   }

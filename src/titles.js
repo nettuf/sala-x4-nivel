@@ -364,6 +364,27 @@ function reqLabel(req, title) {
     .join(" + ");
 }
 
+function reqLabelLong(req, title) {
+  if (title?.kind === "staff") return "só staff";
+  if (!req || !Object.keys(req).length) return "livre";
+  const map = {
+    games: (v) => `${v} jogos`,
+    goals: (v) => `${v} gols`,
+    assists: (v) => `${v} assists`,
+    mvps: (v) => `${v} MVP`,
+  };
+  return Object.entries(req)
+    .map(([k, v]) => (k === "maxWinrate" ? `WR < ${v}%` : map[k] ? map[k](v) : `${v}${k}`))
+    .join(" + ");
+}
+
+/** Catálogo completo (mesmo os bloqueados) + condição. Cabe em 1–2 anúncios. */
+function formatTitleCatalog() {
+  const playerLines = TITLES.map((t) => `${t.emblem} ${t.name} — ${reqLabelLong(t.req, t)}`);
+  const staff = STAFF_TITLES.map((t) => `${t.emblem} ${t.name}`).join(" · ");
+  return [`Cargos e como desbloquear:`, ...playerLines, `Staff (não se desbloqueia): ${staff}`].join("\n");
+}
+
 module.exports = {
   TITLES,
   STAFF_TITLES,
@@ -391,4 +412,6 @@ module.exports = {
   pickMatchWorst,
   matchContribution,
   reqLabel,
+  reqLabelLong,
+  formatTitleCatalog,
 };
