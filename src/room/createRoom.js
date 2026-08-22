@@ -1051,6 +1051,8 @@ function createRoom(HBInit) {
 
     if (choose.handleCaptainChat(who, message)) return false;
 
+    if (commands.handleTeamChat(who, message)) return false;
+    if (commands.handleStaffChat(who, message)) return false;
     if (commands.handleWhisper(who, message)) return false;
 
     if (!ctx.admins.has(player.id)) {

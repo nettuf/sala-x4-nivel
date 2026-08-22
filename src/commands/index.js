@@ -68,7 +68,8 @@ function playerHelpLines({
   if (isAfk) lines.push("!voltar — sair do AFK");
   else if (canAfk) lines.push("!afk — ficar AFK / voltar");
   lines.push("!afks — ver quem está AFK");
-  if (onField) lines.push("!t <msg> — chat do time");
+  if (onField) lines.push("t <msg> — chat do time");
+  if (isAdmin) lines.push("% <msg> — chat só de staff");
   lines.push(
     "!ids — lista id dos jogadores",
     "@nick msg — mensagem privada (ou @#id)",
@@ -133,6 +134,7 @@ function adminHelpText(level = 0) {
     "!uni random — sorteia os dois times",
     "!uni red|blue random — sorteia um lado",
     "!uni reset — volta os uniformes ao padrão",
+    "% <msg> — chat só de staff",
   ];
   if ((level || 0) >= 4) {
     lines.push("!provocaradm <texto> — provoca com texto livre (só Chefe)");
@@ -391,6 +393,74 @@ function createCommandHandler(room, ctx) {
     return true;
   }
 
+  /** `t mensagem` — só o time. `t` sozinho (sem espaço) é chat normal. */
+  function handleTeamChat(player, message) {
+    const raw = String(message || "").replace(/^\s+/, "");
+    if (!raw.startsWith("t ") && !raw.startsWith("t\t")) return false;
+    const body = raw.slice(1).trim();
+    if (peekMute(player)) {
+      room.sendAnnouncement(
+        "Você está mutado — chat de time também está bloqueado. Comandos com ! seguem liberados.",
+        player.id,
+        0xe67e22,
+        "bold",
+        2
+      );
+      return true;
+    }
+    if (player.team === 0) {
+      room.sendAnnouncement("Chat de time só em campo.", player.id, 0xe74c3c, "normal", 1);
+      return true;
+    }
+    if (!body) {
+      room.sendAnnouncement("Uso: t <mensagem>", player.id, 0xe74c3c, "normal", 1);
+      return true;
+    }
+    const emoji = player.team === 1 ? "🔴" : "🔵";
+    const color = player.team === 1 ? 0xe74c3c : 0x3498db;
+    for (const p of room.getPlayerList()) {
+      if (p.team === player.team) {
+        room.sendAnnouncement(`${emoji} [TEAM] ${player.name}: ${body}`, p.id, color, "bold", 1);
+      }
+    }
+    ctx.chatLog?.push({ nick: player.name, text: body, kind: "team" });
+    return true;
+  }
+
+  /** `%mensagem` — só quem tem cargo de admin. */
+  function handleStaffChat(player, message) {
+    const raw = String(message || "").trim();
+    if (!raw.startsWith("%")) return false;
+    const body = raw.slice(1).trim();
+    const admin = ctx.admins.get(player.id);
+    if (!admin) {
+      room.sendAnnouncement("Chat com % é só para staff.", player.id, 0xe74c3c, "normal", 1);
+      return true;
+    }
+    if (peekMute(player)) {
+      room.sendAnnouncement(
+        "Você está mutado — chat de staff também está bloqueado.",
+        player.id,
+        0xe67e22,
+        "bold",
+        2
+      );
+      return true;
+    }
+    if (!body) {
+      room.sendAnnouncement("Uso: % <mensagem>", player.id, 0xe74c3c, "normal", 1);
+      return true;
+    }
+    const line = `👑 [ADM] ${player.name}: ${body}`;
+    const online = new Set(room.getPlayerList().map((p) => p.id));
+    for (const adminId of ctx.admins.keys()) {
+      if (!online.has(adminId)) continue;
+      room.sendAnnouncement(line, adminId, 0x9b59b6, "bold", 1);
+    }
+    ctx.chatLog?.push({ nick: player.name, text: body, kind: "staff" });
+    return true;
+  }
+
   async function handle(player, message) {
     const text = String(message || "").trim();
     if (!text.startsWith("!")) return false;
@@ -509,37 +579,6 @@ function createCommandHandler(room, ctx) {
         return true;
       }
       ctx.afk.setAfk(player, false);
-      return true;
-    }
-
-    if (cmd === "t" || cmd === "team") {
-      if (peekMute(player)) {
-        room.sendAnnouncement(
-          "Você está mutado — !t também está bloqueado. Outros comandos com ! seguem liberados.",
-          player.id,
-          0xe67e22,
-          "bold",
-          2
-        );
-        return true;
-      }
-      if (player.team === 0) {
-        room.sendAnnouncement("Chat de time só em campo.", player.id, 0xe74c3c, "normal", 1);
-        return true;
-      }
-      const body = args.join(" ").trim();
-      if (!body) {
-        room.sendAnnouncement("Uso: !t <mensagem>", player.id, 0xe74c3c, "normal", 1);
-        return true;
-      }
-      const emoji = player.team === 1 ? "🔴" : "🔵";
-      const color = player.team === 1 ? 0xe74c3c : 0x3498db;
-      for (const p of room.getPlayerList()) {
-        if (p.team === player.team) {
-          room.sendAnnouncement(`${emoji} [TEAM] ${player.name}: ${body}`, p.id, color, "bold", 1);
-        }
-      }
-      ctx.chatLog?.push({ nick: player.name, text: body, kind: "team" });
       return true;
     }
 
@@ -1168,6 +1207,8 @@ function createCommandHandler(room, ctx) {
     loadTitleForPlayer,
     formatPlayerChat,
     handleWhisper,
+    handleTeamChat,
+    handleStaffChat,
     playerHelpText,
     adminHelpText,
     playerHelpLines,

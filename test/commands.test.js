@@ -50,15 +50,43 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
-  it("!t envia só para o time", async () => {
+  it("t <msg> envia só para o time; t sozinho é chat normal", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
     const ctx = { admins: new Map(), mutes: new Map(), afk };
     const cmd = createCommandHandler(room, ctx);
-    await cmd.handle(room._players[0], "!t bola");
+    assert.equal(cmd.handleTeamChat(room._players[0], "t bola"), true);
     const teamMsgs = room.announcements.filter((a) => String(a.msg).includes("[TEAM]"));
     assert.equal(teamMsgs.length, 1);
     assert.equal(teamMsgs[0].to, 1);
+    assert.match(teamMsgs[0].msg, /bola/);
+    room.announcements.length = 0;
+    assert.equal(cmd.handleTeamChat(room._players[0], "tava ruim"), false);
+    assert.equal(cmd.handleTeamChat(room._players[0], "t"), false);
+    afk.stop();
+  });
+
+  it("% envia só para staff; jogador comum não vê", () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map([
+        [1, { level: 4, title: "Chefe" }],
+        [2, { level: 2, title: "Mod" }],
+      ]),
+      mutes: new Map(),
+      afk,
+    };
+    const cmd = createCommandHandler(room, ctx);
+    assert.equal(cmd.handleStaffChat(room._players[2], "% oi"), true);
+    assert.ok(room.announcements.some((a) => a.to === 3 && /só para staff/i.test(a.msg)));
+    assert.equal(room.announcements.some((a) => /\[ADM\]/.test(a.msg)), false);
+    room.announcements.length = 0;
+    assert.equal(cmd.handleStaffChat(room._players[0], "% bora kick"), true);
+    const staff = room.announcements.filter((a) => /\[ADM\]/.test(a.msg));
+    assert.equal(staff.length, 2);
+    assert.ok(staff.every((a) => a.to === 1 || a.to === 2));
+    assert.equal(room.announcements.some((a) => a.to === 3), false);
     afk.stop();
   });
 
@@ -294,6 +322,7 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /!listacargos/);
     assert.equal(/!uni /.test(msg), false);
     assert.equal(msg.includes("!t "), false);
+    assert.equal(msg.includes("% <msg>"), false);
     afk.stop();
   });
 
@@ -850,7 +879,7 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
-  it("mutado usa !ids e não usa !t", async () => {
+  it("mutado usa !ids e não usa chat de time", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
     const ctx = {
@@ -863,7 +892,7 @@ describe("comandos (mock room)", () => {
     await cmd.handle(room._players[0], "!ids");
     assert.ok(room.announcements.some((a) => /#1 RedCap/.test(a.msg)));
     room.announcements.length = 0;
-    await cmd.handle(room._players[0], "!t eae");
+    assert.equal(cmd.handleTeamChat(room._players[0], "t eae"), true);
     assert.ok(room.announcements.some((a) => /mutado/i.test(a.msg)));
     assert.equal(room.announcements.some((a) => /\[TEAM\]/.test(a.msg)), false);
     afk.stop();

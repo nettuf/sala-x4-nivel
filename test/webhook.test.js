@@ -69,6 +69,10 @@ describe("log de chat no Discord", () => {
       formatChatLine({ at: new Date("2026-08-20T12:53:04-03:00"), nick: "A", text: "oi", kind: "pv", to: "B" }),
       /A → B: oi/
     );
+    assert.match(
+      formatChatLine({ at: new Date("2026-08-20T12:53:04-03:00"), nick: "A", text: "bora", kind: "staff" }),
+      /\[ADM\] A: bora/
+    );
   });
 
   it("empilha e manda em lote, sem fetch a cada mensagem", async () => {

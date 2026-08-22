@@ -34,6 +34,7 @@ function formatChatLine({ at, nick, text, kind, to } = {}) {
   const body = sanitizeDiscord(text);
   if (kind === "pv") return `[${clock}] ${who} → ${sanitizeDiscord(to)}: ${body}`;
   if (kind === "team") return `[${clock}] [TEAM] ${who}: ${body}`;
+  if (kind === "staff") return `[${clock}] [ADM] ${who}: ${body}`;
   return `[${clock}] ${who}: ${body}`;
 }
 

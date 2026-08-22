@@ -413,12 +413,13 @@ describe("comandos extras", () => {
     host.afk.stop();
   });
 
-  it("!t no spec é recusado; vazio pede uso", async () => {
+  it("t no spec é recusado; t sem texto pede uso", () => {
     const host = mockCmd();
-    await host.cmd.handle(host.players[2], "!t oi");
+    assert.equal(host.cmd.handleTeamChat(host.players[2], "t oi"), true);
     assert.ok(host.announcements.some((a) => /só em campo/i.test(a.msg)));
-    await host.cmd.handle(host.players[0], "!t");
-    assert.ok(host.announcements.some((a) => /Uso: !t/.test(a.msg)));
+    host.announcements.length = 0;
+    assert.equal(host.cmd.handleTeamChat(host.players[0], "t "), true);
+    assert.ok(host.announcements.some((a) => /Uso: t /.test(a.msg)));
     host.afk.stop();
   });
 
