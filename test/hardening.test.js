@@ -89,14 +89,29 @@ describe("choose sem candidatos não fica travado", () => {
     assert.equal(choose.isActive(), false);
   });
 
-  it("time sem capitão durante a reposição cancela em vez de esperar para sempre", () => {
+  it("time sem capitão na reposição sobe alguém do spec em vez de cancelar", () => {
     const players = [p(1, TEAM.RED), p(11, TEAM.RED), p(2, TEAM.BLUE), p(3), p(4)];
-    const { choose } = setup(players);
+    const { choose, announcements } = setup(players);
     let result = null;
     choose.startReplacement(TEAM.BLUE, (payload) => {
       result = payload;
     });
     // O capitão azul sai da sala e o time fica sem ninguém para escolher.
+    players.splice(2, 1);
+    choose.promptCaptain();
+    assert.equal(choose.isActive(), true, "continua a reposição");
+    assert.equal(result, null);
+    assert.equal(players.find((x) => x.id === 3).team, TEAM.BLUE, "1º do spec virou capitão");
+    assert.ok(announcements.some((a) => /virou capitão/i.test(a.msg)));
+  });
+
+  it("reposição sem time e sem spec cancela", () => {
+    const players = [p(1, TEAM.RED), p(11, TEAM.RED), p(2, TEAM.BLUE)];
+    const { choose } = setup(players);
+    let result = null;
+    choose.startReplacement(TEAM.BLUE, (payload) => {
+      result = payload;
+    });
     players.splice(2, 1);
     choose.promptCaptain();
     assert.equal(choose.isActive(), false);

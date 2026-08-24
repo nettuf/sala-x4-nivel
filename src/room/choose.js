@@ -150,6 +150,31 @@ function createChooseController(room, {
     return null;
   }
 
+  /**
+   * Sempre tenta ter um capitão no time que precisa pickar.
+   * Sobe o 1º do spec pronto se o time ficou vazio (timeout/AFK/saída).
+   * @returns {object|null} capitão atual após garantir
+   */
+  function ensureCaptain() {
+    let cap = currentCaptain();
+    if (cap) return cap;
+    const team = pickingTeam();
+    if (!team) return null;
+    const { specReady } = list();
+    const next = specReady[0];
+    if (!next) return null;
+    if (typeof onPickFromSpec === "function") onPickFromSpec(next, team);
+    setTeam(next.id, team);
+    room.sendAnnouncement(
+      `${next.name} virou capitão do time ${team === TEAM.RED ? "vermelho" : "azul"}.`,
+      null,
+      0x3498db,
+      "bold",
+      1
+    );
+    return currentCaptain();
+  }
+
   function teamForCaptain(cap) {
     if (replacement) return replacement.targetTeam;
     return pickingTeam() || cap?.team || 0;
@@ -260,27 +285,39 @@ function createChooseController(room, {
     if (tryFinishChoose()) return;
     if (allowExactFill && tryFillExactHoles()) return;
 
-    const cap = currentCaptain();
-    const team = teamForCaptain(cap);
+    const team = pickingTeam() || (replacement && replacement.targetTeam) || 0;
     if (!team) return;
-    if (!cap) {
-      abortChoose("Sem capitão para escolher — voltando ao lobby.");
-      return;
-    }
     if (!replacement && !teamHasHole(team)) return;
 
-    const { specReady, spec } = list();
-    // Única opção restante: entra sozinho. Mais opções que vagas → capitão escolhe.
+    let { specReady, spec } = list();
+    // Única opção restante: sobe sozinho (ensureCaptain se o time estiver vazio).
     if (specReady.length === 1 && teamHasHole(team)) {
-      applyCaptainPick(cap, specReady[0], team, "");
-      return;
+      const cap = ensureCaptain() || currentCaptain();
+      if (cap) {
+        // Se o único spec virou o capitão, a vaga pode já ter fechado.
+        if (tryFinishChoose() || tryFillExactHoles()) return;
+        ({ specReady } = list());
+        if (specReady.length === 1 && teamHasHole(team)) {
+          applyCaptainPick(cap, specReady[0], team, "");
+        } else {
+          promptCaptain({ allowExactFill });
+        }
+        return;
+      }
     }
-    if (!specReady.length) {
+    if (!list().specReady.length) {
+      ({ specReady, spec } = list());
       abortChoose(
         spec.length
           ? "Ninguém elegível no spec (todos AFK) — voltando ao lobby."
           : "Sem jogadores no spec — voltando ao lobby."
       );
+      return;
+    }
+
+    const cap = ensureCaptain();
+    if (!cap) {
+      abortChoose("Sem jogadores para escolher — voltando ao lobby.");
       return;
     }
 
@@ -323,7 +360,7 @@ function createChooseController(room, {
   function parkTimedOutCaptain(cap) {
     if (!cap) return;
     clearCapTimeout();
-    const team = cap.team;
+    const team = replacement?.targetTeam || cap.team;
     setTeam(cap.id, TEAM.SPEC);
     if (typeof onCaptainTimeout === "function") onCaptainTimeout(cap);
     room.sendAnnouncement(
@@ -348,6 +385,15 @@ function createChooseController(room, {
       promptCaptain();
       return;
     }
+
+    // Time ficou vazio: sobe alguém do spec como capitão (nunca deixa sem pick).
+    const promoted = ensureCaptain();
+    if (promoted) {
+      promptCaptain();
+      return;
+    }
+    // Sem spec pronto: auto-completa se der; senão cancela a reposição/choose.
+    if (tryFillExactHoles()) return;
     onPlayerLeave({ skipId: cap.id });
   }
 
@@ -642,7 +688,7 @@ function createChooseController(room, {
   function onPlayerLeave({ skipId = null, allowExactFill = true } = {}) {
     if (!active) return;
     if (replacement) {
-      const cap = currentCaptain();
+      const cap = currentCaptain() || ensureCaptain();
       const { spec } = list();
       if (!cap || !spec.length) {
         const onReady = replacement.onReady;
@@ -673,11 +719,12 @@ function createChooseController(room, {
       ({ red, blue, spec, specReady } = list());
     }
 
-    // Time vazio → sobe o 1º do spec pronto (AFK não sobe)
+    // Time vazio → sobe o 1º do spec pronto (AFK não sobe). Nunca aborta se ainda há gente.
     if (!red.length || !blue.length) {
-      const next = (skipId ? specReady.find((p) => p.id !== skipId) : null) || specReady[0];
+      const empty = !red.length ? TEAM.RED : TEAM.BLUE;
+      const next =
+        (skipId ? specReady.find((p) => p.id !== skipId) : null) || specReady[0];
       if (next) {
-        const empty = !red.length ? TEAM.RED : TEAM.BLUE;
         if (typeof onPickFromSpec === "function") onPickFromSpec(next, empty);
         setTeam(next.id, empty);
         room.sendAnnouncement(
@@ -694,6 +741,8 @@ function createChooseController(room, {
       ) {
         promptCaptain();
         return;
+      } else if (ensureCaptain()) {
+        ({ red, blue, spec, specReady } = list());
       } else {
         abortChoose("Time sem capitão e sem spec pronto — voltando ao lobby.");
         return;
