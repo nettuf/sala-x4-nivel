@@ -227,6 +227,17 @@ function createCommandHandler(room, ctx) {
       return true;
     }
     const now = clock();
+    const active = peekJoke(target, now);
+    if (active) {
+      room.sendAnnouncement(
+        `${target.name} já está com ${active.title.emblem} ${active.title.name} — espere acabar antes de usar !${kind}.`,
+        player.id,
+        0xf1c40f,
+        "normal",
+        1
+      );
+      return true;
+    }
     const left = cooldownLeftSec(lastJokeCastAt.get(kind), JOKE_CD_MS, now);
     if (left > 0) {
       room.sendAnnouncement(
@@ -250,8 +261,8 @@ function createCommandHandler(room, ctx) {
     wearJoke(target, spec);
     const line =
       kind === "gordo"
-        ? `${spec.emblem} CaçadorDeGordo achou mais uma vítima: ${target.name}`
-        : `${spec.emblem} ${target.name} recebeu a bênção do ProdLuz e agora está com ego elevado`;
+        ? `${player.name} invocou o CaçadorDeGordo 🍔 em ${target.name}`
+        : `${player.name} deu a bênção do ProdLuz 🗿 para ${target.name}`;
     room.sendAnnouncement(line, null, spec.color, "bold", 1);
     return true;
   }

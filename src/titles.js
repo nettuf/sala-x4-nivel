@@ -251,7 +251,7 @@ function applyUnlockUpgrade(selectedId, prevStats, nextStats) {
 
 function formatChatPrefix(title) {
   const emblem = title?.emblem || "";
-  return emblem ? `${emblem} ` : "";
+  return emblem ? `[${emblem}] ` : "";
 }
 
 /** Vermelho/azul bem visíveis no fundo escuro; spec cinza-claro. */

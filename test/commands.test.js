@@ -616,14 +616,31 @@ describe("comandos (mock room)", () => {
     await cmd.handle(red, "!gordo Spec");
     assert.ok(
       room.announcements.some(
-        (a) => a.to == null && /CaçadorDeGordo achou mais uma vítima: Spec/.test(a.msg)
+        (a) =>
+          a.to == null &&
+          /RedCap invocou o CaçadorDeGordo 🍔 em Spec/.test(a.msg)
       )
     );
     assert.equal(ctx.titles.get(3).id, "gordo");
-    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🍔 /);
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^\[🍔\] /);
+
+    room.announcements.length = 0;
+    await cmd.handle(red, "!aura Spec");
+    assert.ok(
+      room.announcements.some((a) => a.to === red.id && /já está com 🍔 Gordo/.test(a.msg)),
+      "!aura não sobrepõe !gordo"
+    );
+    assert.equal(ctx.titles.get(3).id, "gordo");
 
     room.announcements.length = 0;
     await cmd.handle(red, "!gordo Spec");
+    assert.ok(
+      room.announcements.some((a) => a.to === red.id && /já está com 🍔 Gordo/.test(a.msg)),
+      "não reaplica o mesmo cargo no alvo"
+    );
+
+    room.announcements.length = 0;
+    await cmd.handle(red, "!gordo Blue1");
     assert.ok(room.announcements.some((a) => a.to === red.id && /Espere/.test(a.msg) && /gordo/.test(a.msg)));
 
     room.announcements.length = 0;
@@ -633,31 +650,60 @@ describe("comandos (mock room)", () => {
       "cooldown é da sala, não por jogador"
     );
 
+    ctx.advance(15 * 60 * 1000);
+    room.announcements.length = 0;
+    await cmd.handle(red, "!gordo Spec");
+    assert.ok(
+      room.announcements.some((a) => a.to === red.id && /já está com 🍔 Gordo/.test(a.msg)),
+      "cooldown passou mas o alvo ainda tem o cargo"
+    );
+    assert.equal(ctx.titles.get(3).id, "gordo");
+
+    ctx.advance(5 * 60 * 1000);
+    cmd.formatPlayerChat(spec, "oi");
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^\[🌱\] /);
+    assert.equal(ctx.titles.get(3).id, "novato");
+
     room.announcements.length = 0;
     await cmd.handle(red, "!aura Spec");
     assert.ok(
       room.announcements.some(
         (a) =>
           a.to == null &&
-          /Spec recebeu a bênção do ProdLuz e agora está com ego elevado/.test(a.msg)
+          /RedCap deu a bênção do ProdLuz 🗿 para Spec/.test(a.msg)
       )
     );
     assert.equal(ctx.titles.get(3).id, "aura");
-    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🗿 /);
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^\[🗿\] /);
+
+    room.announcements.length = 0;
+    await cmd.handle(blue, "!gordo Spec");
+    assert.ok(
+      room.announcements.some((a) => a.to === blue.id && /já está com 🗿 Aura/.test(a.msg)),
+      "!gordo não sobrepõe !aura"
+    );
+    assert.equal(ctx.titles.get(3).id, "aura");
 
     room.announcements.length = 0;
     await cmd.handle(blue, "!ego Spec");
+    assert.ok(
+      room.announcements.some((a) => a.to === blue.id && /já está com 🗿 Aura/.test(a.msg)),
+      "!ego não sobrepõe aura no mesmo alvo"
+    );
+
+    room.announcements.length = 0;
+    await cmd.handle(blue, "!aura RedCap");
     assert.ok(room.announcements.some((a) => a.to === blue.id && /Espere/.test(a.msg) && /aura/.test(a.msg)));
 
-    ctx.advance(15 * 60 * 1000);
+    ctx.advance(20 * 60 * 1000);
+    cmd.formatPlayerChat(spec, "oi");
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^\[🌱\] /);
+    assert.equal(ctx.titles.get(3).id, "novato");
+
     room.announcements.length = 0;
     await cmd.handle(blue, "!gordo Spec");
     assert.ok(room.announcements.some((a) => a.to == null && /🍔/.test(a.msg)));
     assert.equal(ctx.titles.get(3).id, "gordo");
-
-    ctx.advance(20 * 60 * 1000);
-    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^🌱 /);
-    assert.equal(ctx.titles.get(3).id, "novato");
   });
 
   it("!gordo sobrevive reload de cargo e rejoin com a mesma auth", async () => {
@@ -687,7 +733,7 @@ describe("comandos (mock room)", () => {
     };
     const cmd = createCommandHandler(room, ctx);
     const { line, color } = cmd.formatPlayerChat(room._players[0], "oi");
-    assert.equal(line, "🌱 RedCap: oi");
+    assert.equal(line, "[🌱] RedCap: oi");
     assert.equal(color, 0xff5c5c, "vermelho no time vermelho");
     assert.equal(cmd.formatPlayerChat(room._players[1], "oi").color, 0x5aa7ff, "azul no time azul");
     assert.equal(cmd.formatPlayerChat(room._players[2], "oi").color, 0xcfd3d8, "spec neutro");
@@ -705,7 +751,7 @@ describe("comandos (mock room)", () => {
     };
     const cmd = createCommandHandler(room, ctx);
     const { line, color } = cmd.formatPlayerChat(room._players[0], "s");
-    assert.equal(line, "👑 RedCap: s");
+    assert.equal(line, "[👑] RedCap: s");
     assert.equal(color, 0xd4a017, "Chefe usa amarelo escuro, não a cor do time");
     afk.stop();
   });

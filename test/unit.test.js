@@ -520,9 +520,9 @@ describe("titles / cargos", () => {
     assert.equal(worst[0].auth, "b");
   });
 
-  it("formatChatPrefix é um único emoji, sem nomes", () => {
-    assert.equal(formatChatPrefix({ emblem: "👑", name: "Chefe" }), "👑 ");
-    assert.equal(formatChatPrefix({ emblem: "🐉", name: "Lenda" }), "🐉 ");
+  it("formatChatPrefix coloca o emoji do cargo entre colchetes", () => {
+    assert.equal(formatChatPrefix({ emblem: "👑", name: "Chefe" }), "[👑] ");
+    assert.equal(formatChatPrefix({ emblem: "🐉", name: "Lenda" }), "[🐉] ");
     assert.equal(formatChatPrefix(null), "");
   });
 
