@@ -67,7 +67,7 @@ const KITS = [
   },
   {
     id: "rafaela",
-    name: "Amigos da Rafaela",
+    name: "Amigos da Raffaella",
     angle: 60,
     text: 0xffffff,
     colors: [0xffcff7, 0xffa8f1, 0xffc7fd],
@@ -94,6 +94,14 @@ const KITS = [
     text: 0xffffff,
     colors: [0xff6a00, 0xc24100, 0x1a0800],
     emoji: "𝒩",
+  },
+  {
+    id: "skdreams",
+    name: "SK Dream's",
+    angle: 60,
+    text: 0xffffff,
+    colors: [0x000000],
+    emoji: "👀",
   },
 ];
 
