@@ -61,13 +61,12 @@ const config = {
   timeLimit: Number(process.env.TIME_LIMIT || 4),
   teamSize: Number(process.env.TEAM_SIZE || 4),
   chooseTimeSec: Number(process.env.CHOOSE_TIME_SEC || 20),
-  afkWarnMs: Number(process.env.AFK_WARN_MS || 8000),
-  afkActionMs: Number(process.env.AFK_ACTION_MS || 12000),
-  afkCommandCooldownMs: Number(process.env.AFK_COMMAND_COOLDOWN_MS || 10000),
-  afkFullThreshold: Number(process.env.AFK_FULL_THRESHOLD || 12),
-  // Kicka 1 AFK (o mais antigo) só quando restam no máximo estes slots livres.
-  // 30 na sala / reserva 2 → no 28 kicka 1 e fica 27. Próximo join, de novo.
-  afkReserveSlots: Number(process.env.AFK_RESERVE_SLOTS || 2),
+  // AFK em campo: 8s aviso, 12s spec. Spec: infinito abaixo de 28; 5 min depois kicka o mais antigo.
+  afkWarnMs: 8000,
+  afkActionMs: 12000,
+  afkCommandCooldownMs: 10000,
+  afkSpecKickAt: 28,
+  afkSpecGraceMs: 5 * 60 * 1000,
   chatFloodLimit: Number(process.env.CHAT_FLOOD_LIMIT || 4),
   chatFloodWindowMs: Number(process.env.CHAT_FLOOD_WINDOW_MS || 5000),
   chatFloodMuteMs: Number(process.env.CHAT_FLOOD_MUTE_MS || 30000),

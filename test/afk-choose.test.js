@@ -167,7 +167,7 @@ describe("AFK: relógio, aviso e ação", () => {
   it("sala com 12+ ainda manda o parado pro spec, sem kick em massa", () => {
     const host = bootRoom();
     const all = fill4v4(host);
-    for (let i = 0; i < config.afkFullThreshold - 8; i++) all.push(host.addPlayer(TEAM.SPEC));
+    for (let i = 0; i < 4; i++) all.push(host.addPlayer(TEAM.SPEC));
     const parado = all[0];
     host.startMatch();
 

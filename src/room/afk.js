@@ -121,8 +121,8 @@ function createAfkTracker(room, opts = {}) {
     return afks.has(playerId);
   }
 
-  function markAfk(playerId) {
-    if (!afks.has(playerId)) afks.set(playerId, Date.now());
+  function markAfk(playerId, at = Date.now()) {
+    if (!afks.has(playerId)) afks.set(playerId, at);
   }
 
   /**
@@ -156,47 +156,49 @@ function createAfkTracker(room, opts = {}) {
     return room.getPlayerList().filter((p) => p.id !== 0);
   }
 
-  function oldestAfkPlayer() {
+  function oldestEligibleAfk(wallNow) {
+    const grace = Number(config.afkSpecGraceMs) || 5 * 60 * 1000;
     let best = null;
     let bestSince = Infinity;
     for (const p of humans()) {
       const since = afks.get(p.id);
-      if (since == null || since >= bestSince) continue;
+      if (since == null) continue;
+      if (wallNow - since < grace) continue;
+      if (since >= bestSince) continue;
       best = p;
       bestSince = since;
     }
     return best;
   }
 
-  function ensureReserveSlots() {
-    const reserve = Number(config.afkReserveSlots);
-    const keep = Number.isFinite(reserve) ? reserve : 2;
-    const maxPlayers = Number(config.maxPlayers) || 30;
-    const free = maxPlayers - humans().length;
-    if (free > keep) return;
-    const p = oldestAfkPlayer();
-    if (!p) return;
-    onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
-    room.sendAnnouncement(
-      `${p.name} foi kickado por AFK (sala com poucas vagas).`,
-      null,
-      0xe67e22,
-      "normal",
-      1
-    );
-    room.kickPlayer(p.id, kickReason("AFK (sala quase cheia)"), false);
-    remove(p.id);
+  function ensureReserveSlots(wallNow = Date.now()) {
+    const kickAt = Number(config.afkSpecKickAt) || 28;
+    for (let i = 0; i < 32; i++) {
+      if (humans().length < kickAt) return;
+      const p = oldestEligibleAfk(wallNow);
+      if (!p) return;
+      onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
+      room.sendAnnouncement(
+        `${p.name} foi kickado por AFK (sala com ${kickAt}+).`,
+        null,
+        0xe67e22,
+        "normal",
+        1
+      );
+      room.kickPlayer(p.id, kickReason("AFK (sala cheia)"), false);
+      remove(p.id);
+    }
   }
 
-  function setAfk(player, on) {
+  function setAfk(player, on, at = Date.now()) {
     const previousTeam = player.team;
     if (on) {
-      markAfk(player.id);
+      markAfk(player.id, at);
       if (player.team !== 0) sendToSpec(player.id, { pause: false });
       room.sendAnnouncement(`${player.name} está AFK (!afk)`, null, 0xbdc3c7, "normal", 1);
     } else {
       afks.delete(player.id);
-      touch(player.id);
+      touch(player.id, at);
       room.sendAnnouncement(`${player.name} voltou do AFK`, null, 0x2ecc71, "normal", 1);
     }
     onStateChange?.({
@@ -204,7 +206,7 @@ function createAfkTracker(room, opts = {}) {
       player,
       previousTeam,
     });
-    if (on) ensureReserveSlots();
+    if (on) ensureReserveSlots(at);
   }
 
   function punishIdle(p, idleMs) {
@@ -282,11 +284,11 @@ function createAfkTracker(room, opts = {}) {
     pauseAt = 0;
   }
 
-  function maybeReserveSlots() {
+  function maybeReserveSlots(wallNow = Date.now()) {
     reserveCheckTicks += 1;
     if (reserveCheckTicks < 60) return;
     reserveCheckTicks = 0;
-    ensureReserveSlots();
+    ensureReserveSlots(wallNow);
   }
 
   function scoresLive() {
@@ -307,7 +309,7 @@ function createAfkTracker(room, opts = {}) {
   function noteGameTick(wallNow = Date.now()) {
     lastSimTickAt = wallNow;
     if (!shouldAutoAfk() || !scoresLive()) {
-      maybeReserveSlots();
+      maybeReserveSlots(wallNow);
       return;
     }
     forEachFieldPlayer(wallNow, (p, st) => {
@@ -315,7 +317,7 @@ function createAfkTracker(room, opts = {}) {
       st.idleTicks = (Number(st.idleTicks) || 0) + 1;
       punishIdle(p, idleMs(st, wallNow));
     });
-    maybeReserveSlots();
+    maybeReserveSlots(wallNow);
   }
 
   /**
@@ -324,18 +326,18 @@ function createAfkTracker(room, opts = {}) {
    */
   function tick(wallNow = Date.now()) {
     if (paused) {
-      ensureReserveSlots();
+      ensureReserveSlots(wallNow);
       return;
     }
     if (!shouldAutoAfk() || !scoresLive()) {
-      ensureReserveSlots();
+      ensureReserveSlots(wallNow);
       return;
     }
 
     forEachFieldPlayer(wallNow, (p, st) => {
       punishIdle(p, idleMs(st, wallNow));
     });
-    ensureReserveSlots();
+    ensureReserveSlots(wallNow);
   }
 
   function sampleMovement(wallNow = Date.now()) {
