@@ -22,10 +22,10 @@ function writeToken(token) {
 }
 
 const ADMIN_LEVELS = {
-  1: { id: "estagiario", title: "Estagiário", emblem: "🛠️", color: 0x95a5a6 },
-  2: { id: "moderador", title: "Moderador", emblem: "🔨", color: 0x3498db },
-  3: { id: "gerente", title: "Gerente", emblem: "💼", color: 0x9b59b6 },
-  4: { id: "chefe", title: "Chefe", emblem: "👑", color: 0xe74c3c },
+  1: { id: "estagiario", title: "Estagiário", emblem: "🛠️", color: 0xffe99a },
+  2: { id: "moderador", title: "Moderador", emblem: "🔨", color: 0xffd54a },
+  3: { id: "gerente", title: "Gerente", emblem: "💼", color: 0xe8bc2c },
+  4: { id: "chefe", title: "Chefe", emblem: "👑", color: 0xd4a017 },
 };
 
 function bool(v, fallback = false) {

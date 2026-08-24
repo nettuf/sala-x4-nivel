@@ -526,7 +526,7 @@ describe("titles / cargos", () => {
     assert.equal(formatChatPrefix(null), "");
   });
 
-  it("chat: vermelho/azul/spec; Craque, Lenda, Chefe, Gordo e Aura pintam diferente", () => {
+  it("chat: vermelho/azul/spec; Craque, Lenda, admins amarelo, Gordo e Aura pintam diferente", () => {
     const novato = { id: "novato", emblem: "🌱", color: 0xbdc3c7 };
     assert.equal(chatColor(novato, 1), CHAT_COLOR_RED);
     assert.equal(chatColor(novato, 2), CHAT_COLOR_BLUE);
@@ -536,8 +536,11 @@ describe("titles / cargos", () => {
     assert.equal(chatColor(JOKE_TITLES.aura, 1), JOKE_TITLES.aura.color);
     assert.equal(chatColor({ id: "craque", chatHighlight: true, color: 0xd8a4ff }, 1), 0xd8a4ff);
     assert.equal(chatColor({ id: "lenda", chatHighlight: true, color: 0xffc04d }, 2), 0xffc04d);
-    assert.equal(chatColor({ id: "chefe", kind: "staff", level: 4, color: 0xe74c3c }, 2), CHAT_COLOR_CHEFE);
-    assert.equal(chatColor({ id: "moderador", kind: "staff", level: 2, color: 0x3498db }, 1), CHAT_COLOR_RED);
+    assert.equal(chatColor({ id: "chefe", kind: "staff", level: 4, color: 0xd4a017 }, 2), 0xd4a017);
+    assert.equal(chatColor({ id: "gerente", kind: "staff", level: 3, color: 0xe8bc2c }, 1), 0xe8bc2c);
+    assert.equal(chatColor({ id: "moderador", kind: "staff", level: 2, color: 0xffd54a }, 1), 0xffd54a);
+    assert.equal(chatColor({ id: "estagiario", kind: "staff", level: 1, color: 0xffe99a }, 0), 0xffe99a);
+    assert.equal(chatColor({ id: "chefe", kind: "staff", level: 4 }, 2), CHAT_COLOR_CHEFE);
   });
 
   it("admin sem seleção usa cargo de staff", () => {

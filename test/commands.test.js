@@ -701,12 +701,12 @@ describe("comandos (mock room)", () => {
       admins: new Map([[1, { level: 4, title: "Chefe" }]]),
       mutes: new Map(),
       afk,
-      titles: new Map([[1, { emblem: "👑", name: "Chefe", color: 0xe74c3c, id: "chefe", kind: "staff", level: 4 }]]),
+      titles: new Map([[1, { emblem: "👑", name: "Chefe", color: 0xd4a017, id: "chefe", kind: "staff", level: 4 }]]),
     };
     const cmd = createCommandHandler(room, ctx);
     const { line, color } = cmd.formatPlayerChat(room._players[0], "s");
     assert.equal(line, "👑 RedCap: s");
-    assert.equal(color, 0xffd54a, "Chefe usa dourado, não a cor do time");
+    assert.equal(color, 0xd4a017, "Chefe usa amarelo escuro, não a cor do time");
     afk.stop();
   });
 

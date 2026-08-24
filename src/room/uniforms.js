@@ -65,6 +65,28 @@ const KITS = [
     colors: [0x080404, 0x141414],
     emoji: "⚡",
   },
+  {
+    id: "rafaela",
+    name: "Amigos da Rafaela",
+    angle: 60,
+    text: 0xffffff,
+    colors: [0xffcff7, 0xffa8f1, 0xffc7fd],
+    emoji: "><",
+  },
+  {
+    id: "mdr",
+    name: "Bigodes do MDR",
+    angle: 60,
+    text: 0xffffff,
+    colors: [0x73ff98, 0x27752c, 0x000000],
+  },
+  {
+    id: "dezena",
+    name: "Dezena Impopular",
+    angle: 60,
+    text: 0xfcfcfc,
+    colors: [0xf0303d, 0xe32d3a, 0xcf2935],
+  },
 ];
 
 function defaultKit(team) {

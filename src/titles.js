@@ -258,23 +258,22 @@ function formatChatPrefix(title) {
 const CHAT_COLOR_RED = 0xff5c5c;
 const CHAT_COLOR_BLUE = 0x5aa7ff;
 const CHAT_COLOR_SPEC = 0xcfd3d8;
-/** Chefe no chat: dourado, pra não misturar com o time vermelho. */
-const CHAT_COLOR_CHEFE = 0xffd54a;
+/** Fallback staff (Chefe): amarelo escuro. */
+const CHAT_COLOR_CHEFE = 0xd4a017;
 
 function isTopChatTitle(title) {
   if (!title) return false;
-  if (title.kind === "staff") return Number(title.level) >= 4;
+  if (title.kind === "staff") return true;
   return !!title.chatHighlight;
 }
 
 /**
  * Cor da linha do chat: time (vermelho / azul / spec).
- * Craque, Lenda, Chefe, Gordo e Aura pintam diferente.
+ * Staff (todos amarelo), Craque, Lenda, Gordo e Aura pintam diferente.
  */
 function chatColor(title, team) {
   if (isTopChatTitle(title)) {
-    if (title.kind === "staff") return CHAT_COLOR_CHEFE;
-    return title.color || CHAT_COLOR_SPEC;
+    return title.color || (title.kind === "staff" ? CHAT_COLOR_CHEFE : CHAT_COLOR_SPEC);
   }
   if (Number(team) === 1) return CHAT_COLOR_RED;
   if (Number(team) === 2) return CHAT_COLOR_BLUE;
