@@ -302,7 +302,7 @@ describe("uniformes: emoji do kit", () => {
     return room;
   }
 
-  it("kits com emoji fixo: baleio, cacadores, copas, gh, gigachads, gordo, jalin, marconhados, moggadores, olympus guardians, palhacada, rafaela, rato, tigre, tulio, zebra family e zebrados", () => {
+  it("kits com emoji fixo: baleio, cacadores, copas, gh, gigachads, gordo, jalin, marconhados, moggadores, nickname, olympus guardians, palhacada, rafaela, rato, tigre, tulio, zebra family e zebrados", () => {
     const comEmoji = KITS.filter((k) => k.emoji).map((k) => k.id).sort();
     assert.deepEqual(comEmoji, [
       "baleio",
@@ -314,6 +314,7 @@ describe("uniformes: emoji do kit", () => {
       "jalin",
       "marconhados",
       "moggadores",
+      "nickname",
       "olympusguardians",
       "palhacada",
       "rafaela",

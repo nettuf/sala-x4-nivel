@@ -87,6 +87,14 @@ const KITS = [
     text: 0xfcfcfc,
     colors: [0xf0303d, 0xe32d3a, 0xcf2935],
   },
+  {
+    id: "nickname",
+    name: "Amigos do Nickname",
+    angle: 45,
+    text: 0xffffff,
+    colors: [0xff6a00, 0xc24100, 0x1a0800],
+    emoji: "𝒩",
+  },
 ];
 
 function defaultKit(team) {
