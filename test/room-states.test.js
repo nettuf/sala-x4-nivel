@@ -34,14 +34,19 @@ describe("AFK do jogador parado", () => {
     host.startMatch();
     const a = all[0];
     const b = all[1];
+    // Passa do kickoff: senão o 1º AFK vira RR e zera o idle de todo mundo.
+    for (const p of all) host.activity(p);
     host.idle(all, { moving: all.slice(2), idleMs: config.afkActionMs + 1000 });
 
     const pausesBefore = host.pauses.length;
     host.handles.afk.tick(Date.now());
 
     assert.equal(host.find(a.id).team, TEAM.SPEC);
-    assert.equal(host.find(b.id).team, TEAM.SPEC);
     assert.equal(host.handles.afk.isAfk(a.id), true);
+    assert.equal(host.handles.afk.isAfk(b.id), false, "só 1 auto-AFK por tick");
+
+    host.handles.afk.tick(Date.now() + 50);
+    assert.equal(host.find(b.id).team, TEAM.SPEC);
     assert.equal(host.handles.afk.isAfk(b.id), true);
     assert.equal(host.pauses.length, pausesBefore, "auto-AFK não pode pausar e zerar os outros");
     host.cleanup();

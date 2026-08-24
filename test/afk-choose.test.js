@@ -182,7 +182,7 @@ describe("AFK: relógio, aviso e ação", () => {
 });
 
 describe("AFK: pausa, gol e kickoff", () => {
-  it("pausa congela o relógio do AFK; despausar continua de onde parou", () => {
+  it("pausa congela o AFK; despausar zera o relógio (não pune quem estava parado)", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.startMatch();
@@ -193,18 +193,18 @@ describe("AFK: pausa, gol e kickoff", () => {
     assert.ok(host.said(/mexa-se/, all[0].id));
     assert.equal(host.teamCount(TEAM.SPEC), 0);
 
-    // Timestamps sintéticos: o hold precisa usar o mesmo relógio do tick.
     host.handles.afk.setPaused(true, at + config.afkWarnMs + 500);
     host.handles.afk.tick(at + config.afkActionMs * 5);
     assert.equal(host.teamCount(TEAM.SPEC), 0, "pausado ninguém cai pro spec");
     assert.equal(host.kicks.length, 0);
 
-    host.handles.afk.setPaused(false, at + config.afkActionMs * 5);
-    host.handles.afk.tick(at + config.afkActionMs * 5);
-    assert.equal(host.teamCount(TEAM.SPEC), 0, "despause mantém o progresso, não zera nem estoura");
+    const resumeAt = at + config.afkActionMs * 5;
+    host.handles.afk.setPaused(false, resumeAt);
+    host.handles.afk.tick(resumeAt + 500);
+    assert.equal(host.teamCount(TEAM.SPEC), 0, "logo após despausar ninguém cai");
 
-    host.handles.afk.tick(at + config.afkActionMs * 5 + (config.afkActionMs - config.afkWarnMs));
-    assert.equal(host.find(all[0].id).team, TEAM.SPEC, "depois do despause o tempo volta a correr");
+    host.handles.afk.tick(resumeAt + config.afkActionMs + 500);
+    assert.equal(host.find(all[0].id).team, TEAM.SPEC, "só depois de 12s novos parado cai");
     host.cleanup();
   });
 

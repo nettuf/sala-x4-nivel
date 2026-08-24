@@ -46,6 +46,8 @@ function createAfkTracker(room, opts = {}) {
   let paused = false;
   /** Início da pausa atual (relógio de parede). */
   let pauseAt = 0;
+  /** Depois de despausar: não pune até o jogo “aquecer” de novo. */
+  let unpauseGraceUntil = 0;
   /** Último onGameTick — se recente, o setInterval não conta de novo. */
   let lastSimTickAt = 0;
   /** Kick de AFK por vaga não precisa de 60 Hz. */
@@ -258,10 +260,20 @@ function createAfkTracker(room, opts = {}) {
     }
   }
 
+  function softResetIdle(wallNow = Date.now()) {
+    for (const st of state.values()) {
+      st.lastActive = wallNow;
+      st.idleTicks = 0;
+      st.lastPos = null;
+      st.warned = false;
+    }
+  }
+
   /** Só no início de partida: todo mundo começa o relógio do zero. */
   function resetClocks(wallNow = Date.now()) {
     pauseAt = 0;
     lastSimTickAt = 0;
+    unpauseGraceUntil = 0;
     for (const p of room.getPlayerList()) {
       if (p.id === 0 || afks.has(p.id)) continue;
       state.set(p.id, blankState(wallNow));
@@ -270,15 +282,22 @@ function createAfkTracker(room, opts = {}) {
 
   function setPaused(on, wallNow = Date.now()) {
     if (on) {
-      if (!paused) pauseAt = wallNow;
+      if (!paused) {
+        pauseAt = wallNow;
+        // Descarta idle acumulado com o jogo já parado (flag atrasada / dessync).
+        for (const st of state.values()) {
+          st.idleTicks = 0;
+          st.lastPos = null;
+        }
+      }
       paused = true;
       return;
     }
-    if (paused && pauseAt) {
-      const held = Math.max(0, wallNow - pauseAt);
-      for (const st of state.values()) {
-        st.lastActive += held;
-      }
+    // Só zera/graça se realmente estava pausado. setPaused(false) no onGameStart
+    // (já despausado) não pode apagar idle nem criar grace de 2.5s.
+    if (paused) {
+      softResetIdle(wallNow);
+      unpauseGraceUntil = wallNow + 2500;
     }
     paused = false;
     pauseAt = 0;
@@ -305,6 +324,7 @@ function createAfkTracker(room, opts = {}) {
    * Física rodando. Inatividade = disco parado neste tick.
    * Conta ticks E relógio de parede — o host não entrega 60 Hz estável.
    * Respeita paused (reposição/choose/admin): senão todo mundo cai AFK junto.
+   * No máx. 1 auto-AFK por frame: o 1º pausa a reposição e zera o idle dos outros.
    */
   function noteGameTick(wallNow = Date.now()) {
     lastSimTickAt = wallNow;
@@ -316,10 +336,32 @@ function createAfkTracker(room, opts = {}) {
       maybeReserveSlots(wallNow);
       return;
     }
+    if (wallNow < unpauseGraceUntil) {
+      forEachFieldPlayer(wallNow, (p, st) => {
+        applyMotion(p, st, wallNow);
+      });
+      maybeReserveSlots(wallNow);
+      return;
+    }
+    let punished = false;
     forEachFieldPlayer(wallNow, (p, st) => {
       if (applyMotion(p, st, wallNow)) return;
       st.idleTicks = (Number(st.idleTicks) || 0) + 1;
-      punishIdle(p, idleMs(st, wallNow));
+      const idle = idleMs(st, wallNow);
+      if (punished) {
+        if (idle >= config.afkWarnMs && !st.warned) {
+          st.warned = true;
+          room.sendAnnouncement(
+            `⚠️ ${p.name}, mexa-se — faltam ${afkRemainSec()}s para AFK.`,
+            p.id,
+            0xf1c40f,
+            "bold",
+            2
+          );
+        }
+        return;
+      }
+      if (punishIdle(p, idle)) punished = true;
     });
     maybeReserveSlots(wallNow);
   }
@@ -327,6 +369,7 @@ function createAfkTracker(room, opts = {}) {
   /**
    * Fallback de 1s: só olha o relógio. NÃO compara posição —
    * 1s de deriva do disco passava de 1.5 e zerava o AFK na VM.
+   * No máx. 1 auto-AFK por chamada (evita cascata).
    */
   function tick(wallNow = Date.now()) {
     if (paused) {
@@ -337,9 +380,28 @@ function createAfkTracker(room, opts = {}) {
       ensureReserveSlots(wallNow);
       return;
     }
+    if (wallNow < unpauseGraceUntil) {
+      ensureReserveSlots(wallNow);
+      return;
+    }
 
+    let punished = false;
     forEachFieldPlayer(wallNow, (p, st) => {
-      punishIdle(p, idleMs(st, wallNow));
+      const idle = idleMs(st, wallNow);
+      if (punished) {
+        if (idle >= config.afkWarnMs && !st.warned) {
+          st.warned = true;
+          room.sendAnnouncement(
+            `⚠️ ${p.name}, mexa-se — faltam ${afkRemainSec()}s para AFK.`,
+            p.id,
+            0xf1c40f,
+            "bold",
+            2
+          );
+        }
+        return;
+      }
+      if (punishIdle(p, idle)) punished = true;
     });
     ensureReserveSlots(wallNow);
   }

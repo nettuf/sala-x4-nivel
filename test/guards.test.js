@@ -257,6 +257,53 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
+  it("após despausar não pune em massa quem tinha idle alto", () => {
+    const players = [
+      { id: 1, name: "P1", team: 1, auth: "a1" },
+      { id: 2, name: "P2", team: 1, auth: "a2" },
+      { id: 3, name: "P3", team: 2, auth: "a3" },
+      { id: 4, name: "P4", team: 2, auth: "a4" },
+    ];
+    const room = mockRoom(players);
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const at = Date.now();
+    for (const p of players) afk.touch(p.id, at - 11000);
+    afk.setPaused(true, at);
+    afk.setPaused(false, at + 30000);
+    afk.tick(at + 30100);
+    for (const p of players) {
+      assert.equal(p.team !== 0, true, `${p.name} não cai logo após despausar`);
+      assert.equal(afk.isAfk(p.id), false);
+    }
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
+  it("no mesmo frame só 1 auto-AFK: evita cascata em massa", () => {
+    const players = [
+      { id: 1, name: "P1", team: 1, auth: "a1" },
+      { id: 2, name: "P2", team: 1, auth: "a2" },
+      { id: 3, name: "P3", team: 2, auth: "a3" },
+      { id: 4, name: "P4", team: 2, auth: "a4" },
+    ];
+    const room = mockRoom(players);
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 0;
+    config.afkActionMs = 0;
+    for (const p of players) afk.touch(p.id);
+    afk.tick();
+    const afkCount = players.filter((p) => afk.isAfk(p.id)).length;
+    assert.equal(afkCount, 1, "só um cai por chamada");
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
+
   it("sala com 12+ ainda manda o parado pro spec, não kicka", () => {
     const { room, players } = afkSetup(12);
     const afk = createAfkTracker(room);
