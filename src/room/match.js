@@ -10,6 +10,7 @@ const {
   isDecidedLosingScore,
   pickGoalkeeper,
   sameTouchPlayer,
+  dedupeMatchPlayers,
 } = require("../gameLogic");
 const { pickMatchMvps, pickMatchWorst } = require("../titles");
 
@@ -403,7 +404,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
         cleanSheet: Number(scores?.red ?? 0) === 0 && gk.blueId === p.id,
       });
     }
-    return rows;
+    return dedupeMatchPlayers(rows);
   }
 
   async function finish(scores, opts = {}) {

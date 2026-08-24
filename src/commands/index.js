@@ -27,6 +27,7 @@ const {
   formatTitleCatalog,
   chatColor,
   formatChatPrefix,
+  formatChatBody,
   JOKE_TITLES,
 } = require("../titles");
 
@@ -335,7 +336,7 @@ function createCommandHandler(room, ctx) {
     const live = room.getPlayerList().find((p) => p.id === player.id);
     const team = live?.team ?? player.team;
     return {
-      line: `${formatChatPrefix(title)}${player.name}: ${message}`,
+      line: `${formatChatPrefix(title)}${player.name}: ${formatChatBody(title, message)}`,
       color: chatColor(title, team),
     };
   }

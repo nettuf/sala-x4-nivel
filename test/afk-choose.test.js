@@ -252,7 +252,7 @@ describe("AFK: pausa, gol e kickoff", () => {
     host.cleanup();
   });
 
-  it("auto-AFK em partida não pausa o jogo", () => {
+  it("auto-AFK no 4v4 sem spec vira 3v3 sem pausar", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.startMatch();
@@ -263,7 +263,7 @@ describe("AFK: pausa, gol e kickoff", () => {
     host.handles.afk.tick(Date.now());
 
     assert.equal(host.handles.afk.isAfk(all[0].id), true);
-    assert.equal(host.pauses.length, pausasAntes, "mandar AFK pro spec não pausa a partida");
+    assert.equal(host.pauses.length, pausasAntes, "sem spec: 3v3 segue sem pausa");
     assert.ok(host.live(), "a partida continua rodando");
     host.cleanup();
   });
@@ -301,6 +301,25 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     assert.equal(host.handles.afk.isAfk(all[0].id), true);
     assert.equal(host.find(all[0].id).team, TEAM.SPEC);
     assert.equal(host.handles.choose.isReplacement(), true, "o time desfalcado repõe");
+    host.cleanup();
+  });
+
+  it("auto-AFK no 4v4 com 1 spec pausa e abre reposição pro capitão", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+    for (const p of all) host.activity(p);
+
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await settle();
+
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
+    assert.ok(host.pauses.includes(true), "jogo pausou antes de repor");
+    assert.equal(host.teamCount(TEAM.RED), 4, "única opção repôs após pausa");
+    assert.equal(host.lastPause(), false);
+    assert.ok(host.live());
     host.cleanup();
   });
 

@@ -116,6 +116,53 @@ function kitKey(id) {
     .replace(/[\s_-]+/g, "");
 }
 
+function rgbFromHex(hex) {
+  const n = Number(hex) || 0;
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+function colorDistance(a, b) {
+  const ca = rgbFromHex(a);
+  const cb = rgbFromHex(b);
+  const dr = ca.r - cb.r;
+  const dg = ca.g - cb.g;
+  const db = ca.b - cb.b;
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+function kitPalette(kit) {
+  return (kit?.colors || []).filter((c) => Number.isFinite(c));
+}
+
+function kitLuminance(kit) {
+  const palette = kitPalette(kit);
+  if (!palette.length) return 128;
+  const sum = palette.reduce((acc, c) => {
+    const { r, g, b } = rgbFromHex(c);
+    return acc + 0.299 * r + 0.587 * g + 0.114 * b;
+  }, 0);
+  return sum / palette.length;
+}
+
+/** Evita kits iguais ou com faixas/cores muito parecidas entre os times. */
+function kitsTooSimilar(a, b, threshold = 60) {
+  if (!a || !b) return false;
+  if (a.id === b.id) return true;
+  const pa = kitPalette(a);
+  const pb = kitPalette(b);
+  if (!pa.length || !pb.length) return false;
+  for (const ca of pa) {
+    for (const cb of pb) {
+      if (colorDistance(ca, cb) < threshold) return true;
+    }
+  }
+  const lumA = kitLuminance(a);
+  const lumB = kitLuminance(b);
+  if (lumA < 35 && lumB < 35) return true;
+  if (lumA > 220 && lumB > 220) return true;
+  return false;
+}
+
 function findKit(id) {
   const key = kitKey(id);
   if (!key) return null;
@@ -128,18 +175,27 @@ function isRandomKitArg(raw) {
 }
 
 /**
- * Sorteia um kit, evitando os ids informados quando ainda houver opções.
+ * Sorteia um kit, evitando ids e cores parecidas com o adversário.
  * @param {string[]|string|null} exceptIds
  * @param {() => number} [rng]
+ * @param {object|string|null} [avoidSimilarTo]
  */
-function pickRandomKit(exceptIds = [], rng = Math.random) {
+function pickRandomKit(exceptIds = [], rng = Math.random, avoidSimilarTo = null) {
   const except = new Set(
     (Array.isArray(exceptIds) ? exceptIds : [exceptIds]).filter(Boolean).map(String)
   );
-  const pool = KITS.filter((k) => !except.has(k.id));
-  const source = pool.length ? pool : KITS;
-  const idx = Math.min(source.length - 1, Math.floor(rng() * source.length));
-  return source[Math.max(0, idx)];
+  const reference =
+    typeof avoidSimilarTo === "string" ? findKit(avoidSimilarTo) : avoidSimilarTo || null;
+
+  let pool = KITS.filter((k) => !except.has(k.id));
+  if (reference) {
+    const distinct = pool.filter((k) => !kitsTooSimilar(k, reference));
+    if (distinct.length) pool = distinct;
+  }
+  const source = pool.length ? pool : KITS.filter((k) => !except.has(k.id));
+  const fallback = source.length ? source : KITS;
+  const idx = Math.min(fallback.length - 1, Math.floor(rng() * fallback.length));
+  return fallback[Math.max(0, idx)];
 }
 
 function parseTeamRef(raw) {
@@ -176,8 +232,12 @@ function validateChange({ team, kitId, current }) {
     return { ok: false, error: "Uniforme inexistente. Veja !unis" };
   }
   const other = team === TEAM.RED ? TEAM.BLUE : TEAM.RED;
-  if (kit.id !== "padrao" && current[other] === kit.id) {
-    return { ok: false, error: `${kit.name} já está no time ${teamLabel(other)}. Escolha outro.` };
+  const otherKit = findKit(current[other]);
+  if (otherKit && kitsTooSimilar(kit, otherKit)) {
+    return {
+      ok: false,
+      error: `${kit.name} fica parecido demais com ${otherKit.name} (${teamLabel(other)}). Escolha outro.`,
+    };
   }
   if (current[team] === kit.id) {
     return { ok: false, error: `Seu time já está com ${kit.name}.` };
@@ -313,12 +373,12 @@ function createUniformManager(room, opts = {}) {
     pendingRandom = false;
     if (team === TEAM.RED || team === TEAM.BLUE) {
       const other = team === TEAM.RED ? TEAM.BLUE : TEAM.RED;
-      const kit = pickRandomKit([current[other], current[team]], rng);
+      const kit = pickRandomKit([current[other], current[team]], rng, kitFor(other));
       apply(team, kit);
       return { ok: true, mode: "one", team, kit };
     }
     const redKit = pickRandomKit([], rng);
-    const blueKit = pickRandomKit([redKit.id], rng);
+    const blueKit = pickRandomKit([redKit.id], rng, redKit);
     apply(TEAM.RED, redKit);
     apply(TEAM.BLUE, blueKit);
     return { ok: true, mode: "both", red: redKit, blue: blueKit };
@@ -418,6 +478,8 @@ module.exports = {
   findKit,
   isRandomKitArg,
   pickRandomKit,
+  kitsTooSimilar,
+  colorDistance,
   parseTeamRef,
   formatKickoffVs,
   validateChange,

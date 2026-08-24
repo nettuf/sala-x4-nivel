@@ -6,6 +6,7 @@ const {
   findKit,
   isRandomKitArg,
   pickRandomKit,
+  kitsTooSimilar,
   parseTeamRef,
   formatKickoffVs,
   validateChange,
@@ -71,11 +72,19 @@ describe("uniformes: catálogo e regras puras", () => {
     );
   });
 
-  it("não deixa os dois times usarem o mesmo uniforme", () => {
+  it("não deixa os dois times usarem uniforme igual ou parecido", () => {
     const current = { [TEAM.RED]: "bra", [TEAM.BLUE]: null };
     const r = validateChange({ team: TEAM.BLUE, kitId: "bra", current });
     assert.equal(r.ok, false);
-    assert.match(r.error, /já está no time/i);
+    assert.match(r.error, /parecido demais/i);
+
+    const dark = validateChange({
+      team: TEAM.BLUE,
+      kitId: "cor",
+      current: { [TEAM.RED]: "preto", [TEAM.BLUE]: null },
+    });
+    assert.equal(dark.ok, false);
+    assert.match(dark.error, /parecido demais/i);
   });
 
   it("kit inexistente e kit repetido do próprio time são recusados", () => {
@@ -87,7 +96,7 @@ describe("uniformes: catálogo e regras puras", () => {
     );
   });
 
-  it("pickRandomKit evita ids excluídos e isRandomKitArg reconhece aliases", () => {
+  it("pickRandomKit evita ids excluídos, cores parecidas e isRandomKitArg reconhece aliases", () => {
     assert.equal(isRandomKitArg("random"), true);
     assert.equal(isRandomKitArg("ALEATORIO"), true);
     assert.equal(isRandomKitArg("fla"), false);
@@ -96,11 +105,15 @@ describe("uniformes: catálogo e regras puras", () => {
     assert.notEqual(kit.id, "fra");
     const first = pickRandomKit([], () => 0);
     assert.equal(first.id, KITS[0].id);
+    const distinct = pickRandomKit([], () => 0, findKit("preto"));
+    assert.notEqual(distinct.id, "preto");
+    assert.notEqual(distinct.id, "cor");
   });
 
-  it("padrão pode ser usado pelos dois times", () => {
-    const current = { [TEAM.RED]: "padrao", [TEAM.BLUE]: null };
-    assert.equal(validateChange({ team: TEAM.BLUE, kitId: "padrao", current }).ok, true);
+  it("kitsTooSimilar detecta vermelhos e pretos parecidos", () => {
+    assert.equal(kitsTooSimilar(findKit("fla"), findKit("int")), true);
+    assert.equal(kitsTooSimilar(findKit("preto"), findKit("cor")), true);
+    assert.equal(kitsTooSimilar(findKit("preto"), findKit("bra")), false);
   });
 
   it("permissão: capitão sim, jogador comum não, spec não", () => {
@@ -198,7 +211,7 @@ describe("uniformes: manager na sala", () => {
     const r = uni.change({ player: players[2], isAdmin: false, kitId: "fla" });
 
     assert.equal(r.ok, false);
-    assert.match(r.error, /já está no time/i);
+    assert.match(r.error, /parecido demais/i);
     assert.equal(uni.current()[TEAM.BLUE], "branco");
   });
 
@@ -259,15 +272,16 @@ describe("uniformes: sorteio no kickoff", () => {
     const uni = createUniformManager(room, { random: seqRandom([0, 0.99]) });
     const first = uni.prepareKickoff();
     assert.equal(first.randomized, true);
-    assert.equal(uni.current()[TEAM.RED], KITS[0].id);
-    assert.equal(uni.current()[TEAM.BLUE], KITS[KITS.length - 1].id);
-    assert.notEqual(uni.current()[TEAM.RED], uni.current()[TEAM.BLUE]);
+    const redId = uni.current()[TEAM.RED];
+    const blueId = uni.current()[TEAM.BLUE];
+    assert.notEqual(redId, blueId);
+    assert.equal(kitsTooSimilar(findKit(redId), findKit(blueId)), false);
     assert.equal(uni.pendingKickoffRandom(), false);
 
     const second = uni.prepareKickoff();
     assert.equal(second.randomized, false);
-    assert.equal(uni.current()[TEAM.RED], KITS[0].id);
-    assert.equal(uni.current()[TEAM.BLUE], KITS[KITS.length - 1].id);
+    assert.equal(uni.current()[TEAM.RED], redId);
+    assert.equal(uni.current()[TEAM.BLUE], blueId);
   });
 
   it("troca no intervalo cancela o sorteio do kickoff", () => {
@@ -508,13 +522,13 @@ describe("uniformes: comando !uni", () => {
   it("!uni blue <kit> só funciona para admin", async () => {
     const { room, cmd, players, uniforms, ctx, afk } = setup();
 
-    await cmd.handle(players[0], "!uni blue gre");
+    await cmd.handle(players[0], "!uni blue fra");
     assert.equal(uniforms.current()[TEAM.BLUE], "branco");
 
     ctx.admins.set(players[0].id, { level: 4 });
-    await cmd.handle(players[0], "!uni blue gre");
-    assert.equal(uniforms.current()[TEAM.BLUE], "gre");
-    assert.ok(room.announcements.some((a) => /vestiu Grêmio/i.test(a.msg)));
+    await cmd.handle(players[0], "!uni blue fra");
+    assert.equal(uniforms.current()[TEAM.BLUE], "fra");
+    assert.ok(room.announcements.some((a) => /vestiu França/i.test(a.msg)));
     afk.stop();
   });
 

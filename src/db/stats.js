@@ -1,4 +1,5 @@
 const { getSupabase } = require("./supabase");
+const { dedupeMatchPlayers } = require("../gameLogic");
 const { pickMatchMvps, applyUnlockUpgrade, newlyUnlockedPlayerTitles } = require("../titles");
 
 function emptyPlayerStats() {
@@ -56,7 +57,8 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
   const sb = getSupabase();
   if (!sb) return null;
 
-  const mvpList = valid ? pickMatchMvps(players) : [];
+  const roster = dedupeMatchPlayers(players);
+  const mvpList = valid ? pickMatchMvps(roster) : [];
   const mvpAuths = new Set(mvpList.map((p) => p.auth).filter(Boolean));
 
   const { data: match, error } = await sb
@@ -76,42 +78,34 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
     return null;
   }
 
-  if (players?.length) {
-    for (const p of players) {
+  if (roster?.length) {
+    for (const p of roster) {
       await ensurePlayer(p.auth, p.nick);
     }
-    const { error: pe } = await sb.from("match_players").insert(
-      players.map((p) => ({
-        match_id: match.id,
-        auth: p.auth,
-        nick: p.nick,
-        team: p.team,
-        goals: p.goals || 0,
-        assists: p.assists || 0,
-        own_goals: p.own_goals || 0,
-        result: p.result,
-        mvp: mvpAuths.has(p.auth),
-        clean_sheet: !!p.cleanSheet,
-      }))
-    );
+    const rows = roster.map((p) => ({
+      match_id: match.id,
+      auth: p.auth,
+      nick: p.nick,
+      team: p.team,
+      goals: p.goals || 0,
+      assists: p.assists || 0,
+      own_goals: p.own_goals || 0,
+      result: p.result,
+      mvp: mvpAuths.has(p.auth),
+      clean_sheet: !!p.cleanSheet,
+    }));
+    const { error: pe } = await sb.from("match_players").insert(rows);
     if (pe) {
-      if (/clean_sheet/i.test(pe.message || "")) {
+      const msg = pe.message || "";
+      if (/clean_sheet/i.test(msg)) {
         const retry = await sb.from("match_players").insert(
-          players.map((p) => ({
-            match_id: match.id,
-            auth: p.auth,
-            nick: p.nick,
-            team: p.team,
-            goals: p.goals || 0,
-            assists: p.assists || 0,
-            own_goals: p.own_goals || 0,
-            result: p.result,
-            mvp: mvpAuths.has(p.auth),
-          }))
+          rows.map(({ clean_sheet, ...r }) => r)
         );
         if (retry.error) console.error("[stats] match_players", retry.error.message);
+      } else if (/duplicate|23505/i.test(msg)) {
+        console.warn("[stats] match_players duplicata ignorada após dedupe");
       } else {
-        console.error("[stats] match_players", pe.message);
+        console.error("[stats] match_players", msg);
       }
     }
   }

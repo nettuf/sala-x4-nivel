@@ -254,6 +254,29 @@ function formatChatPrefix(title) {
   return emblem ? `[${emblem}] ` : "";
 }
 
+/** Lanches usados no lugar das vogais quando o alvo está com !gordo. */
+const SNACK_EMOJIS = ["🍔", "🍟", "🌭", "🍕", "🌮", "🥪", "🍗", "🥓", "🧀", "🍿"];
+
+const VOWEL_RE = /[aeiouáàâãéêíóôõúüýAEIOUÁÀÂÃÉÊÍÓÔÕÚÜÝ]/g;
+
+function replaceVowelsWithSnacks(text, { pick } = {}) {
+  let i = 0;
+  const choose =
+    pick ||
+    (() => {
+      const emoji = SNACK_EMOJIS[i % SNACK_EMOJIS.length];
+      i += 1;
+      return emoji;
+    });
+  return String(text ?? "").replace(VOWEL_RE, () => choose());
+}
+
+/** Mensagem do chat: !gordo troca vogais por emoji de lanche. */
+function formatChatBody(title, message) {
+  if (title?.id === "gordo") return replaceVowelsWithSnacks(message);
+  return message;
+}
+
 /** Vermelho/azul bem visíveis no fundo escuro; spec cinza-claro. */
 const CHAT_COLOR_RED = 0xff5c5c;
 const CHAT_COLOR_BLUE = 0x5aa7ff;
@@ -401,6 +424,9 @@ module.exports = {
   newlyUnlockedPlayerTitles,
   applyUnlockUpgrade,
   formatChatPrefix,
+  formatChatBody,
+  replaceVowelsWithSnacks,
+  SNACK_EMOJIS,
   chatColor,
   isTopChatTitle,
   CHAT_COLOR_RED,

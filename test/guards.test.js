@@ -229,22 +229,29 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("onGameTick pune o parado mesmo se a flag de pausa ficou presa", () => {
-    const { room, players } = afkSetup(4);
+  it("noteGameTick respeita pausa (reposição/choose) e não manda todos pro spec", () => {
+    const players = [
+      { id: 1, name: "P1", team: 1, auth: "a1" },
+      { id: 2, name: "P2", team: 1, auth: "a2" },
+      { id: 3, name: "P3", team: 2, auth: "a3" },
+      { id: 4, name: "P4", team: 2, auth: "a4" },
+    ];
+    const room = mockRoom(players);
     const { TICK_HZ } = require("../src/room/afk");
     const afk = createAfkTracker(room);
     const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
     config.afkWarnMs = 8000;
     config.afkActionMs = 12000;
-    afk.touch(1);
-    afk.touch(2);
+    for (const p of players) afk.touch(p.id);
     afk.setPaused(true);
 
     const ticks = Math.ceil((12000 / 1000) * TICK_HZ) + 2;
     for (let i = 0; i < ticks; i++) afk.noteGameTick();
 
-    assert.equal(players.find((p) => p.id === 1).team, 0, "física rodando ignora paused preso");
-    assert.equal(afk.isAfk(1), true);
+    for (const p of players) {
+      assert.notEqual(p.team, 0, `${p.name} não deveria ir pro spec durante pausa`);
+      assert.equal(afk.isAfk(p.id), false);
+    }
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();

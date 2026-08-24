@@ -33,6 +33,8 @@ const {
   pickMatchMvps,
   pickMatchWorst,
   formatChatPrefix,
+  formatChatBody,
+  replaceVowelsWithSnacks,
   chatColor,
   CHAT_COLOR_RED,
   CHAT_COLOR_BLUE,
@@ -326,6 +328,7 @@ describe("streak / winner stays", () => {
   });
 
   it("azul vence → move para vermelho", () => {
+    const announcements = [];
     const players = [
       { id: 1, name: "R1", team: TEAM.RED },
       { id: 2, name: "R2", team: TEAM.RED },
@@ -339,12 +342,14 @@ describe("streak / winner stays", () => {
         const p = players.find((x) => x.id === id);
         if (p) p.team = team;
       },
-      sendAnnouncement: () => {},
+      sendAnnouncement: (msg) => announcements.push(msg),
     };
     const streak = createStreakTracker();
+    for (let i = 0; i < 5; i++) streak.recordWin(TEAM.RED, ["R1"]);
     const r = applyWinnerStays(room, TEAM.BLUE, streak);
     assert.equal(r.mode, "choose");
     assert.equal(streak.get(), 1);
+    assert.ok(announcements.some((m) => /streak de 5|5 seguidas|QUEBROU/i.test(m)), announcements.join(" | "));
     assert.equal(players.find((p) => p.id === 3).team, TEAM.RED);
     assert.equal(players.find((p) => p.id === 4).team, TEAM.RED);
     // Quem já estava no spec vira capitão azul, não o 1º perdedor na ordem da sala
@@ -524,6 +529,17 @@ describe("titles / cargos", () => {
     assert.equal(formatChatPrefix({ emblem: "👑", name: "Chefe" }), "[👑] ");
     assert.equal(formatChatPrefix({ emblem: "🐉", name: "Lenda" }), "[🐉] ");
     assert.equal(formatChatPrefix(null), "");
+  });
+
+  it("formatChatBody do gordo troca vogais por lanches", () => {
+    assert.equal(formatChatBody(JOKE_TITLES.gordo, "oi"), "🍔🍟");
+    assert.equal(formatChatBody(JOKE_TITLES.gordo, "eae"), "🍔🍟🌭");
+    assert.equal(formatChatBody(JOKE_TITLES.gordo, "xyz"), "xyz");
+    assert.equal(formatChatBody(JOKE_TITLES.aura, "oi"), "oi");
+    assert.equal(
+      replaceVowelsWithSnacks("aéí", { pick: () => "🍔" }),
+      "🍔🍔🍔"
+    );
   });
 
   it("chat: vermelho/azul/spec; Craque, Lenda, admins amarelo, Gordo e Aura pintam diferente", () => {

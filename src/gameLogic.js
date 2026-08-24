@@ -211,6 +211,16 @@ function pickGoalkeeper(samples, team) {
   return side[0];
 }
 
+/** Uma linha por auth (PK em match_players). Entrada posterior vence. */
+function dedupeMatchPlayers(players) {
+  const byAuth = new Map();
+  for (const p of players || []) {
+    if (!p?.auth) continue;
+    byAuth.set(p.auth, p);
+  }
+  return [...byAuth.values()];
+}
+
 module.exports = {
   attributeGoal,
   sameTouchPlayer,
@@ -230,4 +240,5 @@ module.exports = {
   rageQuitMessages,
   targetTeamSize,
   pickGoalkeeper,
+  dedupeMatchPlayers,
 };

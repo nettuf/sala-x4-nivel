@@ -8,6 +8,117 @@ const config = require("../config");
  * - Empate não existe no 4v4 (gol de ouro); os times nunca zeram.
  */
 
+const STREAK_MILESTONE_EVERY = 5;
+const STREAK_BREAK_MIN = 5;
+
+/** Frases de efeito a cada 5 vitórias seguidas (5, 10, 15, 20…). */
+const MILESTONE_LINES = {
+  5: [
+    "🔥 Streak 5! Ninguém segura essa sequência!",
+    "🔥 Cinco seguidas! Tão difícil de parar!",
+    "🔥 Deu 5! O vermelho tá impossível!",
+  ],
+  10: [
+    "⚡ 10 vitórias seguidas! A sala inteira sentiu!",
+    "👑 Dez seguidas! Dominando geral!",
+    "⚡ Streak 10! Modo invencível ligado!",
+  ],
+  15: [
+    "💀 15 seguidas! Modo imortal ativado!",
+    "🚨 Quinze! Alguém para essa máquina?!",
+    "💀 Streak 15! Tão absurdo que dói!",
+  ],
+  20: [
+    "🏆 20 STREAK! Lendário demais!",
+    "🌋 Vinte seguidas! História sendo escrita!",
+    "🏆 Duas mãos de vitórias! Insano!",
+  ],
+  25: [
+    "👹 25 seguidas! A sala pede arrego!",
+    "🔱 Streak 25! Isso é crime de war crime!",
+  ],
+  30: [
+    "🛸 30 STREAK! Alienígena demais!",
+    "☄️ Trinta seguidas! Apaga a luz da sala!",
+  ],
+};
+
+const MILESTONE_GENERIC = [
+  "🔥 Streak {n}! Ninguém segura!",
+  "⚡ {n} seguidas! Modo deus!",
+  "👑 {n} vitórias consecutivas! Absurdo!",
+];
+
+/** Quando o azul derruba streak grande do vermelho. */
+const BREAK_LINES = [
+  "💥 {breakers} QUEBROU o streak de {n}! A hegemonia acabou!",
+  "🛑 Streak de {n} foi pro saco! {breakers} resetou o servidor!",
+  "😤 {n} seguidas no lixo! {breakers} apareceu!",
+  "⚔️ Fim da era! {breakers} derrubou as {n} seguidas!",
+  "🧨 {breakers} estourou o streak de {n}! Voltou ao jogo!",
+];
+
+function formatNames(names, max = 4) {
+  const list = sanitizeHolders(names).slice(0, max);
+  if (!list.length) return "O azul";
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} e ${list[1]}`;
+  return `${list.slice(0, -1).join(", ")} e ${list[list.length - 1]}`;
+}
+
+function isStreakMilestone(n) {
+  const v = Math.floor(Number(n) || 0);
+  return v >= STREAK_MILESTONE_EVERY && v % STREAK_MILESTONE_EVERY === 0;
+}
+
+function milestoneTier(n) {
+  const v = Math.floor(Number(n) || 0);
+  if (v <= 0) return 0;
+  const capped = Math.min(v, 30);
+  return Math.floor(capped / STREAK_MILESTONE_EVERY) * STREAK_MILESTONE_EVERY;
+}
+
+function pickFromPool(pool, seed) {
+  if (!pool?.length) return "";
+  const i = Math.abs(Math.floor(Number(seed) || 0)) % pool.length;
+  return pool[i];
+}
+
+function formatStreakMilestone(streak, holders = []) {
+  if (!isStreakMilestone(streak)) return null;
+  const n = Math.floor(streak);
+  const who = formatNames(holders);
+  const tier = milestoneTier(n);
+  const pool = MILESTONE_LINES[tier] || MILESTONE_GENERIC;
+  const line = pickFromPool(pool, n);
+  return line.replace(/\{n\}/g, String(n)).replace(/\{who\}/g, who);
+}
+
+function formatStreakBroken(prevStreak, breakers = [], fallen = []) {
+  const n = Math.floor(Number(prevStreak) || 0);
+  if (n < STREAK_BREAK_MIN) return null;
+  const line = pickFromPool(BREAK_LINES, n);
+  const breakerText = formatNames(breakers);
+  const fallenText = formatNames(fallen);
+  return line
+    .replace(/\{n\}/g, String(n))
+    .replace(/\{breakers\}/g, breakerText)
+    .replace(/\{fallen\}/g, fallenText);
+}
+
+function announceStreakFlavor(room, { prevStreak, nextStreak, winner, holders, fallenHolders, recordStreak = true }) {
+  if (!recordStreak || !room || typeof room.sendAnnouncement !== "function") return;
+  if (winner === TEAM.RED) {
+    const msg = formatStreakMilestone(nextStreak, holders);
+    if (msg) room.sendAnnouncement(msg, null, 0xf1c40f, "bold", 2);
+    return;
+  }
+  if (winner === TEAM.BLUE) {
+    const msg = formatStreakBroken(prevStreak, holders, fallenHolders);
+    if (msg) room.sendAnnouncement(msg, null, 0x9b59b6, "bold", 2);
+  }
+}
+
 function sanitizeHolders(holders) {
   if (!Array.isArray(holders)) return [];
   const out = [];
@@ -120,6 +231,8 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded, recordStrea
   }
 
   const holders = (winner === TEAM.RED ? red : blue).map((p) => p.name);
+  const fallenHolders = winner === TEAM.BLUE ? red.map((p) => p.name) : [];
+  const prevStreak = streakTracker.get();
   const nextStreak = recordStreak ? streakTracker.recordWin(winner, holders) : streakTracker.get();
   const streakBit = recordStreak ? ` · ${streakTracker.label()}` : "";
 
@@ -151,6 +264,15 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded, recordStrea
   const captain = waitingSpecs[0] || specsNow[0];
   if (captain) room.setPlayerTeam(captain.id, TEAM.BLUE);
 
+  announceStreakFlavor(room, {
+    prevStreak,
+    nextStreak,
+    winner,
+    holders,
+    fallenHolders,
+    recordStreak,
+  });
+
   return { mode: "choose", streak: nextStreak };
 }
 
@@ -171,4 +293,10 @@ module.exports = {
   formatCurrentStreak,
   formatBestStreak,
   sanitizeHolders,
+  isStreakMilestone,
+  formatStreakMilestone,
+  formatStreakBroken,
+  announceStreakFlavor,
+  STREAK_MILESTONE_EVERY,
+  STREAK_BREAK_MIN,
 };

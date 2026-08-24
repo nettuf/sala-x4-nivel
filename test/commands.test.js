@@ -622,7 +622,7 @@ describe("comandos (mock room)", () => {
       )
     );
     assert.equal(ctx.titles.get(3).id, "gordo");
-    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^\[🍔\] /);
+    assert.equal(cmd.formatPlayerChat(spec, "oi").line, "[🍔] Spec: 🍔🍟");
 
     room.announcements.length = 0;
     await cmd.handle(red, "!aura Spec");
@@ -674,7 +674,7 @@ describe("comandos (mock room)", () => {
       )
     );
     assert.equal(ctx.titles.get(3).id, "aura");
-    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^\[🗿\] /);
+    assert.equal(cmd.formatPlayerChat(spec, "oi").line, "[🗿] Spec: oi");
 
     room.announcements.length = 0;
     await cmd.handle(blue, "!gordo Spec");

@@ -5,7 +5,6 @@ const {
   mapLeaderboardRows,
   createLeaderboardStore,
 } = require("../src/db/stats");
-const { formatCurrentStreak, formatBestStreak } = require("../src/room/streak");
 
 describe("rankings top 5", () => {
   it("formata lista e vazio", () => {
@@ -80,6 +79,14 @@ describe("rankings top 5", () => {
 });
 
 describe("mensagens de streak", () => {
+  const {
+    formatCurrentStreak,
+    formatBestStreak,
+    isStreakMilestone,
+    formatStreakMilestone,
+    formatStreakBroken,
+  } = require("../src/room/streak");
+
   it("atual e recorde", () => {
     assert.match(formatCurrentStreak(0), /Sem streak/);
     assert.match(formatCurrentStreak(4), /Streak atual: 4/);
@@ -90,5 +97,23 @@ describe("mensagens de streak", () => {
       formatBestStreak(5, 1, ["Ana", "Bob", "Cia", "Dan"]),
       "🏆 Maior streak da sala: 5 · Ana, Bob, Cia, Dan"
     );
+  });
+
+  it("marcos a cada 5 vitórias", () => {
+    assert.equal(isStreakMilestone(4), false);
+    assert.equal(isStreakMilestone(5), true);
+    assert.equal(isStreakMilestone(10), true);
+    assert.equal(isStreakMilestone(12), false);
+    assert.match(formatStreakMilestone(5, ["A", "B"]), /5|Cinco|impossível|Ninguém segura/i);
+    assert.match(formatStreakMilestone(10), /10|Dez|seguidas|Dominando/i);
+    assert.ok(formatStreakMilestone(20));
+    assert.equal(formatStreakMilestone(7), null);
+  });
+
+  it("derrubada de streak grande", () => {
+    assert.equal(formatStreakBroken(4, ["X"]), null);
+    const msg = formatStreakBroken(10, ["B1", "B2"], ["R1", "R2"]);
+    assert.match(msg, /10/);
+    assert.match(msg, /B1|QUEBROU|derrub/i);
   });
 });

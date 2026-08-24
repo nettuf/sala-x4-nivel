@@ -205,6 +205,8 @@ function createRoom(HBInit) {
   let postMatchBusy = false;
   /** RR por AFK no começo do treino: o onGameStop não pode gravar stats nem remontar de novo. */
   let kickoffAfkRestart = false;
+  /** Pausa aberta pelo bot para reposição (não desfazer pausa de admin). */
+  let replacementPauseActive = false;
   const slowChat = new Set();
   const chatFlood = createChatFloodGuard({
     limit: config.chatFloodLimit,
@@ -214,9 +216,23 @@ function createRoom(HBInit) {
   let stadiumKind = "training";
 
   /**
-   * Pausa só se o jogo estiver rolando e ninguém tiver pausado antes:
-   * se um admin pausou, o bot não pode despausar por cima depois.
-   * @returns {boolean} true se a pausa foi do bot (e ele deve desfazer)
+   * Pausa para reposição: sempre pausa o jogo e congela o AFK,
+   * mesmo se a flag de pausa já estiver ligada (admin/reposição anterior).
+   */
+  function pauseForReplacement() {
+    if (!room.getScores()) return;
+    try {
+      room.pauseGame(true);
+    } catch {
+      /* ignore */
+    }
+    afk.setPaused(true);
+    replacementPauseActive = true;
+  }
+
+  /**
+   * @deprecated use pauseForReplacement nos fluxos de reposição
+   * @returns {boolean} true se a pausa foi do bot (legado)
    */
   function pauseForBot() {
     if (!room.getScores() || afk.isPaused()) return false;
@@ -231,11 +247,14 @@ function createRoom(HBInit) {
   /** Reposição resolvida: o jogo volta mesmo se a pausa foi de um admin. */
   function forceResume() {
     if (!room.getScores()) return;
+    if (!replacementPauseActive) return;
     try {
       room.pauseGame(false);
     } catch {
       /* ignore */
     }
+    afk.setPaused(false);
+    replacementPauseActive = false;
   }
 
   function stopCurrentGame({ preserveMatch = false } = {}) {
@@ -365,10 +384,9 @@ function createRoom(HBInit) {
       if (choose.isReplacement()) {
         choose.onPlayerJoin();
       } else {
-        const botPaused = live && pauseForBot();
+        if (live) pauseForReplacement();
         choose.deactivate();
         choose.startReplacement(plan.replacementTeam, () => {
-          resumeFromBot(botPaused);
           refreshLobby();
         });
       }
@@ -453,7 +471,7 @@ function createRoom(HBInit) {
     }
 
     const live = !!room.getScores();
-    const plan = planCompetitiveRecovery({
+    let plan = planCompetitiveRecovery({
       redCount: red.length,
       blueCount: blue.length,
       specCount: specs.length,
@@ -466,6 +484,14 @@ function createRoom(HBInit) {
     if (!live && plan.action !== "keep-play" && plan.action !== "park-larger") {
       lobbyRevision += 1;
       stopCurrentGame();
+    }
+
+    // Partida ao vivo: pausa + capitão escolhe (nunca auto-fill direto no recovery).
+    if (
+      live &&
+      (plan.action === "fill-one" || plan.action === "fill-exact" || plan.action === "choose")
+    ) {
+      plan = { action: "choose", targetTeam: plan.targetTeam };
     }
 
     if (plan.action === "fill-pairs") {
@@ -490,16 +516,6 @@ function createRoom(HBInit) {
     if (plan.action === "fill-one") {
       room.setPlayerTeam(specs[0].id, plan.targetTeam);
       match.addToLineup(specs[0], plan.targetTeam);
-      if (live) {
-        room.sendAnnouncement(
-          `${specs[0].name} entrou automaticamente (1 vaga, 1 opção) — jogo segue.`,
-          null,
-          0x2ecc71,
-          "bold",
-          1
-        );
-        return;
-      }
       laterForCurrentLobby(startCompetitiveFromCurrentField);
       return;
     }
@@ -520,17 +536,16 @@ function createRoom(HBInit) {
         "bold",
         1
       );
-      if (!live) laterForCurrentLobby(startCompetitiveFromCurrentField);
+      laterForCurrentLobby(startCompetitiveFromCurrentField);
       return;
     }
 
     if (plan.action === "choose") {
       const startChoose = () => {
-        const botPaused = live && pauseForBot();
+        if (live) pauseForReplacement();
         choose.deactivate();
         choose.startReplacement(plan.targetTeam, ({ chosen, cancelled } = {}) => {
           if (cancelled || !chosen) {
-            resumeFromBot(botPaused);
             recoverCompetitiveLineup();
             return;
           }
@@ -562,11 +577,13 @@ function createRoom(HBInit) {
         "bold",
         1
       );
+      if (live && replacementPauseActive) forceResume();
       return;
     }
 
     if (plan.action === "keep-play") {
       match.setCompetitive(false);
+      if (live && replacementPauseActive) forceResume();
       return;
     }
 
@@ -1297,7 +1314,13 @@ function createRoom(HBInit) {
         return;
       }
       if (action === "unpause") {
-        forceResume();
+        try {
+          room.pauseGame(false);
+        } catch {
+          /* ignore */
+        }
+        afk.setPaused(false);
+        replacementPauseActive = false;
         return;
       }
       if (action === "prompt-choose") {

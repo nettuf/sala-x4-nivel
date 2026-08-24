@@ -304,11 +304,15 @@ function createAfkTracker(room, opts = {}) {
   /**
    * Física rodando. Inatividade = disco parado neste tick.
    * Conta ticks E relógio de parede — o host não entrega 60 Hz estável.
-   * Ignora a flag paused: se a física está no ar, o parado cai.
+   * Respeita paused (reposição/choose/admin): senão todo mundo cai AFK junto.
    */
   function noteGameTick(wallNow = Date.now()) {
     lastSimTickAt = wallNow;
     if (!shouldAutoAfk() || !scoresLive()) {
+      maybeReserveSlots(wallNow);
+      return;
+    }
+    if (paused) {
       maybeReserveSlots(wallNow);
       return;
     }
