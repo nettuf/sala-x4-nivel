@@ -4,7 +4,7 @@ const { resolvePlayerAuth } = require("../room/playerAuth");
 const { isRandomKitArg, parseTeamRef } = require("../room/uniforms");
 const { createBan, deactivateBan } = require("../db/bans");
 const { getAdmin } = require("../db/players");
-const { notifyBan } = require("../discord/webhook");
+const { notifyBan, notifyUnban } = require("../discord/webhook");
 const { createMute, unmute, findActiveMute } = require("../db/mutes");
 const {
   getPlayerStats,
@@ -1106,13 +1106,27 @@ function createCommandHandler(room, ctx) {
       }
       // conn é hex (par); auth do Haxball é base64url. Se não achar, tenta a outra coluna.
       const looksConn = /^[0-9a-f]+$/i.test(key) && key.length % 2 === 0;
-      let n = looksConn
+      let rows = looksConn
         ? await deactivateBan({ conn: key })
         : await deactivateBan({ auth: key });
-      if (!n) {
-        n = looksConn
+      if (!rows.length) {
+        rows = looksConn
           ? await deactivateBan({ auth: key })
           : await deactivateBan({ conn: key });
+      }
+      const n = rows.length;
+      if (n) {
+        const ban = rows[0];
+        notifyUnban({
+          nick: ban.nick,
+          auth: ban.auth || (!looksConn ? key : null),
+          conn: ban.conn || (looksConn ? key : null),
+          ip: ban.ip,
+          reason: ban.reason,
+          unbannedBy: player.name,
+          source: "!unban",
+          count: n,
+        }).catch(() => {});
       }
       room.sendAnnouncement(n ? `Unban ok (${n}).` : "Nenhum ban ativo.", player.id, 0x2ecc71, "normal", 1);
       return true;
@@ -1124,7 +1138,21 @@ function createCommandHandler(room, ctx) {
         room.sendAnnouncement("Uso: !unbanauth <auth>", player.id, 0xe74c3c, "normal", 1);
         return true;
       }
-      const n = await deactivateBan({ auth });
+      const rows = await deactivateBan({ auth });
+      const n = rows.length;
+      if (n) {
+        const ban = rows[0];
+        notifyUnban({
+          nick: ban.nick,
+          auth: ban.auth || auth,
+          conn: ban.conn,
+          ip: ban.ip,
+          reason: ban.reason,
+          unbannedBy: player.name,
+          source: "!unbanauth",
+          count: n,
+        }).catch(() => {});
+      }
       room.sendAnnouncement(
         n ? `Unban por auth ok (${n}).` : "Nenhum ban ativo para essa auth.",
         player.id,

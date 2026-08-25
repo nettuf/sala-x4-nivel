@@ -90,6 +90,19 @@ function createChooseController(room, {
     };
   }
 
+  /**
+   * AFK ainda no campo (setPlayerTeam async) não preenche vaga.
+   * Sem isso a reposição “fecha” 4v4, despausa, e o jogo segue 3v4.
+   */
+  function eligibleOn(side) {
+    return (side || []).filter((p) => !excluded(p));
+  }
+
+  function teamCount(team) {
+    const { red, blue } = list();
+    return eligibleOn(team === TEAM.RED ? red : blue).length;
+  }
+
   function clearCapTimeout() {
     if (timeout) {
       clearTimeout(timeout);
@@ -125,12 +138,13 @@ function createChooseController(room, {
   /** Time que precisa pickar: nunca o que já está completo. */
   function pickingTeam() {
     if (replacement) return replacement.targetTeam;
-    const { red, blue } = list();
-    const redHole = red.length < currentTeamSize();
-    const blueHole = blue.length < currentTeamSize();
+    const redN = teamCount(TEAM.RED);
+    const blueN = teamCount(TEAM.BLUE);
+    const redHole = redN < currentTeamSize();
+    const blueHole = blueN < currentTeamSize();
     if (redHole && !blueHole) return TEAM.RED;
     if (blueHole && !redHole) return TEAM.BLUE;
-    if (redHole && blueHole) return red.length <= blue.length ? TEAM.RED : TEAM.BLUE;
+    if (redHole && blueHole) return redN <= blueN ? TEAM.RED : TEAM.BLUE;
     return 0;
   }
 
@@ -188,16 +202,13 @@ function createChooseController(room, {
   }
 
   function teamHasHole(team) {
-    const { red, blue } = list();
-    const count = team === TEAM.RED ? red.length : blue.length;
-    return count < currentTeamSize();
+    return teamCount(team) < currentTeamSize();
   }
 
   function holesByTeam() {
-    const { red, blue } = list();
     return {
-      red: Math.max(0, currentTeamSize() - red.length),
-      blue: Math.max(0, currentTeamSize() - blue.length),
+      red: Math.max(0, currentTeamSize() - teamCount(TEAM.RED)),
+      blue: Math.max(0, currentTeamSize() - teamCount(TEAM.BLUE)),
     };
   }
 
@@ -398,15 +409,15 @@ function createChooseController(room, {
   }
 
   function bothFull() {
-    const { red, blue } = list();
-    return red.length >= currentTeamSize() && blue.length >= currentTeamSize();
+    return (
+      teamCount(TEAM.RED) >= currentTeamSize() &&
+      teamCount(TEAM.BLUE) >= currentTeamSize()
+    );
   }
 
   function replacementTeamFull() {
     if (!replacement) return false;
-    const { red, blue } = list();
-    const count = replacement.targetTeam === TEAM.RED ? red.length : blue.length;
-    return count >= currentTeamSize();
+    return teamCount(replacement.targetTeam) >= currentTeamSize();
   }
 
   /** 4v4 fechado (pick ou admin): encerra choose/reposição e não kicka capitão. */
@@ -416,7 +427,7 @@ function createChooseController(room, {
       if (!replacementTeamFull() && !bothFull()) return false;
       const onReady = replacement.onReady;
       const target = replacement.targetTeam;
-      const side = target === TEAM.RED ? list().red : list().blue;
+      const side = eligibleOn(target === TEAM.RED ? list().red : list().blue);
       const chosen =
         (movedPlayer && movedPlayer.team === target
           ? side.find((p) => p.id === movedPlayer.id)
@@ -462,8 +473,8 @@ function createChooseController(room, {
     replacement = { targetTeam, onReady, teamSize };
     active = true;
     lockedSize = teamSize;
-    const { red, blue, specReady } = list();
-    const have = targetTeam === TEAM.RED ? red.length : blue.length;
+    const { specReady } = list();
+    const have = teamCount(targetTeam);
     const need = Math.max(0, teamSize - have);
     if (specReady.length !== need) {
       room.sendAnnouncement(
@@ -604,8 +615,7 @@ function createChooseController(room, {
    * @returns {boolean} true se consumiu a mensagem (choose)
    */
   function applyCaptainPick(player, chosen, team, token) {
-    const { red, blue } = list();
-    if ((team === TEAM.RED && red.length >= currentTeamSize()) || (team === TEAM.BLUE && blue.length >= currentTeamSize())) {
+    if (teamCount(team) >= currentTeamSize()) {
       if (bothFull()) {
         deactivate();
         afterTeamChange(onReadyToStart);
@@ -665,13 +675,12 @@ function createChooseController(room, {
     const token = String(message || "").trim().split(/\s+/)[0];
     if (!isChooseToken(token)) return false;
 
-    const { red, blue } = list();
     const cap = currentCaptain();
     if (!cap || player.id !== cap.id) {
       tell(player.id, "Só o capitão da vez escolhe.", 0xe67e22, "bold", 2);
       return true;
     }
-    if (red.length >= currentTeamSize() && blue.length >= currentTeamSize()) return true;
+    if (bothFull()) return true;
 
     const chosen = pickSpec(token);
     if (!chosen) {

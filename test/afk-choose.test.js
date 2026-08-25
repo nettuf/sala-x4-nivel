@@ -337,6 +337,8 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
 
     assert.equal(host.handles.afk.isAfk(all[0].id), true);
     assert.equal(host.handles.choose.isReplacement(), true, "o time desfalcado repõe");
+    assert.equal(host.lastPause(), true, "fica pausado até o capitão escolher");
+    assert.equal(host.teamCount(TEAM.RED), 3, "não despausa 3v4");
     const cap = host.handles.choose.currentCaptain();
     assert.equal(host.find(cap.id).team, TEAM.RED);
 
@@ -346,6 +348,37 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     assert.equal(host.teamCount(TEAM.RED), 4, "vaga preenchida");
     assert.equal(host.lastPause(), false, "a partida volta a rodar");
     assert.ok(host.live());
+    host.cleanup();
+  });
+
+  it("setPlayerTeam atrasado: AFK ainda no time não fecha o pick nem despausa", async () => {
+    const host = bootRoom({ deferTeamChanges: true });
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+    for (const p of all) host.activity(p);
+
+    host.idle(all, { moving: all.slice(1), idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+
+    assert.equal(host.handles.afk.isAfk(all[0].id), true);
+    assert.equal(host.find(all[0].id).team, TEAM.RED, "API ainda não moveu pro spec");
+
+    host.applyTeamsLive();
+    await settle();
+
+    assert.equal(host.find(all[0].id).team, TEAM.SPEC);
+    assert.equal(host.handles.choose.isReplacement(), true);
+    assert.equal(host.lastPause(), true, "não despausa sozinho");
+    assert.equal(host.teamCount(TEAM.RED), 3);
+
+    const cap = host.handles.choose.currentCaptain();
+    await host.chat(cap, "1");
+    await settle();
+
+    assert.equal(host.teamCount(TEAM.RED), 4);
+    assert.equal(host.lastPause(), false, "só despausa com 4v4");
     host.cleanup();
   });
 

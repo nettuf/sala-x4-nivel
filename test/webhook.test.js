@@ -1,7 +1,7 @@
 const { describe, it, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { notifyBan } = require("../src/discord/webhook");
+const { notifyBan, notifyUnban } = require("../src/discord/webhook");
 const { createChatLogger, formatChatLine } = require("../src/discord/chatLog");
 
 describe("webhook de ban", () => {
@@ -42,6 +42,32 @@ describe("webhook de ban", () => {
     assert.match(posts[0].body.content, /30m/);
     assert.match(posts[0].body.content, /Mod/);
     assert.match(posts[0].body.content, /!ban/);
+  });
+
+  it("unban envia quem desbaniu no mesmo canal de ban", async () => {
+    const posts = [];
+    globalThis.fetch = async (url, opts) => {
+      posts.push({ url, body: JSON.parse(opts.body) });
+      return { ok: true };
+    };
+
+    const ok = await notifyUnban({
+      nick: "Trollzao",
+      auth: "auth-troll",
+      conn: "aabbcc",
+      reason: "spam",
+      unbannedBy: "Chefe",
+      source: "!unban",
+      count: 1,
+      webhookUrl: "https://discord.example/hook",
+    });
+
+    assert.equal(ok, true);
+    assert.equal(posts.length, 1);
+    assert.match(posts[0].body.content, /Unban/);
+    assert.match(posts[0].body.content, /Trollzao/);
+    assert.match(posts[0].body.content, /Chefe/);
+    assert.match(posts[0].body.content, /!unban/);
   });
 
   it("sem URL não chama o Discord", async () => {

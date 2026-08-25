@@ -205,8 +205,16 @@ function createRoom(HBInit) {
   let postMatchBusy = false;
   /** RR por AFK no começo do treino: o onGameStop não pode gravar stats nem remontar de novo. */
   let kickoffAfkRestart = false;
+  /**
+   * stopGame feito pelo lobby (promo x3→x4, troca de mapa, etc.): o onGameStop
+   * não pode agendar outro refreshLobby — isso dava 2× "4v4 pronto" / RR duplo.
+   */
+  let lobbyTransitionStop = false;
   /** Pausa aberta pelo bot para reposição (não desfazer pausa de admin). */
   let replacementPauseActive = false;
+  /** Invalida callback de reposição antiga (setPlayerTeam async fechava e despausava cedo). */
+  let replacementEpoch = 0;
+  let repressingUnpause = false;
   const slowChat = new Set();
   const chatFlood = createChatFloodGuard({
     limit: config.chatFloodLimit,
@@ -244,10 +252,57 @@ function createRoom(HBInit) {
     if (botPaused) room.pauseGame(false);
   }
 
-  /** Reposição resolvida: o jogo volta mesmo se a pausa foi de um admin. */
+  function eligibleTeamCounts() {
+    const players = room
+      .getPlayerList()
+      .filter((p) => p.id !== 0 && !afk.isAfk(p.id));
+    return {
+      red: players.filter((p) => p.team === TEAM.RED).length,
+      blue: players.filter((p) => p.team === TEAM.BLUE).length,
+    };
+  }
+
+  function teamsReadyToResume() {
+    const { red, blue } = eligibleTeamCounts();
+    return red > 0 && red === blue;
+  }
+
+  let resumeRetry = null;
+
+  /**
+   * Reposição resolvida: o jogo volta mesmo se a pausa foi de um admin.
+   * Nunca despausa 3v4 — o setPlayerTeam do Haxball é async e o callback
+   * antigo chegava antes do substituto entrar.
+   */
   function forceResume() {
     if (!room.getScores()) return;
     if (!replacementPauseActive) return;
+    if (!teamsReadyToResume()) {
+      if (resumeRetry) return;
+      const epoch = replacementEpoch;
+      resumeRetry = setTimeout(() => {
+        resumeRetry = null;
+        if (epoch !== replacementEpoch) return;
+        if (!replacementPauseActive || !room.getScores()) return;
+        if (teamsReadyToResume()) {
+          try {
+            room.pauseGame(false);
+          } catch {
+            /* ignore */
+          }
+          afk.setPaused(false);
+          replacementPauseActive = false;
+          return;
+        }
+        recoverCompetitiveLineup();
+      }, 150);
+      if (typeof resumeRetry.unref === "function") resumeRetry.unref();
+      return;
+    }
+    if (resumeRetry) {
+      clearTimeout(resumeRetry);
+      resumeRetry = null;
+    }
     try {
       room.pauseGame(false);
     } catch {
@@ -257,9 +312,28 @@ function createRoom(HBInit) {
     replacementPauseActive = false;
   }
 
-  function stopCurrentGame({ preserveMatch = false } = {}) {
+  function startLiveReplacement(targetTeam, onResolved, opts) {
+    const epoch = ++replacementEpoch;
+    choose.deactivate();
+    choose.startReplacement(
+      targetTeam,
+      (payload = {}) => {
+        if (epoch !== replacementEpoch) return;
+        onResolved(payload);
+      },
+      opts
+    );
+  }
+
+  function stopCurrentGame({ preserveMatch = false, lobbyTransition = false } = {}) {
+    if (lobbyTransition) lobbyTransitionStop = true;
     if (!preserveMatch) match.cancelRecordingOnly();
-    if (room.getScores()) room.stopGame();
+    if (room.getScores()) {
+      room.stopGame();
+      return;
+    }
+    // Sem jogo ao vivo: onGameStop não vem — não deixa a flag presa.
+    if (lobbyTransition) lobbyTransitionStop = false;
   }
 
   function laterForCurrentLobby(callback, delay = 250) {
@@ -299,6 +373,7 @@ function createRoom(HBInit) {
     const redN = players.filter((p) => p.team === TEAM.RED && !afk.isAfk(p.id)).length;
     const blueN = players.filter((p) => p.team === TEAM.BLUE && !afk.isAfk(p.id)).length;
     const liveOfficial =
+      match.isRunning() &&
       match.isCompetitive() &&
       !!room.getScores() &&
       stadiumKind === "x4" &&
@@ -309,6 +384,10 @@ function createRoom(HBInit) {
     // Flag competitive preso no treino 1v0 não pode bloquear o lobby.
     if (liveOfficial) {
       if (choose.isActive()) choose.onPlayerJoin();
+      return;
+    }
+    // Jogo ainda rodando (warmup/x3 ou scores atrasados): não para pra "remontar".
+    if (room.getScores() && match.isRunning()) {
       return;
     }
     if (match.isCompetitive()) match.setCompetitive(false);
@@ -330,7 +409,7 @@ function createRoom(HBInit) {
         teamSize: config.teamSize,
       });
       if (promo) {
-        stopCurrentGame();
+        stopCurrentGame({ lobbyTransition: true });
         applyWarmupMoves(room, promo);
         setLobbyStadium(eligibleCount);
         room.sendAnnouncement("4v4: jogadores acrescentados — iniciando!", null, 0x2ecc71, "bold", 2);
@@ -343,7 +422,7 @@ function createRoom(HBInit) {
         teamSize: config.teamSize,
       });
       if (held) {
-        stopCurrentGame();
+        stopCurrentGame({ lobbyTransition: true });
         applyWarmupMoves(room, held);
         setLobbyStadium(eligibleCount);
         if (held.start) {
@@ -354,7 +433,7 @@ function createRoom(HBInit) {
         return;
       }
 
-      stopCurrentGame();
+      stopCurrentGame({ lobbyTransition: true });
       choose.deactivate();
       setLobbyStadium(players.length);
       laterForCurrentLobby(() => choose.tryStartChoose());
@@ -367,7 +446,7 @@ function createRoom(HBInit) {
 
     if (!plan.eligibleCount) {
       choose.deactivate();
-      stopCurrentGame();
+      stopCurrentGame({ lobbyTransition: true });
       setLobbyStadium(0);
       return;
     }
@@ -397,7 +476,7 @@ function createRoom(HBInit) {
 
     // Troca de mapa no warmup: treino ↔ x3. 3v3 → 2v2 no mesmo x3 só remaneja.
     if (loadX3 || loadTraining) {
-      stopCurrentGame();
+      stopCurrentGame({ lobbyTransition: true });
       applyWarmupMoves(room, plan);
       setLobbyStadium(plan.eligibleCount);
       laterForCurrentLobby(startWarmupIfPossible);
@@ -483,7 +562,7 @@ function createRoom(HBInit) {
 
     if (!live && plan.action !== "keep-play" && plan.action !== "park-larger") {
       lobbyRevision += 1;
-      stopCurrentGame();
+      stopCurrentGame({ lobbyTransition: true });
     }
 
     // Partida ao vivo: pausa + capitão escolhe (nunca auto-fill direto no recovery).
@@ -497,7 +576,7 @@ function createRoom(HBInit) {
     if (plan.action === "fill-pairs") {
       if (live && plan.restart) {
         lobbyRevision += 1;
-        stopCurrentGame();
+        stopCurrentGame({ lobbyTransition: true });
       }
       for (let index = 0; index < plan.pairs * 2; index += 2) {
         // Specs podem ter saído entre o plano e a execução.
@@ -543,8 +622,7 @@ function createRoom(HBInit) {
     if (plan.action === "choose") {
       const startChoose = () => {
         if (live) pauseForReplacement();
-        choose.deactivate();
-        choose.startReplacement(plan.targetTeam, ({ chosen, cancelled } = {}) => {
+        startLiveReplacement(plan.targetTeam, ({ chosen, cancelled } = {}) => {
           if (cancelled || !chosen) {
             recoverCompetitiveLineup();
             return;
@@ -589,7 +667,7 @@ function createRoom(HBInit) {
 
     if (live) {
       lobbyRevision += 1;
-      stopCurrentGame();
+      stopCurrentGame({ lobbyTransition: true });
     }
     laterForCurrentLobby(refreshLobby);
   }
@@ -689,6 +767,13 @@ function createRoom(HBInit) {
     }
 
     if (match.isCompetitive()) {
+      // setPlayerTeam é async: se o AFK ainda aparece no time, espera o
+      // onPlayerTeamChange. Já no spec (mock / tick seguinte) recupera já.
+      const live = player && room.getPlayerList().find((p) => p.id === player.id);
+      if (live && live.team !== TEAM.SPEC) {
+        recoverCompetitiveLineupSoon();
+        return;
+      }
       recoverCompetitiveLineup();
       return;
     }
@@ -962,6 +1047,21 @@ function createRoom(HBInit) {
   room.onGameUnpause = (byPlayer) => {
     afk.setPaused(false);
     if (byPlayer) afk.touch(byPlayer.id);
+    // Engine/bot despausa no meio da reposição (tick / setPlayerTeam async).
+    if (
+      !byPlayer &&
+      !repressingUnpause &&
+      choose.isReplacement() &&
+      room.getScores() &&
+      !teamsReadyToResume()
+    ) {
+      repressingUnpause = true;
+      try {
+        pauseForReplacement();
+      } finally {
+        repressingUnpause = false;
+      }
+    }
   };
 
   room.onPlayerAdminChange = (changedPlayer, byPlayer) => {
@@ -1247,6 +1347,11 @@ function createRoom(HBInit) {
       postMatchBusy = false;
       return;
     }
+    if (lobbyTransitionStop) {
+      lobbyTransitionStop = false;
+      postMatchBusy = false;
+      return;
+    }
     postMatchBusy = true;
     uniforms.noteMatchEnd();
     let result = null;
@@ -1292,8 +1397,8 @@ function createRoom(HBInit) {
         replacement: choose.isReplacement(),
         hasCaptain: !!choose.currentCaptain(),
         competitive: match.isCompetitive(),
-        redCount: red.length,
-        blueCount: blue.length,
+        redCount: red.filter((p) => !afk.isAfk(p.id)).length,
+        blueCount: blue.filter((p) => !afk.isAfk(p.id)).length,
         specReadyCount: specReady.length,
         teamSize: config.teamSize,
       });
@@ -1305,7 +1410,7 @@ function createRoom(HBInit) {
         match.setCompetitive(false);
         lobbyRevision += 1;
         forceResume();
-        stopCurrentGame();
+        stopCurrentGame({ lobbyTransition: true });
         laterForCurrentLobby(refreshLobby, 600);
         return;
       }

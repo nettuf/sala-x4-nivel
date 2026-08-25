@@ -56,17 +56,20 @@ async function createBan({ auth, conn, ip, nick, reason, bannedBy, endsAt }) {
 
 async function deactivateBan({ auth, conn }) {
   const sb = getSupabase();
-  if (!sb) return 0;
-  let query = sb.from("bans").update({ active: false }).eq("active", true);
+  if (!sb) return [];
+  let query = sb
+    .from("bans")
+    .update({ active: false })
+    .eq("active", true);
   if (auth) query = query.eq("auth", auth);
   else if (conn) query = query.eq("conn", conn);
-  else return 0;
-  const { data, error } = await query.select("id");
+  else return [];
+  const { data, error } = await query.select("id, nick, auth, conn, ip, reason");
   if (error) {
     console.error("[bans] unban", error.message);
-    return 0;
+    return [];
   }
-  return (data || []).length;
+  return data || [];
 }
 
 module.exports = { findActiveBan, createBan, deactivateBan };

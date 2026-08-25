@@ -135,6 +135,6 @@ describe("mensagens de streak", () => {
       fallenHolders: [],
       recordStreak: true,
     });
-    assert.ok(announcements.some((m) => /destaque no chat|Em destaque|🔥 Streak 3/i.test(m)));
+    assert.ok(announcements.some((m) => /Vermelho em sequencia insana/i.test(m)));
   });
 });

@@ -115,7 +115,7 @@ function announceStreakFlavor(room, { prevStreak, nextStreak, winner, holders, f
     // Cargo temporário 🔥 no chat a partir da 3ª seguida.
     if (prevStreak < STREAK_TITLE_MIN && nextStreak >= STREAK_TITLE_MIN) {
       room.sendAnnouncement(
-        `🔥 Streak ${nextStreak}! Vermelho em destaque no chat — AFK, sair do time ou perder a streak tira o cargo.`,
+        "🔥 Vermelho em sequencia insana! 🔥",
         null,
         0xff1a1a,
         "bold",

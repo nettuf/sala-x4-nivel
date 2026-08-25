@@ -107,4 +107,33 @@ async function notifyBan({
   return postWebhook(url, content);
 }
 
-module.exports = { notifyJoin, notifyBan, lookupGeo, postWebhook };
+async function notifyUnban({
+  nick,
+  auth,
+  conn,
+  ip,
+  reason,
+  unbannedBy,
+  source,
+  count,
+  webhookUrl,
+} = {}) {
+  const url = webhookUrl || config.discordBanWebhookUrl;
+  if (!url) return false;
+  if (!webhookUrl && process.env.NODE_TEST_CONTEXT) return false;
+
+  const content = [
+    `♻️ **Unban** — ${nick || "—"}`,
+    `Auth: \`${auth || "—"}\``,
+    `Conn: \`${conn || "—"}\``,
+    `IP: \`${ip || "—"}\``,
+    `Motivo original: ${reason || "—"}`,
+    `Ban(s) removido(s): ${Number(count) || 1}`,
+    `Por: ${unbannedBy || "—"}`,
+    `Origem: ${source || "!unban"}`,
+  ].join("\n");
+
+  return postWebhook(url, content);
+}
+
+module.exports = { notifyJoin, notifyBan, notifyUnban, lookupGeo, postWebhook };

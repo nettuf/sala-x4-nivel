@@ -117,6 +117,31 @@ describe("choose sem candidatos não fica travado", () => {
     assert.equal(choose.isActive(), false);
     assert.deepEqual(result, { cancelled: true });
   });
+
+  it("reposição não fecha enquanto o AFK ainda aparece no time", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.RED),
+      p(3, TEAM.RED),
+      p(4, TEAM.RED),
+      p(5, TEAM.BLUE),
+      p(6, TEAM.BLUE),
+      p(7, TEAM.BLUE),
+      p(8, TEAM.BLUE),
+      p(9),
+      p(10),
+    ];
+    const excluded = new Set([4]);
+    const { choose } = setup(players, { excluded, scores: { red: 0, blue: 0 } });
+    let result = null;
+    choose.startReplacement(TEAM.RED, (payload) => {
+      result = payload;
+    });
+    assert.equal(choose.isActive(), true);
+    assert.equal(choose.isReplacement(), true);
+    assert.equal(result, null, "AFK no vermelho não conta como 4v4 cheio");
+    assert.equal(choose.currentCaptain()?.team, TEAM.RED);
+  });
 });
 
 describe("AFK voluntário em campo", () => {
