@@ -35,6 +35,7 @@ const {
   formatChatPrefix,
   formatChatBody,
   replaceVowelsWithSnacks,
+  SNACK_EMOJIS,
   chatColor,
   CHAT_COLOR_RED,
   CHAT_COLOR_BLUE,
@@ -564,15 +565,16 @@ describe("titles / cargos", () => {
     assert.equal(formatChatPrefix(null), "");
   });
 
-  it("formatChatBody do gordo troca vogais por lanches", () => {
-    assert.equal(formatChatBody(JOKE_TITLES.gordo, "oi"), "🍔🍟");
-    assert.equal(formatChatBody(JOKE_TITLES.gordo, "eae"), "🍔🍟🌭");
+  it("formatChatBody do gordo troca só uma vogal por lanche", () => {
     assert.equal(formatChatBody(JOKE_TITLES.gordo, "xyz"), "xyz");
     assert.equal(formatChatBody(JOKE_TITLES.aura, "oi"), "oi");
-    assert.equal(
-      replaceVowelsWithSnacks("aéí", { pick: () => "🍔" }),
-      "🍔🍔🍔"
-    );
+    assert.equal(replaceVowelsWithSnacks("oi", { pick: () => "🍔", random: () => 0 }), "🍔i");
+    assert.equal(replaceVowelsWithSnacks("oi", { pick: () => "🍔", random: () => 0.99 }), "o🍔");
+    assert.equal(replaceVowelsWithSnacks("xyz"), "xyz");
+    const out = formatChatBody(JOKE_TITLES.gordo, "eae");
+    const snacks = SNACK_EMOJIS.filter((e) => out.includes(e));
+    assert.equal(snacks.length, 1, "uma vogal vira lanche");
+    assert.equal(out.replace(snacks[0], "").length, 2, "as outras letras ficam");
   });
 
   it("chat: vermelho/azul/spec; Craque, Lenda, admins amarelo, Gordo e Aura pintam diferente", () => {

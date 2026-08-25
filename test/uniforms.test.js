@@ -228,7 +228,7 @@ describe("uniformes: manager na sala", () => {
     assert.equal(r.ok, true);
   });
 
-  it("winner stays: azul vence e leva o uniforme pro vermelho", () => {
+  it("winner stays: azul vence e o vermelho mantém o kit", () => {
     const players = squad();
     const room = mockRoom(players);
     const uni = createUniformManager(room);
@@ -238,7 +238,7 @@ describe("uniformes: manager na sala", () => {
 
     uni.onWinnerStays(TEAM.BLUE);
 
-    assert.equal(uni.current()[TEAM.RED], "cru");
+    assert.equal(uni.current()[TEAM.RED], "fla");
     assert.equal(uni.current()[TEAM.BLUE], "branco");
   });
 
@@ -267,13 +267,15 @@ describe("uniformes: sorteio no kickoff", () => {
     };
   }
 
-  it("prepareKickoff sorteia dois kits distintos e não sorteia de novo", () => {
+  it("prepareKickoff sorteia só o azul; o vermelho permanece", () => {
     const room = mockRoom(squad());
     const uni = createUniformManager(room, { random: seqRandom([0, 0.99]) });
+    const redBefore = uni.current()[TEAM.RED];
     const first = uni.prepareKickoff();
     assert.equal(first.randomized, true);
     const redId = uni.current()[TEAM.RED];
     const blueId = uni.current()[TEAM.BLUE];
+    assert.equal(redId, redBefore, "vermelho não sorteia");
     assert.notEqual(redId, blueId);
     assert.equal(kitsTooSimilar(findKit(redId), findKit(blueId)), false);
     assert.equal(uni.pendingKickoffRandom(), false);
@@ -295,7 +297,7 @@ describe("uniformes: sorteio no kickoff", () => {
     assert.equal(uni.current()[TEAM.BLUE], "branco");
   });
 
-  it("fim da partida volta a sortear no próximo kickoff", () => {
+  it("fim da partida sorteia só o azul; o vermelho fica", () => {
     const players = squad();
     const room = mockRoom(players);
     const uni = createUniformManager(room, { random: seqRandom([0, 0.99, 0.4, 0.8]) });
@@ -303,8 +305,8 @@ describe("uniformes: sorteio no kickoff", () => {
     uni.noteMatchEnd();
     const r = uni.prepareKickoff();
     assert.equal(r.randomized, true);
-    assert.notEqual(uni.current()[TEAM.RED], "fla");
-    assert.notEqual(uni.current()[TEAM.RED], uni.current()[TEAM.BLUE]);
+    assert.equal(uni.current()[TEAM.RED], "fla");
+    assert.notEqual(uni.current()[TEAM.BLUE], "fla");
   });
 });
 

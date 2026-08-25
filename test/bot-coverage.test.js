@@ -474,7 +474,7 @@ describe("uniformes kickoff e winner stays", () => {
     );
   });
 
-  it("azul vence: kit custom do azul vai para o vermelho", () => {
+  it("azul vence: vermelho mantém o kit", () => {
     const players = [p(1, TEAM.RED), p(2, TEAM.BLUE)];
     const room = {
       getPlayerList: () => players,
@@ -482,9 +482,10 @@ describe("uniformes kickoff e winner stays", () => {
       sendAnnouncement: () => {},
     };
     const u = createUniformManager(room);
+    u.change({ player: players[0], isAdmin: true, teamRef: "red", kitId: "fla" });
     u.change({ player: players[1], isAdmin: true, teamRef: "blue", kitId: "fra" });
     u.onWinnerStays(TEAM.BLUE);
-    assert.equal(u.current()[TEAM.RED], "fra");
+    assert.equal(u.current()[TEAM.RED], "fla");
     assert.equal(u.current()[TEAM.BLUE], "branco");
   });
 });

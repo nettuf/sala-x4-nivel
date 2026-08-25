@@ -283,7 +283,7 @@ function createUniformManager(room, opts = {}) {
   const current = { [TEAM.RED]: KIT_PRETO.id, [TEAM.BLUE]: KIT_BRANCO.id };
   /** Último avatar aplicado por jogador, para não reenviar o mesmo. */
   const avatars = new Map();
-  /** Próximo kickoff sorteia, a menos que alguém já tenha escolhido no intervalo. */
+  /** Próximo kickoff sorteia o azul; o vermelho permanece. */
   let pendingRandom = true;
 
   function captains() {
@@ -333,10 +333,6 @@ function createUniformManager(room, opts = {}) {
     for (const id of [...avatars.keys()]) {
       if (!present.has(id)) avatars.delete(id);
     }
-  }
-
-  function isCustom(team) {
-    return current[team] && current[team] !== defaultKit(team).id;
   }
 
   /** Reaplica as cores atuais (o mapa zera o uniforme no setCustomStadium). */
@@ -414,23 +410,21 @@ function createUniformManager(room, opts = {}) {
     return randomize(perm.team);
   }
 
-  /** Kickoff sorteia só se ninguém trocou no intervalo. */
+  /** Kickoff sorteia só o azul. O vermelho mantém o kit partida a partida. */
   function prepareKickoff() {
     if (!pendingRandom) return { randomized: false };
-    const result = randomize();
-    return { randomized: true, red: result.red, blue: result.blue };
+    const result = randomize(TEAM.BLUE);
+    return { randomized: true, red: kitFor(TEAM.RED), blue: result.kit };
   }
 
   function noteMatchEnd() {
     pendingRandom = true;
   }
 
-  /** Winner stays: quem venceu leva o uniforme customizado para o vermelho. */
+  /** Winner stays: o vermelho mantém o kit. Azul volta ao padrão (o kickoff sorteia de novo). */
   function onWinnerStays(winner) {
     if (winner === TEAM.BLUE) {
-      const blueKit = isCustom(TEAM.BLUE) ? findKit(current[TEAM.BLUE]) : null;
       apply(TEAM.BLUE, KIT_BRANCO);
-      if (blueKit) apply(TEAM.RED, blueKit);
       return;
     }
     if (winner === TEAM.RED) return;

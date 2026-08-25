@@ -276,24 +276,40 @@ function formatChatPrefix(title) {
   return emblem ? `[${emblem}] ` : "";
 }
 
-/** Lanches usados no lugar das vogais quando o alvo está com !gordo. */
+/** Lanches usados no lugar de UMA vogal quando o alvo está com !gordo. */
 const SNACK_EMOJIS = ["🍔", "🍟", "🌭", "🍕", "🌮", "🥪", "🍗", "🥓", "🧀", "🍿"];
 
 const VOWEL_RE = /[aeiouáàâãéêíóôõúüýAEIOUÁÀÂÃÉÊÍÓÔÕÚÜÝ]/g;
 
-function replaceVowelsWithSnacks(text, { pick } = {}) {
-  let i = 0;
-  const choose =
-    pick ||
-    (() => {
-      const emoji = SNACK_EMOJIS[i % SNACK_EMOJIS.length];
-      i += 1;
-      return emoji;
-    });
-  return String(text ?? "").replace(VOWEL_RE, () => choose());
+/**
+ * Troca uma vogal aleatória. Trocar todas poluía o chat.
+ * `replacement` pode ser string ou () => string.
+ */
+function replaceOneVowel(text, replacement, { random } = {}) {
+  const str = String(text ?? "");
+  const matches = [...str.matchAll(VOWEL_RE)];
+  if (!matches.length) return str;
+  const rng = typeof random === "function" ? random : Math.random;
+  const i = Math.min(matches.length - 1, Math.floor(rng() * matches.length));
+  const m = matches[i];
+  const insert = typeof replacement === "function" ? replacement(m[0], i) : String(replacement);
+  return str.slice(0, m.index) + insert + str.slice(m.index + m[0].length);
 }
 
-/** Mensagem do chat: !gordo troca vogais por emoji de lanche. */
+function replaceVowelsWithSnacks(text, { pick, random } = {}) {
+  const rng = typeof random === "function" ? random : Math.random;
+  return replaceOneVowel(
+    text,
+    () => {
+      if (typeof pick === "function") return pick();
+      const idx = Math.min(SNACK_EMOJIS.length - 1, Math.floor(rng() * SNACK_EMOJIS.length));
+      return SNACK_EMOJIS[idx];
+    },
+    { random: rng }
+  );
+}
+
+/** Mensagem do chat: !gordo troca uma vogal por emoji de lanche. */
 function formatChatBody(title, message) {
   if (title?.id === "gordo") return replaceVowelsWithSnacks(message);
   return message;
@@ -471,6 +487,7 @@ module.exports = {
   applyUnlockUpgrade,
   formatChatPrefix,
   formatChatBody,
+  replaceOneVowel,
   replaceVowelsWithSnacks,
   SNACK_EMOJIS,
   chatColor,
