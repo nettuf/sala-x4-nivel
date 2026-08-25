@@ -116,4 +116,25 @@ describe("mensagens de streak", () => {
     assert.match(msg, /10/);
     assert.match(msg, /B1|QUEBROU|derrub/i);
   });
+
+  it("ao atingir streak 3 anuncia cargo temporário no chat", () => {
+    const { announceStreakFlavor, TEAM } = (() => {
+      const streak = require("../src/room/streak");
+      const { TEAM } = require("../src/room/choose");
+      return { ...streak, TEAM };
+    })();
+    const announcements = [];
+    const room = {
+      sendAnnouncement: (msg) => announcements.push(msg),
+    };
+    announceStreakFlavor(room, {
+      prevStreak: 2,
+      nextStreak: 3,
+      winner: TEAM.RED,
+      holders: ["A"],
+      fallenHolders: [],
+      recordStreak: true,
+    });
+    assert.ok(announcements.some((m) => /destaque no chat|Em destaque|🔥 Streak 3/i.test(m)));
+  });
 });

@@ -103,6 +103,13 @@ const KITS = [
     colors: [0x000000],
     emoji: "👀",
   },
+  {
+    id: "busqueta",
+    name: "Busqueta FC",
+    angle: 90,
+    text: 0xffffff,
+    colors: [0x006fff, 0x2e9dff, 0x70b3ff],
+  },
 ];
 
 function defaultKit(team) {

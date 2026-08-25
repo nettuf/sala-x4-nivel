@@ -29,6 +29,8 @@ const {
   formatChatPrefix,
   formatChatBody,
   JOKE_TITLES,
+  STREAK_TITLE,
+  wearsStreakTitle,
 } = require("../titles");
 
 const RANKING_CMDS = {
@@ -206,6 +208,16 @@ function createCommandHandler(room, ctx) {
     return ensureTitlesMap().get(player.id) || real;
   }
 
+  /** Overlay 🔥 se o vermelho está streakando (≥3) e o jogador está no red sem AFK. */
+  function displayTitle(player, baseTitle) {
+    const worn = wearJoke(player, baseTitle);
+    const live = room.getPlayerList().find((p) => p.id === player.id) || player;
+    const streak = typeof ctx.streak?.get === "function" ? ctx.streak.get() : 0;
+    const afk = !!ctx.afk?.isAfk?.(player.id);
+    if (wearsStreakTitle(streak, live.team, afk)) return STREAK_TITLE;
+    return worn;
+  }
+
   function formatJokeWait(leftSec) {
     if (leftSec >= 60) return `${Math.ceil(leftSec / 60)}min`;
     return `${leftSec}s`;
@@ -332,7 +344,7 @@ function createCommandHandler(room, ctx) {
   }
 
   function formatPlayerChat(player, message) {
-    const title = wearJoke(player, ensureTitlesMap().get(player.id));
+    const title = displayTitle(player, ensureTitlesMap().get(player.id));
     const live = room.getPlayerList().find((p) => p.id === player.id);
     const team = live?.team ?? player.team;
     return {
@@ -374,7 +386,7 @@ function createCommandHandler(room, ctx) {
     }
 
     const live = room.getPlayerList().find((p) => p.id === player.id);
-    const color = chatColor(ctx.titles.get(player.id), live?.team ?? player.team);
+    const color = chatColor(displayTitle(player, ctx.titles.get(player.id)), live?.team ?? player.team);
     room.sendAnnouncement(
       `📩 PV de @${player.name}: ${parsed.body}`,
       target.id,

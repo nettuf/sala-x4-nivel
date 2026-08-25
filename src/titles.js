@@ -160,6 +160,28 @@ const JOKE_TITLES = {
   },
 };
 
+/** Overlay no chat enquanto o vermelho segura streak ≥ 3 (x4). */
+const STREAK_TITLE_MIN = 3;
+const STREAK_TITLE = {
+  id: "streak",
+  name: "Em Streak",
+  emblem: "🔥",
+  /** Vermelho mais forte que o chat normal do time. */
+  color: 0xff1a1a,
+  chatHighlight: true,
+  kind: "streak",
+};
+
+/**
+ * Cargo temporário de streak: só no vermelho, streak ≥ 3, sem AFK.
+ * Spec / azul / sair / AFK / streak quebrada → perde.
+ */
+function wearsStreakTitle(streak, team, isAfk = false) {
+  if (isAfk) return false;
+  if (Number(team) !== 1) return false;
+  return Math.floor(Number(streak) || 0) >= STREAK_TITLE_MIN;
+}
+
 const STAFF_TITLES = Object.entries(config.adminLevels)
   .map(([lvl, meta]) => ({
     id: meta.id,
@@ -292,7 +314,7 @@ function isTopChatTitle(title) {
 
 /**
  * Cor da linha do chat: time (vermelho / azul / spec).
- * Staff (todos amarelo), Craque, Lenda, Gordo e Aura pintam diferente.
+ * Staff (todos amarelo), Craque, Lenda, Gordo, Aura e Em Streak pintam diferente.
  */
 function chatColor(title, team) {
   if (isTopChatTitle(title)) {
@@ -303,9 +325,24 @@ function chatColor(title, team) {
   return CHAT_COLOR_SPEC;
 }
 
-/** Contribuição: gols*2 + assists − GC*2. */
+/** Contribuição (pior): gols*2 + assists − GC*2; GK sem GC ganha piso pra não ser sempre o pior. */
 function matchContribution(p) {
-  return (p.goals || 0) * 2 + (p.assists || 0) - (p.own_goals || 0) * 2;
+  const goals = Number(p.goals) || 0;
+  const assists = Number(p.assists) || 0;
+  const own = Number(p.own_goals) || 0;
+  let s = goals * 2 + assists - own * 2;
+  if (p.goalkeeper && own === 0) s += 2;
+  return s;
+}
+
+/** Score de MVP: gols*2 + assists; GK com CS +3 (compete com artilheiro de 1 gol). */
+function matchMvpScore(p) {
+  const goals = Number(p.goals) || 0;
+  const assists = Number(p.assists) || 0;
+  let s = goals * 2 + assists;
+  if (p.goalkeeper && p.cleanSheet) s += 3;
+  else if (p.goalkeeper) s += 1;
+  return s;
 }
 
 function withMatchStats(p) {
@@ -314,6 +351,8 @@ function withMatchStats(p) {
     goals: Math.max(0, Math.floor(Number(p.goals) || 0)),
     assists: Math.max(0, Math.floor(Number(p.assists) || 0)),
     own_goals: Math.max(0, Math.floor(Number(p.own_goals) || 0)),
+    goalkeeper: !!p.goalkeeper,
+    cleanSheet: !!p.cleanSheet,
   };
 }
 
@@ -324,16 +363,17 @@ function byAuthNick(a, b) {
 /**
  * MVP da partida: sempre 1.
  * Com vencedor → só no time que ganhou; empate → qualquer time.
- * Critério: gols*2 + assists (mín. 1 pt); empate → mais gols → assists → menos GC.
+ * Critério: gols*2 + assists (+3 CS / +1 GK); mín. 1 pt;
+ * empate → mais gols → assists → CS → menos GC.
  */
 function pickMatchMvps(players) {
   const list = players || [];
   const winners = list.filter((p) => p.result === "win").map(withMatchStats);
-  const pool = (winners.length ? winners : list.map(withMatchStats));
+  const pool = winners.length ? winners : list.map(withMatchStats);
   if (!pool.length) return [];
   const scored = pool.map((p) => ({
     ...p,
-    score: p.goals * 2 + p.assists,
+    score: matchMvpScore(p),
   }));
   const max = Math.max(0, ...scored.map((p) => p.score));
   if (max < 1) return [];
@@ -341,6 +381,7 @@ function pickMatchMvps(players) {
   tied.sort((a, b) => {
     if (b.goals !== a.goals) return b.goals - a.goals;
     if (b.assists !== a.assists) return b.assists - a.assists;
+    if (Number(b.cleanSheet) !== Number(a.cleanSheet)) return Number(b.cleanSheet) - Number(a.cleanSheet);
     if (a.own_goals !== b.own_goals) return a.own_goals - b.own_goals;
     return byAuthNick(a, b);
   });
@@ -350,7 +391,7 @@ function pickMatchMvps(players) {
 /**
  * Pior da partida: sempre 1.
  * Com perdedor → só no time que perdeu; empate → qualquer time.
- * Critério: menor contribuição (gols*2 + assists − GC*2);
+ * Critério: menor contribuição (gols*2 + assists − GC*2; GK sem GC +2);
  * empate → mais GC → menos gols → menos assists.
  */
 function pickMatchWorst(players) {
@@ -364,6 +405,8 @@ function pickMatchWorst(players) {
     if (b.own_goals !== a.own_goals) return b.own_goals - a.own_goals;
     if (a.goals !== b.goals) return a.goals - b.goals;
     if (a.assists !== b.assists) return a.assists - b.assists;
+    // Empate total: prefere marcar linha de campo, não o GK.
+    if (Number(a.goalkeeper) !== Number(b.goalkeeper)) return Number(a.goalkeeper) - Number(b.goalkeeper);
     return byAuthNick(a, b);
   });
   // Em empate de placar, evita MVP e pior serem a mesma pessoa quando dá.
@@ -411,6 +454,9 @@ module.exports = {
   TITLES,
   STAFF_TITLES,
   JOKE_TITLES,
+  STREAK_TITLE,
+  STREAK_TITLE_MIN,
+  wearsStreakTitle,
   statsBag,
   meetsReq,
   getTitleById,

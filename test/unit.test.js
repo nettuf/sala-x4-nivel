@@ -45,6 +45,9 @@ const {
   formatTitleCatalog,
   getTitleById,
   JOKE_TITLES,
+  STREAK_TITLE,
+  STREAK_TITLE_MIN,
+  wearsStreakTitle,
 } = require("../src/titles");
 const { stadiumForPlayerCount, stadiumKindForCount, reloadMaps } = require("../src/room/maps");
 const { buildSummary } = require("../src/discord/replay");
@@ -525,6 +528,36 @@ describe("titles / cargos", () => {
     assert.equal(worst[0].auth, "b");
   });
 
+  it("GK com CS pode ser MVP; 2 gols ainda ganha do CS", () => {
+    const gkMvp = pickMatchMvps([
+      { auth: "gk", nick: "GK", goals: 0, assists: 0, goalkeeper: true, cleanSheet: true, result: "win" },
+      { auth: "a", nick: "A", goals: 1, assists: 0, result: "win" },
+      { auth: "b", nick: "B", goals: 0, assists: 0, result: "win" },
+    ]);
+    assert.equal(gkMvp[0].auth, "gk");
+
+    const scorer = pickMatchMvps([
+      { auth: "gk", nick: "GK", goals: 0, assists: 0, goalkeeper: true, cleanSheet: true, result: "win" },
+      { auth: "a", nick: "A", goals: 2, assists: 0, result: "win" },
+    ]);
+    assert.equal(scorer[0].auth, "a");
+  });
+
+  it("GK sem GC não é automaticamente o pior; com GC pode ser", () => {
+    const fieldWorst = pickMatchWorst([
+      { auth: "gk", nick: "GK", goals: 0, assists: 0, own_goals: 0, goalkeeper: true, result: "loss" },
+      { auth: "a", nick: "A", goals: 0, assists: 0, own_goals: 0, result: "loss" },
+      { auth: "b", nick: "B", goals: 1, assists: 0, own_goals: 0, result: "loss" },
+    ]);
+    assert.equal(fieldWorst[0].auth, "a");
+
+    const gkWorst = pickMatchWorst([
+      { auth: "gk", nick: "GK", goals: 0, assists: 0, own_goals: 2, goalkeeper: true, result: "loss" },
+      { auth: "a", nick: "A", goals: 0, assists: 0, own_goals: 0, result: "loss" },
+    ]);
+    assert.equal(gkWorst[0].auth, "gk");
+  });
+
   it("formatChatPrefix coloca o emoji do cargo entre colchetes", () => {
     assert.equal(formatChatPrefix({ emblem: "👑", name: "Chefe" }), "[👑] ");
     assert.equal(formatChatPrefix({ emblem: "🐉", name: "Lenda" }), "[🐉] ");
@@ -557,6 +590,18 @@ describe("titles / cargos", () => {
     assert.equal(chatColor({ id: "moderador", kind: "staff", level: 2, color: 0xffd54a }, 1), 0xffd54a);
     assert.equal(chatColor({ id: "estagiario", kind: "staff", level: 1, color: 0xffe99a }, 0), 0xffe99a);
     assert.equal(chatColor({ id: "chefe", kind: "staff", level: 4 }, 2), CHAT_COLOR_CHEFE);
+    assert.equal(chatColor(STREAK_TITLE, 1), STREAK_TITLE.color);
+    assert.ok(STREAK_TITLE.color !== CHAT_COLOR_RED, "streak é vermelho mais destacado");
+  });
+
+  it("cargo Em Streak só no vermelho com streak ≥ 3 e sem AFK", () => {
+    assert.equal(STREAK_TITLE_MIN, 3);
+    assert.equal(wearsStreakTitle(2, 1, false), false);
+    assert.equal(wearsStreakTitle(3, 1, false), true);
+    assert.equal(wearsStreakTitle(10, 1, false), true);
+    assert.equal(wearsStreakTitle(5, 2, false), false, "azul não");
+    assert.equal(wearsStreakTitle(5, 0, false), false, "spec não");
+    assert.equal(wearsStreakTitle(5, 1, true), false, "AFK perde");
   });
 
   it("admin sem seleção usa cargo de staff", () => {

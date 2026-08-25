@@ -756,6 +756,29 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("streak ≥ 3: vermelho no chat com 🔥 e vermelho destacado; AFK/spec perdem", () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const streak = { get: () => 3 };
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      streak,
+      titles: new Map([[1, { emblem: "🌱", name: "Novato", color: 0xbdc3c7 }]]),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    const red = cmd.formatPlayerChat(room._players[0], "oi");
+    assert.equal(red.line, "[🔥] RedCap: oi");
+    assert.equal(red.color, 0xff1a1a);
+    assert.equal(cmd.formatPlayerChat(room._players[1], "oi").line, "Blue1: oi", "azul não pega");
+    assert.equal(cmd.formatPlayerChat(room._players[2], "oi").line, "Spec: oi", "spec não pega");
+
+    afk.setAfk(room._players[0], true);
+    assert.match(cmd.formatPlayerChat(room._players[0], "oi").line, /^\[🌱\] /, "AFK perde o 🔥");
+    afk.stop();
+  });
+
   it("!bb kicka o jogador da sala", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);

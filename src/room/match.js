@@ -389,6 +389,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
         team: 1,
         ...t,
         result: winner === 0 ? "draw" : winner === 1 ? "win" : "loss",
+        goalkeeper: gk.redId === p.id,
         cleanSheet: Number(scores?.blue ?? 0) === 0 && gk.redId === p.id,
       });
     }
@@ -401,6 +402,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
         team: 2,
         ...t,
         result: winner === 0 ? "draw" : winner === 2 ? "win" : "loss",
+        goalkeeper: gk.blueId === p.id,
         cleanSheet: Number(scores?.red ?? 0) === 0 && gk.blueId === p.id,
       });
     }

@@ -1,5 +1,6 @@
 const { TEAM } = require("./choose");
 const config = require("../config");
+const { STREAK_TITLE_MIN } = require("../titles");
 
 /**
  * Streak + winner stays:
@@ -111,6 +112,16 @@ function announceStreakFlavor(room, { prevStreak, nextStreak, winner, holders, f
   if (winner === TEAM.RED) {
     const msg = formatStreakMilestone(nextStreak, holders);
     if (msg) room.sendAnnouncement(msg, null, 0xf1c40f, "bold", 2);
+    // Cargo temporário 🔥 no chat a partir da 3ª seguida.
+    if (prevStreak < STREAK_TITLE_MIN && nextStreak >= STREAK_TITLE_MIN) {
+      room.sendAnnouncement(
+        `🔥 Streak ${nextStreak}! Vermelho em destaque no chat — AFK, sair do time ou perder a streak tira o cargo.`,
+        null,
+        0xff1a1a,
+        "bold",
+        2
+      );
+    }
     return;
   }
   if (winner === TEAM.BLUE) {
