@@ -1,6 +1,5 @@
-const fs = require("fs");
-const path = require("path");
 const config = require("../config");
+const STADIUMS = require("./stadiums");
 
 const cache = { training: null, x3: null, x4: null, loaded: false };
 
@@ -50,27 +49,17 @@ function parseStadium(raw) {
   return JSON.parse(stripHbsComments(String(raw || "")));
 }
 
-function loadFile(filePath) {
-  if (!filePath) return null;
-  const abs = path.isAbsolute(filePath) ? filePath : path.join(config.root, filePath);
-  if (!fs.existsSync(abs)) {
-    console.warn("[maps] arquivo não encontrado:", abs);
-    return null;
-  }
-  const raw = fs.readFileSync(abs, "utf8").trim();
-  if (!raw) return null;
-  parseStadium(raw);
-  return raw;
-}
-
-function loadSlot(kind, inline, filePath, label) {
-  if (inline) {
-    cache[kind] = inline;
+function loadSlot(kind, inline, hardcoded, label) {
+  const fromEnv = String(inline || "").trim();
+  const raw = fromEnv || hardcoded;
+  if (!raw) {
+    console.warn(`[maps] ${label} ausente`);
     return;
   }
   try {
-    cache[kind] = loadFile(filePath);
-    if (cache[kind]) console.log(`[maps] ${label}:`, filePath);
+    parseStadium(raw);
+    cache[kind] = raw;
+    console.log(`[maps] ${label}:`, fromEnv ? "env" : "hardcoded");
   } catch (err) {
     console.warn(`[maps] ${label} inválido:`, err.message);
   }
@@ -80,9 +69,9 @@ function ensureLoaded() {
   if (cache.loaded) return;
   cache.loaded = true;
 
-  loadSlot("training", config.mapTraining, config.mapTrainingFile, "treino");
-  loadSlot("x3", config.mapX3, config.mapX3File, "x3");
-  loadSlot("x4", config.mapX4, config.mapX4File, "x4");
+  loadSlot("training", config.mapTraining, STADIUMS.training, "treino");
+  loadSlot("x3", config.mapX3, STADIUMS.x3, "x3");
+  loadSlot("x4", config.mapX4, STADIUMS.x4, "x4");
 }
 
 /** 1 = treino; 2–7 (1v1/2v2/3v3) = x3; 8+ = x4 */
@@ -124,7 +113,6 @@ function applyStadium(room, count) {
   }
 }
 
-/** Força recarregar arquivos (útil se trocar .hbs sem restart completo) */
 function reloadMaps() {
   cache.loaded = false;
   cache.training = null;

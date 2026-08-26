@@ -1,7 +1,5 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const path = require("path");
-const fs = require("fs");
 
 const {
   connToIp,
@@ -681,11 +679,12 @@ describe("maps", () => {
     assert.equal(stadiumKindForCount(8), "x4");
   });
 
-  it("arquivos .hbs existem", () => {
-    const root = path.join(__dirname, "..");
-    assert.ok(fs.existsSync(path.join(root, "maps/mapx3.hbs")));
-    assert.ok(fs.existsSync(path.join(root, "maps/mapx4.hbs")));
-    assert.ok(fs.existsSync(path.join(root, "maps/maptraining.hbs")));
+  it("hardcode tem treino, x3 e x4", () => {
+    const stadiums = require("../src/room/stadiums");
+    assert.ok(stadiums.training && stadiums.training.length > 100);
+    assert.ok(stadiums.x3 && stadiums.x3.length > 100);
+    assert.ok(stadiums.x4 && stadiums.x4.length > 100);
+    assert.match(parseStadium(stadiums.training).name, /training|treino|ice bear/i);
   });
 });
 
