@@ -229,6 +229,8 @@ function planHeldWinnersToChoose(players, { isExcluded, teamSize = 4 } = {}) {
 
 /** Warmup ao vivo: time desigual (puxa spec ou desce extra) ou par pronto no x3. */
 function warmupNeedsLiveFill(redCount, blueCount, specReady, { grow = false } = {}) {
+  // 0v0 (último saiu do treino) não é “equilibrado”: precisa parar / puxar quem entrou.
+  if (redCount + blueCount === 0) return true;
   if (redCount !== blueCount) return true;
   const specs = Number(specReady) || 0;
   return !!grow && redCount > 0 && specs >= 2;

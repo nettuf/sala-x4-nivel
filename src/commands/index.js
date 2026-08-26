@@ -104,24 +104,16 @@ function playerHelpText(opts) {
   return playerHelpLines(opts).join("\n");
 }
 
-/** Specs que o capitão pode puxar (AFK no spec não conta). */
-function eligibleSpecCount(room, afk) {
-  return (room?.getPlayerList?.() || []).filter(
-    (p) => p.id !== 0 && p.team === 0 && !afk?.isAfk?.(p.id)
-  ).length;
-}
-
 /**
- * !afk no 4v4 ao vivo só se tiver gente no spec pra repor.
- * Antes da partida (sem placar) ou em treino/choose: sempre pode.
- * No spec, ou pra sair do AFK, também sempre pode.
+ * Quem está em campo no 4v4 ao vivo não usa !afk — só cai AFK se ficar ocioso.
+ * Spec, treino, warmup e lobby/choose: pode.
  */
 function canVoluntaryAfk(player, room, ctx) {
   if (!player || player.team === 0) return true;
   if (!ctx?.match?.isCompetitive?.()) return true;
   const scores = typeof room?.getScores === "function" ? room.getScores() : null;
   if (!scores) return true;
-  return eligibleSpecCount(room, ctx.afk) > 0;
+  return false;
 }
 
 function adminHelpText(level = 0) {
@@ -598,14 +590,13 @@ function createCommandHandler(room, ctx) {
     }
 
     if (cmd === "afk") {
-      // Sair do AFK sempre pode. Entrar: no 4v4 ao vivo só com gente no spec.
       if (ctx.afk?.isAfk(player.id)) {
         ctx.afk.setAfk(player, false);
         return true;
       }
       if (!canVoluntaryAfk(player, room, ctx)) {
         room.sendAnnouncement(
-          "Não pode usar !afk no 4v4 sem gente no spec. Só antes da partida ou se tiver spec pra repor.",
+          "Não pode usar !afk no 4v4. Só sai do campo se ficar ocioso.",
           player.id,
           0xe74c3c,
           "normal",

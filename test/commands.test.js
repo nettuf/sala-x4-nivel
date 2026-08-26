@@ -145,7 +145,7 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
-  it("!afk no 4v4 ao vivo com spec manda para spec", async () => {
+  it("!afk no 4v4 ao vivo com spec é recusado", async () => {
     const room = mockRoom();
     room.getScores = () => ({ red: 0, blue: 0, time: 12, timeLimit: 180 });
     room.pauseGame = () => {};
@@ -158,8 +158,9 @@ describe("comandos (mock room)", () => {
     };
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!afk");
-    assert.equal(room._players[0].team, 0);
-    assert.equal(afk.isAfk(1), true);
+    assert.equal(room._players[0].team, 1);
+    assert.equal(afk.isAfk(1), false);
+    assert.ok(room.announcements.some((a) => /não pode usar !afk no 4v4/i.test(a.msg)));
     afk.stop();
   });
 

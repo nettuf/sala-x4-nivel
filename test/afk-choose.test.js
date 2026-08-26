@@ -405,19 +405,22 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     host.cleanup();
   });
 
-  it("!afk no 4v4 oficial com spec manda para spec e abre reposição", async () => {
+  it("!afk no campo no 4v4 é recusado, mesmo com spec", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.addPlayer(TEAM.SPEC);
     host.addPlayer(TEAM.SPEC);
     host.startMatch();
+    const scores = host.live();
 
     await host.chat(all[0], "!afk");
     await settle();
 
-    assert.equal(host.handles.afk.isAfk(all[0].id), true);
-    assert.equal(host.find(all[0].id).team, TEAM.SPEC);
-    assert.equal(host.handles.choose.isReplacement(), true, "o time desfalcado repõe");
+    assert.equal(host.handles.afk.isAfk(all[0].id), false);
+    assert.equal(host.find(all[0].id).team, TEAM.RED);
+    assert.ok(host.said(/não pode usar !afk no 4v4/i, all[0].id));
+    assert.equal(host.handles.choose.isActive(), false);
+    assert.equal(host.live(), scores);
     host.cleanup();
   });
 
@@ -603,10 +606,12 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     host.cleanup();
   });
 
-  it("!afk no 4v4 ao vivo sem spec é recusado", async () => {
+  it("!afk no campo no 4v4 é recusado", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.startMatch();
+    const scores = host.live();
+    const pausasAntes = host.pauses.length;
 
     await host.chat(all[0], "!afk");
     await settle();
@@ -614,6 +619,28 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     assert.equal(host.handles.afk.isAfk(all[0].id), false);
     assert.equal(host.find(all[0].id).team, TEAM.RED);
     assert.ok(host.said(/não pode usar !afk no 4v4/i, all[0].id));
+    assert.equal(host.live(), scores);
+    assert.equal(host.handles.choose.isActive(), false);
+    assert.equal(host.pauses.length, pausasAntes);
+    host.cleanup();
+  });
+
+  it("!afk no spec no meio do 4v4 não pausa o jogo", async () => {
+    const host = bootRoom();
+    fill4v4(host);
+    const spec = host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+    const scores = host.live();
+    const pausasAntes = host.pauses.length;
+
+    await host.chat(spec, "!afk");
+    await settle();
+
+    assert.equal(host.handles.afk.isAfk(spec.id), true);
+    assert.equal(host.find(spec.id).team, TEAM.SPEC);
+    assert.equal(host.handles.choose.isActive(), false);
+    assert.equal(host.live(), scores);
+    assert.equal(host.pauses.length, pausasAntes, "AFK fora do jogo não pausa");
     host.cleanup();
   });
 

@@ -474,6 +474,7 @@ function createRoom(HBInit) {
 
     // No x3/x4: desigual equilibra; 2 specs sobem o par sem RR; 8 gente no x3 RR para o x4.
     // Treino ↔ x3 precisa parar (Haxball não troca mapa ao vivo).
+    // 0v0 (treino fantasma) também segue: warmupNeedsLiveFill manda parar / puxar.
     if (live) {
       const nextKind = stadiumKindForCount(eligibleCount);
       const growOnSameMap =
@@ -870,13 +871,16 @@ function createRoom(HBInit) {
     recoverAfterKickoffAfk();
   }
 
-  afk.setOnStateChange(({ type, player }) => {
+  afk.setOnStateChange(({ type, player, previousTeam }) => {
     if (type === "kick") return;
     if (kickoffAfkRestart) return;
+
+    const leftField = previousTeam === TEAM.RED || previousTeam === TEAM.BLUE;
 
     // Começo da partida (nunca teclou/chutou): RR sem stats em 1v1–4v4.
     // Depois o capitão escolhe o substituto se tiver spec.
     if (
+      leftField &&
       player &&
       isKickoffIdleAfk(type, player.id, movedThisMatch) &&
       room.getScores()
@@ -886,6 +890,11 @@ function createRoom(HBInit) {
     }
 
     if (match.isCompetitive()) {
+      // Spec / fora do jogo: não pausa nem abre reposição. Só atualiza o pick se já está aberto.
+      if (!leftField) {
+        if (choose.isReplacement()) choose.onPlayerJoin();
+        return;
+      }
       if (
         room.getScores() &&
         (type === "auto-afk" || type === "voluntary-afk")

@@ -75,6 +75,20 @@ async function pickReplacement(host) {
 }
 
 describe("x4 e2e: crescimento treino → 4v4", () => {
+  it("treino: último sai, o jogo para; o próximo entra no vermelho", async () => {
+    const host = await bootWith(1);
+    assert.ok(host.live());
+    host.quit(host.players[0]);
+    await settle();
+    assert.equal(host.players.length, 0);
+    assert.equal(host.live(), null, "jogo fantasma tem que parar");
+    const p = enter(host);
+    await waitLobby();
+    assert.equal(host.find(p.id).team, TEAM.RED);
+    assert.ok(host.live(), "treino recomeça");
+    host.cleanup();
+  });
+
   it("1 = treino 1v0", async () => {
     const host = await bootWith(1);
     const f = field(host);
@@ -349,18 +363,38 @@ describe("x4 e2e: 4v4 saída, AFK e pick", () => {
     host.cleanup();
   });
 
-  it("!afk no 4v4 com spec: pausa e pick", async () => {
+  it("!afk no campo no 4v4 é recusado, mesmo com spec", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.addPlayer(TEAM.SPEC);
     host.startMatch();
+    const scores = host.live();
 
     await host.chat(all[0], "!afk");
     await settle();
-    assert.equal(host.handles.choose.isReplacement(), true);
-    assert.equal(host.lastPause(), true);
-    await pickReplacement(host);
+    assert.equal(host.handles.afk.isAfk(all[0].id), false);
+    assert.equal(host.find(all[0].id).team, TEAM.RED);
+    assert.ok(host.said(/não pode usar !afk no 4v4/i, all[0].id));
+    assert.equal(host.handles.choose.isActive(), false);
+    assert.equal(host.live(), scores);
     assertHealthy4v4(host);
+    host.cleanup();
+  });
+
+  it("!afk no spec no meio do 4v4 não pausa", async () => {
+    const host = bootRoom();
+    fill4v4(host);
+    const spec = host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+    const scores = host.live();
+
+    await host.chat(spec, "!afk");
+    await settle();
+    assertNvN(host, 4, 0);
+    assert.equal(host.handles.afk.isAfk(spec.id), true);
+    assert.equal(host.live(), scores);
+    assert.equal(host.handles.choose.isActive(), false);
+    assert.notEqual(host.lastPause(), true);
     host.cleanup();
   });
 

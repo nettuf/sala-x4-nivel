@@ -182,6 +182,8 @@ describe("máquina de estados do treino/warmup", () => {
   });
 
   it("warmup ao vivo: desigual equilibra; par só sobe com grow; ímpar espera", () => {
+    assert.equal(warmupNeedsLiveFill(0, 0, 0), true, "treino vazio precisa parar");
+    assert.equal(warmupNeedsLiveFill(0, 0, 1), true, "entra no treino fantasma");
     assert.equal(warmupNeedsLiveFill(1, 0, 1), true);
     assert.equal(warmupNeedsLiveFill(1, 1, 1), false);
     assert.equal(warmupNeedsLiveFill(1, 0, 0), true, "1v0 desce extra / vai ao treino");
