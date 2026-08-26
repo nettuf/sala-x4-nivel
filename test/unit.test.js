@@ -50,7 +50,7 @@ const {
   STREAK_TITLE_MIN,
   wearsStreakTitle,
 } = require("../src/titles");
-const { stadiumForPlayerCount, stadiumKindForCount, reloadMaps } = require("../src/room/maps");
+const { stadiumForPlayerCount, stadiumKindForCount, reloadMaps, parseStadium } = require("../src/room/maps");
 const { buildSummary } = require("../src/discord/replay");
 const { formatStatusCard, emptyPlayerStats, winratePct } = require("../src/db/stats");
 
@@ -651,6 +651,17 @@ describe("titles / cargos", () => {
 });
 
 describe("maps", () => {
+  it("aceita .hbs com comentarios de indice", () => {
+    const raw = `{
+	"name" : "Ultimate Training",
+	"vertexes" : [
+		/* 0 */ { "x" : 1 }
+	]
+}`;
+    assert.equal(parseStadium(raw).name, "Ultimate Training");
+    assert.equal(parseStadium(raw).vertexes[0].x, 1);
+  });
+
   it("carrega maptraining, mapx3 e mapx4", () => {
     reloadMaps();
     const training = stadiumForPlayerCount(1);
@@ -659,9 +670,9 @@ describe("maps", () => {
     assert.ok(training && training.length > 100);
     assert.ok(x3 && x3.length > 100);
     assert.ok(x4 && x4.length > 100);
-    assert.match(JSON.parse(training).name, /training|treino|ice bear/i);
-    assert.match(JSON.parse(x3).name, /x3/i);
-    assert.match(JSON.parse(x4).name, /x4/i);
+    assert.match(parseStadium(training).name, /training|treino|ice bear/i);
+    assert.match(parseStadium(x3).name, /x3/i);
+    assert.match(parseStadium(x4).name, /x4/i);
     assert.notEqual(training, x3);
     assert.notEqual(x3, x4);
     assert.equal(stadiumForPlayerCount(6), x3);

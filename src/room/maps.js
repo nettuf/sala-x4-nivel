@@ -4,6 +4,52 @@ const config = require("../config");
 
 const cache = { training: null, x3: null, x4: null, loaded: false };
 
+// Stadium .hbs do editor traz comentarios de indice; JSON.parse puro rejeita.
+function stripHbsComments(text) {
+  let out = "";
+  let i = 0;
+  let inString = false;
+  while (i < text.length) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (inString) {
+      out += c;
+      if (c === "\\" && next) {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (c === '"') inString = false;
+      i += 1;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      out += c;
+      i += 1;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      i += 2;
+      while (i < text.length && text[i] !== "\n") i += 1;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+function parseStadium(raw) {
+  return JSON.parse(stripHbsComments(String(raw || "")));
+}
+
 function loadFile(filePath) {
   if (!filePath) return null;
   const abs = path.isAbsolute(filePath) ? filePath : path.join(config.root, filePath);
@@ -13,8 +59,7 @@ function loadFile(filePath) {
   }
   const raw = fs.readFileSync(abs, "utf8").trim();
   if (!raw) return null;
-  // valida JSON sem alterar o texto (Haxball aceita o .hbs como string)
-  JSON.parse(raw);
+  parseStadium(raw);
   return raw;
 }
 
@@ -89,4 +134,11 @@ function reloadMaps() {
   ensureLoaded();
 }
 
-module.exports = { applyStadium, stadiumForPlayerCount, stadiumKindForCount, reloadMaps };
+module.exports = {
+  applyStadium,
+  stadiumForPlayerCount,
+  stadiumKindForCount,
+  reloadMaps,
+  parseStadium,
+  stripHbsComments,
+};

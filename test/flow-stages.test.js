@@ -1,7 +1,7 @@
 const { describe, it, before } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { reloadMaps, stadiumForPlayerCount } = require("../src/room/maps");
+const { reloadMaps, stadiumForPlayerCount, parseStadium } = require("../src/room/maps");
 const { createChooseController, TEAM } = require("../src/room/choose");
 const { createMatchController } = require("../src/room/match");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays } = require("../src/room/streak");
@@ -44,7 +44,7 @@ function createMockRoomHost() {
     },
     setCustomStadium: (s) => {
       try {
-        stadiumName = JSON.parse(s).name;
+        stadiumName = parseStadium(s).name;
       } catch {
         stadiumName = "custom";
       }
@@ -1009,9 +1009,9 @@ describe("fluxo por estágios da sala", () => {
     assert.notEqual(t, x3);
     assert.notEqual(x3, x4);
     assert.equal(stadiumForPlayerCount(7), x3);
-    assert.match(JSON.parse(t).name, /training|ice bear/i);
-    assert.match(JSON.parse(x3).name, /x3/i);
-    assert.match(JSON.parse(x4).name, /x4/i);
+    assert.match(parseStadium(t).name, /training|ice bear/i);
+    assert.match(parseStadium(x3).name, /x3/i);
+    assert.match(parseStadium(x4).name, /x4/i);
   });
 
   it("partida: gol+assist+MVP", async () => {
