@@ -128,29 +128,13 @@ function createAfkTracker(room, opts = {}) {
   }
 
   /**
-   * `pause: false` para correções de rotina (ex.: AFK que reapareceu num time):
-   * pausar/despausar a cada segundo trava o jogo piscando.
+   * Não pausa/despausa o jogo: o wrap antigo soltava a pausa da reposição.
    */
-  function sendToSpec(playerId, { pause = true } = {}) {
-    const inGame =
-      pause && !paused && typeof room.getScores === "function" && !!room.getScores();
-    if (inGame && typeof room.pauseGame === "function") {
-      try {
-        room.pauseGame(true);
-      } catch {
-        /* ignore */
-      }
-    }
+  function sendToSpec(playerId) {
     try {
       room.setPlayerTeam(playerId, 0);
-    } finally {
-      if (inGame && typeof room.pauseGame === "function") {
-        try {
-          room.pauseGame(false);
-        } catch {
-          /* ignore */
-        }
-      }
+    } catch {
+      /* ignore */
     }
   }
 
@@ -196,7 +180,7 @@ function createAfkTracker(room, opts = {}) {
     const previousTeam = player.team;
     if (on) {
       markAfk(player.id, at);
-      if (player.team !== 0) sendToSpec(player.id, { pause: false });
+      if (player.team !== 0) sendToSpec(player.id);
       room.sendAnnouncement(`${player.name} está AFK (!afk)`, null, 0xbdc3c7, "normal", 1);
     } else {
       afks.delete(player.id);
@@ -229,7 +213,7 @@ function createAfkTracker(room, opts = {}) {
     if (p.team !== 0) {
       const previousTeam = p.team;
       markAfk(p.id);
-      sendToSpec(p.id, { pause: false });
+      sendToSpec(p.id);
       room.sendAnnouncement(
         `${p.name} parado — está AFK no spec (!afk para voltar).`,
         null,
@@ -246,7 +230,7 @@ function createAfkTracker(room, opts = {}) {
     for (const p of room.getPlayerList()) {
       if (p.id === 0) continue;
       if (afks.has(p.id)) {
-        if (p.team !== 0) sendToSpec(p.id, { pause: false });
+        if (p.team !== 0) sendToSpec(p.id);
         continue;
       }
       if (p.team === 0) continue;

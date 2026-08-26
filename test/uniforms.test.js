@@ -318,7 +318,7 @@ describe("uniformes: emoji do kit", () => {
     return room;
   }
 
-  it("kits com emoji fixo: baleio, cacadores, copas, gh, gigachads, gordo, jalin, marconhados, moggadores, nickname, olympus guardians, palhacada, rafaela, rato, skdreams, tigre, tulio, zebra family e zebrados", () => {
+  it("kits com emoji fixo: baleio, cacadores, copas, gh, gigachads, gordo, jalin, marconhados, mdr, moggadores, nickname, olympus guardians, palhacada, rafaela, rato, skdreams, tigre, tulio, zebra family e zebrados", () => {
     const comEmoji = KITS.filter((k) => k.emoji).map((k) => k.id).sort();
     assert.deepEqual(comEmoji, [
       "baleio",
@@ -329,6 +329,7 @@ describe("uniformes: emoji do kit", () => {
       "gordo",
       "jalin",
       "marconhados",
+      "mdr",
       "moggadores",
       "nickname",
       "olympusguardians",
@@ -427,6 +428,8 @@ describe("uniformes: emoji do kit", () => {
     assert.equal(findKit("olympusguardians").text, 0xe5ed00);
     assert.deepEqual(findKit("olympusguardians").colors, [0x080404, 0x141414]);
     assert.equal(findKit("olympusguardians").emoji, "⚡");
+    assert.equal(findKit("mdr").name, "Bigodes do MDR");
+    assert.equal(findKit("mdr").emoji, "﷼");
   });
 
   it("kit com emoji marca o time inteiro e deixa o resto livre", () => {

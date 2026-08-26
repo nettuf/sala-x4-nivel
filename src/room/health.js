@@ -14,13 +14,14 @@
 const HEALTH_CHECK_MS = 5000;
 const HEALTH_STRIKES = 2;
 /** Pausa de admin tem corda longa: só é desfeita depois de ~30s esquecida. */
-const HEALTH_ACTION_STRIKES = { unpause: 6 };
+const HEALTH_ACTION_STRIKES = { unpause: 6, pause: 1 };
 
 function diagnoseRoom({
   live = false,
   paused = false,
   chooseActive = false,
   replacement = false,
+  holdingPause = false,
   hasCaptain = false,
   competitive = false,
   redCount = 0,
@@ -30,8 +31,9 @@ function diagnoseRoom({
 } = {}) {
   const eligible = redCount + blueCount + specReadyCount;
   // 1v0/2v1 no treino não é 4v4: o flag competitive às vezes fica preso
-  // depois de um x4 e o watchdog RR a cada 10s.
+  // depois de um x4 e o watchdog antigo RR a cada 10s.
   const official = !!competitive && Math.max(redCount, blueCount) >= teamSize - 1;
+  const waitingOnPick = !!(replacement || holdingPause);
 
   if (live) {
     if (official && chooseActive && !replacement && !paused) {
@@ -42,13 +44,25 @@ function diagnoseRoom({
       return { action: "none" };
     }
 
+    // Reposição: o Haxball despausa no setPlayerTeam. Segura a pausa até o
+    // pick — mesmo se os counts “parecem” 4v4 (AFK ainda listado no time).
+    if (waitingOnPick) {
+      if (!chooseActive) {
+        return { action: "recover", reason: `reposição caiu (${redCount}v${blueCount})` };
+      }
+      if (!paused) {
+        return { action: "pause", reason: "reposição despausou cedo" };
+      }
+      return { action: "none" };
+    }
+
     if (!chooseActive && (redCount === 0 || blueCount === 0)) {
       return { action: "stop-game", reason: "time vazio com jogo rolando" };
     }
     if (!chooseActive && redCount !== blueCount) {
       return { action: "recover", reason: `times desiguais (${redCount}v${blueCount})` };
     }
-    if (paused && !chooseActive) {
+    if (paused && !chooseActive && !waitingOnPick) {
       return { action: "unpause", reason: "pausa sem reposição pendente" };
     }
     return { action: "none" };

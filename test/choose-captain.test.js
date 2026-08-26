@@ -178,6 +178,29 @@ describe("capitão e lista de pick", () => {
     assert.ok(announcements.some((row) => /única opção/i.test(row.msg)));
   });
 
+  it("reposição AO VIVO com specs não fecha sozinha só porque o time ainda conta 4", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(11, TEAM.RED),
+      p(12, TEAM.RED),
+      p(13, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(22, TEAM.BLUE),
+      p(3, TEAM.BLUE),
+      p(4, TEAM.BLUE),
+      p(5),
+      p(6),
+    ];
+    const { choose } = setup(players, { scores: { red: 0, blue: 0, time: 10 } });
+    let resolved = null;
+    choose.startReplacement(TEAM.RED, (payload) => {
+      resolved = payload;
+    });
+    assert.equal(choose.isReplacement(), true, "4 no time + spec não encerra o pick ao vivo");
+    assert.equal(players.find((row) => row.id === 5).team, TEAM.SPEC);
+    assert.equal(resolved, null);
+  });
+
   it("reposição 2 vagas e 2 specs → puxa os dois sem pick", () => {
     const players = [
       p(1, TEAM.RED),

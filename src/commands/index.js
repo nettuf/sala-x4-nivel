@@ -82,6 +82,7 @@ function playerHelpLines({
     "!viado — viraram viado (contador)",
     "!provocar [#id|nick] — zoação de quem entregou",
     "!elogiar [#id|nick] — elogio de craque",
+    "!roleta <#id|nick> — 50/50: mute 1min em você ou no alvo (15min na sala)",
     "!gordo [#id|nick] — cargo 🍔 Gordo por 20min",
     "!aura / !ego [#id|nick] — cargo 🗿 Aura por 20min",
     "!unis — uniformes disponíveis"
@@ -159,11 +160,14 @@ function createCommandHandler(room, ctx) {
   /** @type {Map<string, number>} */
   const lastLookupAt = new Map();
   let lastFunRoomAt = 0;
+  let lastRoletaAt = 0;
   const FUN_PLAYER_MS = config.cmdPublicPlayerMs || 25000;
   const FUN_ROOM_MS = config.cmdPublicRoomMs || 15000;
   const LOOKUP_MS = config.cmdLookupPlayerMs || 10000;
   const JOKE_CD_MS = config.tempTitleCooldownMs || 15 * 60 * 1000;
   const JOKE_MS = config.tempTitleMs || 20 * 60 * 1000;
+  const ROLETA_MS = config.roletaMuteMs || 60 * 1000;
+  const ROLETA_CD_MS = config.roletaCooldownMs || 15 * 60 * 1000;
   /** @type {Map<string, { kind: string, title: object, endsAt: number, previous: object|null }>} */
   const jokeTitles = new Map();
   /** @type {Map<string, number>} kind → last cast (cooldown da sala, não por jogador) */
@@ -221,6 +225,51 @@ function createCommandHandler(room, ctx) {
   function formatJokeWait(leftSec) {
     if (leftSec >= 60) return `${Math.ceil(leftSec / 60)}min`;
     return `${leftSec}s`;
+  }
+
+  function applyRoleta(player, args) {
+    const mention = args.join(" ").trim();
+    if (!mention) {
+      room.sendAnnouncement("Uso: !roleta <#id|nick>", player.id, 0xe74c3c, "normal", 1);
+      return true;
+    }
+    const target = findPlayer(room, mention);
+    if (!target) {
+      room.sendAnnouncement("Jogador não encontrado. Uso: !roleta <#id|nick>", player.id, 0xe74c3c, "normal", 1);
+      return true;
+    }
+    if (target.id === player.id) {
+      room.sendAnnouncement("Marca outra pessoa. A roleta é você contra o alvo.", player.id, 0xe74c3c, "normal", 1);
+      return true;
+    }
+    const now = clock();
+    const left = cooldownLeftSec(lastRoletaAt, ROLETA_CD_MS, now);
+    if (left > 0) {
+      room.sendAnnouncement(
+        `A roleta só gira de novo em ${formatJokeWait(left)}.`,
+        player.id,
+        0xf1c40f,
+        "normal",
+        1
+      );
+      return true;
+    }
+    const rng = typeof ctx.random === "function" ? Number(ctx.random()) : Math.random();
+    const loser = rng < 0.5 ? player : target;
+    lastRoletaAt = now;
+    const endsAt = Date.now() + ROLETA_MS;
+    const existing = ctx.mutes.get(loser.id);
+    if (!existing || existing.endsAt < endsAt) {
+      ctx.mutes.set(loser.id, { endsAt, reason: "roleta" });
+    }
+    room.sendAnnouncement(
+      `🎰 Roleta: ${player.name} apontou pra ${target.name}. Caiu em ${loser.name} — mudo 1min.`,
+      null,
+      0x9b59b6,
+      "bold",
+      2
+    );
+    return true;
   }
 
   async function applyJokeTitle(player, args, kind) {
@@ -764,6 +813,10 @@ function createCommandHandler(room, ctx) {
       const line = body.startsWith("🎲") ? body : `🎲 ${body}`;
       room.sendAnnouncement(line, null, 0xe67e22, "bold", 1);
       return true;
+    }
+
+    if (cmd === "roleta" || cmd === "roletar") {
+      return applyRoleta(player, args);
     }
 
     if (cmd === "provocar" || cmd === "provoca" || cmd === "entregou") {

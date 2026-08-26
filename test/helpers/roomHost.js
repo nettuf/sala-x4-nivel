@@ -123,6 +123,20 @@ function bootRoom({ deferTeamChanges = false } = {}) {
       if (on) room.onGamePause();
       else room.onGameUnpause();
     },
+    /**
+     * Motor despausou sozinho (setPlayerTeam). pauseGame() dentro do
+     * onGameUnpause é ignorado — só o timeout/tick seguinte re-pausa.
+     */
+    engineUnpause() {
+      pauses.push(false);
+      const orig = room.pauseGame;
+      room.pauseGame = () => {};
+      try {
+        room.onGameUnpause();
+      } finally {
+        room.pauseGame = orig;
+      }
+    },
     adminKick(target, admin) {
       const i = players.findIndex((p) => p.id === target.id);
       const gone = players[i];

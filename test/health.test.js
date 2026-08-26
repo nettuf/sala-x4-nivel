@@ -125,6 +125,66 @@ describe("diagnóstico da sala", () => {
     assert.equal(d.action, "unpause");
   });
 
+  it("reposição pausada 3v4 não é liberada pelo watchdog", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      paused: true,
+      chooseActive: true,
+      replacement: true,
+      holdingPause: true,
+      redCount: 3,
+      blueCount: 4,
+      specReadyCount: 2,
+    });
+    assert.equal(d.action, "none");
+  });
+
+  it("reposição despausada 3v4 pede pausa de novo", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      paused: false,
+      chooseActive: true,
+      replacement: true,
+      holdingPause: true,
+      redCount: 3,
+      blueCount: 4,
+      specReadyCount: 2,
+    });
+    assert.equal(d.action, "pause");
+  });
+
+  it("reposição despausada não libera mesmo se os counts parecem 4v4", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      paused: false,
+      chooseActive: true,
+      replacement: true,
+      holdingPause: true,
+      redCount: 4,
+      blueCount: 4,
+      specReadyCount: 1,
+    });
+    assert.equal(d.action, "pause");
+  });
+
+  it("pausa com holdingPause não despausa mesmo sem choose ativo", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      paused: true,
+      chooseActive: false,
+      replacement: false,
+      holdingPause: true,
+      redCount: 3,
+      blueCount: 4,
+      specReadyCount: 2,
+    });
+    assert.equal(d.action, "recover");
+  });
+
   it("choose sem capitão é reavaliado; com capitão fica quieto", () => {
     assert.equal(
       diagnoseRoom({ chooseActive: true, hasCaptain: false, redCount: 4, specReadyCount: 2 }).action,

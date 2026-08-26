@@ -79,6 +79,7 @@ const KITS = [
     angle: 60,
     text: 0xffffff,
     colors: [0x73ff98, 0x27752c, 0x000000],
+    emoji: "﷼",
   },
   {
     id: "dezena",

@@ -215,9 +215,15 @@ function createChooseController(room, {
   /**
    * Completa sozinho o time da vez quando o spec tem exatamente as vagas
    * (1=1, 2=2, 3=3). Mais opções que vagas → o capitão escolhe.
+   * Reposição AO VIVO nunca auto-completa: o motor despausava no 3v4.
    */
+  function isLiveReplacement() {
+    return !!replacement && !!room.getScores();
+  }
+
   function tryFillExactHoles() {
     if (!active) return false;
+    if (isLiveReplacement()) return false;
     const { specReady } = list();
 
     if (replacement) {
@@ -302,7 +308,8 @@ function createChooseController(room, {
 
     let { specReady, spec } = list();
     // Única opção restante: sobe sozinho (ensureCaptain se o time estiver vazio).
-    if (specReady.length === 1 && teamHasHole(team)) {
+    // Ao vivo o capitão tem que escolher — auto aqui despausava sem pick.
+    if (specReady.length === 1 && teamHasHole(team) && !isLiveReplacement()) {
       const cap = ensureCaptain() || currentCaptain();
       if (cap) {
         // Se o único spec virou o capitão, a vaga pode já ter fechado.
@@ -318,6 +325,8 @@ function createChooseController(room, {
     }
     if (!list().specReady.length) {
       ({ specReady, spec } = list());
+      // AFK ainda no time (setPlayerTeam async): não cancela a reposição pausada.
+      if (isLiveReplacement()) return;
       abortChoose(
         spec.length
           ? "Ninguém elegível no spec (todos AFK) — voltando ao lobby."
@@ -424,6 +433,9 @@ function createChooseController(room, {
   function tryFinishChoose(movedPlayer) {
     if (!active) return false;
     if (replacement) {
+      // Ao vivo: counts “4v4” (jogador ainda na lista) não fecham o pick.
+      // Só vale se alguém do spec de fato entrou no time.
+      if (isLiveReplacement() && !movedPlayer) return false;
       if (!replacementTeamFull() && !bothFull()) return false;
       const onReady = replacement.onReady;
       const target = replacement.targetTeam;
@@ -476,7 +488,8 @@ function createChooseController(room, {
     const { specReady } = list();
     const have = teamCount(targetTeam);
     const need = Math.max(0, teamSize - have);
-    if (specReady.length !== need) {
+    // Ao vivo sempre avisa: 1 spec / 1 vaga não pode auto-completar (despausava).
+    if (isLiveReplacement() || specReady.length !== need) {
       room.sendAnnouncement(
         `🔄 Reposição: capitão ${targetTeam === TEAM.RED ? "vermelho" : "azul"} escolhe um jogador do spec.`,
         null,
@@ -556,7 +569,8 @@ function createChooseController(room, {
     if (replacement) {
       const cap = currentCaptain();
       const { spec } = list();
-      if (!cap || !spec.length) {
+      // Ao vivo: spec vazio (AFK ainda no time / ninguém no spec) espera pausado.
+      if (!isLiveReplacement() && (!cap || !spec.length)) {
         const onReady = replacement.onReady;
         deactivate();
         onReady?.({ cancelled: true });

@@ -239,7 +239,7 @@ function createMockRoomHost() {
     const blue = eligible.filter((p) => p.team === TEAM.BLUE);
     const specs = eligible.filter((p) => p.team === TEAM.SPEC);
     const live = !!room.getScores();
-    const plan = planCompetitiveRecovery({
+    let plan = planCompetitiveRecovery({
       redCount: red.length,
       blueCount: blue.length,
       specCount: specs.length,
@@ -248,6 +248,13 @@ function createMockRoomHost() {
     });
 
     if (plan.action === "none") return;
+
+    if (
+      live &&
+      (plan.action === "fill-one" || plan.action === "fill-exact" || plan.action === "choose")
+    ) {
+      plan = { action: "choose", targetTeam: plan.targetTeam };
+    }
 
     if (plan.action === "fill-pairs") {
       if (plan.restart) {
@@ -279,6 +286,10 @@ function createMockRoomHost() {
     }
 
     if (plan.action === "choose") {
+      if (choose.isReplacement()) {
+        choose.onPlayerJoin();
+        return;
+      }
       choose.deactivate();
       choose.startReplacement(plan.targetTeam, ({ chosen, cancelled } = {}) => {
         if (cancelled || !chosen) {
@@ -1198,13 +1209,18 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("sair no 4v4 com spec → preenche vaga", () => {
+  it("sair no 4v4 com spec → capitão escolhe o substituto", () => {
     const host = createMockRoomHost();
     host.growTo(9);
     assert.equal(host.snapshot().matchRunning, true);
     assert.equal(host.snapshot().spec, 1);
-    const red = host.players.find((p) => p.team === TEAM.RED);
-    host.removePlayer(red.id);
+    const reds = host.players.filter((p) => p.team === TEAM.RED);
+    const leaving = reds[3];
+    const cap = reds[0];
+    host.removePlayer(leaving.id);
+    assert.equal(host.choose.isReplacement(), true);
+    assert.equal(host.currentCaptain().id, cap.id);
+    assert.equal(host.captainPick("1"), true);
     const s = host.snapshot();
     assert.equal(s.matchRunning, true);
     assert.equal(s.red, 4);
@@ -1506,7 +1522,7 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("4v4 + 1 spec: capitão sai → spec entra sozinho e o jogo segue", () => {
+  it("4v4 + 1 spec: capitão sai → o 2º do time escolhe o spec", () => {
     const host = createMockRoomHost();
     host.growTo(9);
     const spec = host.players.find((p) => p.team === TEAM.SPEC);
@@ -1514,6 +1530,10 @@ describe("fluxo por estágios da sala", () => {
     const remainingRed = host.players.filter((p) => p.team === TEAM.RED && p.id !== redCap.id);
 
     host.removePlayer(redCap.id);
+
+    assert.equal(host.choose.isReplacement(), true);
+    assert.equal(host.currentCaptain().id, remainingRed[0].id);
+    assert.equal(host.captainPick("1"), true);
 
     const s = host.snapshot();
     assert.equal(s.matchRunning, true);
@@ -1590,12 +1610,17 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("4v4 + 1 spec: AFK no campo puxa o spec e o jogo segue", () => {
+  it("4v4 + 1 spec: AFK no campo → capitão escolhe o spec", () => {
     const host = createMockRoomHost();
     host.growTo(9);
     const spec = host.players.find((p) => p.team === TEAM.SPEC);
-    const red = host.players.find((p) => p.team === TEAM.RED);
-    host.setVoluntaryAfk(red.id, true);
+    const reds = host.players.filter((p) => p.team === TEAM.RED);
+    const cap = reds[0];
+    const idle = reds[3];
+    host.setVoluntaryAfk(idle.id, true);
+    assert.equal(host.choose.isReplacement(), true);
+    assert.equal(host.currentCaptain().id, cap.id);
+    assert.equal(host.captainPick("1"), true);
     const s = host.snapshot();
     assert.equal(s.chooseActive, false);
     assert.equal(s.matchRunning, true);
@@ -1604,7 +1629,7 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.blue, 4);
     assert.equal(s.spec, 1);
     assert.equal(host.players.find((p) => p.id === spec.id).team, TEAM.RED);
-    assert.equal(host.players.find((p) => p.id === red.id).team, TEAM.SPEC);
+    assert.equal(host.players.find((p) => p.id === idle.id).team, TEAM.SPEC);
     host.cleanup();
   });
 

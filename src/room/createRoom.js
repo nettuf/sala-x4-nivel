@@ -189,6 +189,7 @@ function createRoom(HBInit) {
       if (!match.isCompetitive()) refreshLobby();
     },
     onReadyToStart() {
+      if (shouldHoldReplacementPause()) return;
       try {
         room.pauseGame(false);
       } catch {
@@ -212,6 +213,11 @@ function createRoom(HBInit) {
   let lobbyTransitionStop = false;
   /** Pausa aberta pelo bot para reposição (não desfazer pausa de admin). */
   let replacementPauseActive = false;
+  /** Trava a pausa até o spec entrar — mesmo se o choose cair no meio. */
+  let holdUntilPick = false;
+  /** Estado real do motor (onGamePause / onGameUnpause). */
+  let enginePaused = false;
+  let holdPauseTimer = null;
   /** Invalida callback de reposição antiga (setPlayerTeam async fechava e despausava cedo). */
   let replacementEpoch = 0;
   let repressingUnpause = false;
@@ -227,15 +233,47 @@ function createRoom(HBInit) {
    * Pausa para reposição: sempre pausa o jogo e congela o AFK,
    * mesmo se a flag de pausa já estiver ligada (admin/reposição anterior).
    */
-  function pauseForReplacement() {
+  function specReadyCount() {
+    return room
+      .getPlayerList()
+      .filter((p) => p.id !== 0 && p.team === TEAM.SPEC && !afk.isAfk(p.id)).length;
+  }
+
+  function requestEnginePause() {
     if (!room.getScores()) return;
+    replacementPauseActive = true;
+    afk.setPaused(true);
+    if (enginePaused) return;
     try {
       room.pauseGame(true);
     } catch {
       /* ignore */
     }
-    afk.setPaused(true);
-    replacementPauseActive = true;
+  }
+
+  function stopHoldPauseLoop() {
+    if (!holdPauseTimer) return;
+    clearInterval(holdPauseTimer);
+    holdPauseTimer = null;
+  }
+
+  function startHoldPauseLoop() {
+    if (holdPauseTimer) return;
+    holdPauseTimer = setInterval(() => {
+      if (!shouldHoldReplacementPause()) {
+        stopHoldPauseLoop();
+        return;
+      }
+      requestEnginePause();
+    }, 200);
+    if (typeof holdPauseTimer.unref === "function") holdPauseTimer.unref();
+  }
+
+  function pauseForReplacement() {
+    if (!room.getScores()) return;
+    holdUntilPick = true;
+    requestEnginePause();
+    startHoldPauseLoop();
   }
 
   /**
@@ -267,6 +305,44 @@ function createRoom(HBInit) {
     return red > 0 && red === blue;
   }
 
+  /** Pausa de reposição ainda vale: choose aberto, ou buraco com gente no spec. */
+  function shouldHoldReplacementPause() {
+    if (!room.getScores()) return false;
+    if (!holdUntilPick && !replacementPauseActive) return false;
+    if (choose.isReplacement()) return true;
+    const { red, blue } = eligibleTeamCounts();
+    if (red !== blue) return true;
+    return Math.min(red, blue) < config.teamSize && specReadyCount() > 0;
+  }
+
+  /**
+   * Haxball ignora pauseGame() chamado de dentro do onGameUnpause.
+   * Re-pausa fora do handler e de novo enquanto o pick não veio.
+   */
+  function scheduleHoldReplacementPause() {
+    const bump = (delay) => {
+      const timer = setTimeout(() => {
+        if (shouldHoldReplacementPause()) requestEnginePause();
+      }, delay);
+      if (typeof timer.unref === "function") timer.unref();
+    };
+    bump(50);
+    bump(250);
+  }
+
+  function releaseReplacementPause() {
+    holdUntilPick = false;
+    replacementPauseActive = false;
+    stopHoldPauseLoop();
+    afk.setPaused(false);
+    if (!enginePaused) return;
+    try {
+      room.pauseGame(false);
+    } catch {
+      /* ignore */
+    }
+  }
+
   let resumeRetry = null;
 
   /**
@@ -276,7 +352,12 @@ function createRoom(HBInit) {
    */
   function forceResume() {
     if (!room.getScores()) return;
-    if (!replacementPauseActive) return;
+    if (choose.isReplacement()) return;
+    if (shouldHoldReplacementPause()) {
+      requestEnginePause();
+      return;
+    }
+    if (!replacementPauseActive && !holdUntilPick) return;
     if (!teamsReadyToResume()) {
       if (resumeRetry) return;
       const epoch = replacementEpoch;
@@ -284,14 +365,12 @@ function createRoom(HBInit) {
         resumeRetry = null;
         if (epoch !== replacementEpoch) return;
         if (!replacementPauseActive || !room.getScores()) return;
+        if (shouldHoldReplacementPause()) {
+          requestEnginePause();
+          return;
+        }
         if (teamsReadyToResume()) {
-          try {
-            room.pauseGame(false);
-          } catch {
-            /* ignore */
-          }
-          afk.setPaused(false);
-          replacementPauseActive = false;
+          releaseReplacementPause();
           return;
         }
         recoverCompetitiveLineup();
@@ -303,16 +382,15 @@ function createRoom(HBInit) {
       clearTimeout(resumeRetry);
       resumeRetry = null;
     }
-    try {
-      room.pauseGame(false);
-    } catch {
-      /* ignore */
-    }
-    afk.setPaused(false);
-    replacementPauseActive = false;
+    // Flag primeiro: senão o onGameUnpause re-pausa a reposição já resolvida.
+    releaseReplacementPause();
   }
 
   function startLiveReplacement(targetTeam, onResolved, opts) {
+    if (choose.isReplacement()) {
+      choose.onPlayerJoin();
+      return;
+    }
     const epoch = ++replacementEpoch;
     choose.deactivate();
     choose.startReplacement(
@@ -641,6 +719,7 @@ function createRoom(HBInit) {
     }
 
     if (plan.action === "park-larger") {
+      holdUntilPick = false;
       const largerTeam = plan.targetTeam;
       const larger = room
         .getPlayerList()
@@ -655,13 +734,14 @@ function createRoom(HBInit) {
         "bold",
         1
       );
-      if (live && replacementPauseActive) forceResume();
+      if (live) releaseReplacementPause();
       return;
     }
 
     if (plan.action === "keep-play") {
+      holdUntilPick = false;
       match.setCompetitive(false);
-      if (live && replacementPauseActive) forceResume();
+      if (live) releaseReplacementPause();
       return;
     }
 
@@ -740,13 +820,6 @@ function createRoom(HBInit) {
     kickoffAfkRestart = true;
     lobbyRevision += 1;
     match.cancelRecordingOnly();
-    room.sendAnnouncement(
-      `${player.name} AFK no começo — partida reiniciada (sem stats).`,
-      null,
-      0xe67e22,
-      "bold",
-      2
-    );
     if (room.getScores()) room.stopGame();
     recoverAfterKickoffAfk();
   }
@@ -767,6 +840,15 @@ function createRoom(HBInit) {
     }
 
     if (match.isCompetitive()) {
+      if (
+        room.getScores() &&
+        (type === "auto-afk" || type === "voluntary-afk")
+      ) {
+        const specReady = room
+          .getPlayerList()
+          .filter((p) => p.id !== 0 && p.team === TEAM.SPEC && !afk.isAfk(p.id));
+        if (specReady.length) pauseForReplacement();
+      }
       // setPlayerTeam é async: se o AFK ainda aparece no time, espera o
       // onPlayerTeamChange. Já no spec (mock / tick seguinte) recupera já.
       const live = player && room.getPlayerList().find((p) => p.id === player.id);
@@ -894,8 +976,12 @@ function createRoom(HBInit) {
     }
 
     if (match.isCompetitive()) {
-      // Spec saindo não mexe em 4v4: sem RR, sem reposição.
-      if (player && player.team === TEAM.SPEC) return;
+      // Spec saindo de um 4v4 fechado não mexe. Se o Haxball reporta spec
+      // mas o campo já está 3v4, ainda precisa repor.
+      if (player && player.team === TEAM.SPEC) {
+        const { red, blue } = eligibleTeamCounts();
+        if (red === config.teamSize && blue === config.teamSize) return;
+      }
 
       if (!kicked) {
         const remaining = room
@@ -951,6 +1037,14 @@ function createRoom(HBInit) {
     // Guarda auth/conn antes da limpeza: onPlayerKicked precisa disso para registrar ban.
     const snapshot = { ...identified(player), team: player.team };
     cleanupPlayer(player);
+
+    if (
+      match.isCompetitive() &&
+      room.getScores() &&
+      snapshot.team !== TEAM.SPEC
+    ) {
+      pauseForReplacement();
+    }
 
     // Capitão precisa passar o pick na hora; o delay de 75ms é só do ragequit.
     const chooseNotified = choose.isActive();
@@ -1040,28 +1134,21 @@ function createRoom(HBInit) {
   }
 
   room.onGamePause = (byPlayer) => {
+    enginePaused = true;
     afk.setPaused(true);
     if (byPlayer) afk.touch(byPlayer.id);
   };
 
   room.onGameUnpause = (byPlayer) => {
-    afk.setPaused(false);
+    enginePaused = false;
     if (byPlayer) afk.touch(byPlayer.id);
-    // Engine/bot despausa no meio da reposição (tick / setPlayerTeam async).
-    if (
-      !byPlayer &&
-      !repressingUnpause &&
-      choose.isReplacement() &&
-      room.getScores() &&
-      !teamsReadyToResume()
-    ) {
-      repressingUnpause = true;
-      try {
-        pauseForReplacement();
-      } finally {
-        repressingUnpause = false;
-      }
+    // pauseGame aqui dentro é ignorado. Re-pausa no timeout/loop.
+    if (shouldHoldReplacementPause()) {
+      afk.setPaused(true);
+      scheduleHoldReplacementPause();
+      return;
     }
+    afk.setPaused(false);
   };
 
   room.onPlayerAdminChange = (changedPlayer, byPlayer) => {
@@ -1127,6 +1214,10 @@ function createRoom(HBInit) {
   };
 
   room.onGameStart = () => {
+    enginePaused = false;
+    holdUntilPick = false;
+    replacementPauseActive = false;
+    stopHoldPauseLoop();
     movedThisMatch.clear();
     kickoffAfkRestart = false;
     afk.setPaused(false);
@@ -1218,6 +1309,11 @@ function createRoom(HBInit) {
   };
 
   room.onGameTick = () => {
+    // Tick só roda despausado (e no fim da contagem de 2s). Segura a reposição.
+    if (shouldHoldReplacementPause()) {
+      requestEnginePause();
+      return;
+    }
     try {
       match.onTick();
     } catch (err) {
@@ -1343,6 +1439,9 @@ function createRoom(HBInit) {
   }
 
   async function handleGameStop() {
+    holdUntilPick = false;
+    replacementPauseActive = false;
+    stopHoldPauseLoop();
     if (kickoffAfkRestart) {
       postMatchBusy = false;
       return;
@@ -1395,6 +1494,7 @@ function createRoom(HBInit) {
         paused: afk.isPaused(),
         chooseActive: choose.isActive(),
         replacement: choose.isReplacement(),
+        holdingPause: replacementPauseActive,
         hasCaptain: !!choose.currentCaptain(),
         competitive: match.isCompetitive(),
         redCount: red.filter((p) => !afk.isAfk(p.id)).length,
@@ -1418,14 +1518,16 @@ function createRoom(HBInit) {
         recoverCompetitiveLineup();
         return;
       }
+      if (action === "pause") {
+        pauseForReplacement();
+        return;
+      }
       if (action === "unpause") {
-        try {
-          room.pauseGame(false);
-        } catch {
-          /* ignore */
+        if (shouldHoldReplacementPause()) {
+          requestEnginePause();
+          return;
         }
-        afk.setPaused(false);
-        replacementPauseActive = false;
+        releaseReplacementPause();
         return;
       }
       if (action === "prompt-choose") {
@@ -1462,7 +1564,13 @@ function createRoom(HBInit) {
     carousel: carouselHandle,
     mutes: ctx.mutes,
     chatLog,
-    health: { stop: healthHandle.stop, check: health.check },
+    health: {
+      stop() {
+        stopHoldPauseLoop();
+        healthHandle.stop();
+      },
+      check: health.check,
+    },
   };
 }
 

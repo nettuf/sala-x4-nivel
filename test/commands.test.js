@@ -317,6 +317,7 @@ describe("comandos (mock room)", () => {
     assert.equal(msg.includes("!ajudaadm"), false);
     assert.match(msg, /!unis/);
     assert.match(msg, /@nick/);
+    assert.match(msg, /!roleta/);
     assert.match(msg, /!gols/);
     assert.match(msg, /!topstreak/);
     assert.match(msg, /!listacargos/);
@@ -551,6 +552,43 @@ describe("comandos (mock room)", () => {
     ctx.advance(15_000);
     await cmd.handle(room._players[0], "!provocar");
     assert.ok(room.announcements.some((a) => a.to == null && /🎲/.test(a.msg)));
+  });
+
+  it("!roleta muta o alvo ou quem chamou e tem cooldown global de 15min", async () => {
+    const room = mockRoom();
+    const ctx = withClock({ admins: new Map(), mutes: new Map(), random: () => 0.9 });
+    const cmd = createCommandHandler(room, ctx);
+
+    await cmd.handle(room._players[0], "!roleta");
+    assert.ok(room.announcements.some((a) => a.to === 1 && /Uso: !roleta/i.test(a.msg)));
+
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!roleta RedCap");
+    assert.ok(room.announcements.some((a) => a.to === 1 && /Marca outra pessoa/i.test(a.msg)));
+
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!roleta Spec");
+    const hit = room.announcements.find((a) => a.to == null && /Roleta/.test(a.msg))?.msg || "";
+    assert.match(hit, /RedCap apontou pra Spec/);
+    assert.match(hit, /Caiu em Spec/);
+    const mute = ctx.mutes.get(3);
+    assert.ok(mute);
+    assert.equal(mute.reason, "roleta");
+    assert.ok(mute.endsAt - Date.now() > 50_000);
+    assert.ok(mute.endsAt - Date.now() <= 60_000);
+
+    room.announcements.length = 0;
+    await cmd.handle(room._players[1], "!roleta Spec");
+    assert.ok(room.announcements.some((a) => a.to === 2 && /só gira de novo/i.test(a.msg)));
+    assert.equal(ctx.mutes.has(2), false);
+
+    ctx.advance(15 * 60 * 1000);
+    ctx.random = () => 0;
+    room.announcements.length = 0;
+    await cmd.handle(room._players[1], "!roleta Spec");
+    const second = room.announcements.find((a) => a.to == null && /Roleta/.test(a.msg))?.msg || "";
+    assert.match(second, /Caiu em Blue1/);
+    assert.ok(ctx.mutes.get(2)?.reason === "roleta");
   });
 
   it("!provocaradm manda texto livre só se for Chefe", async () => {
