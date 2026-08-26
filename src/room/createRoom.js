@@ -4,7 +4,7 @@ const { upsertPlayer, getAdmin } = require("../db/players");
 const { findActiveBan, createBan } = require("../db/bans");
 const { notifyJoin, notifyBan } = require("../discord/webhook");
 const { createChatLogger } = require("../discord/chatLog");
-const { applyStadium, stadiumKindForCount } = require("./maps");
+const { applyStadium, stadiumKindForCount, needsTrainingX3Swap } = require("./maps");
 const { createAfkTracker, shouldCountAutoAfk } = require("./afk");
 const { createChatFloodGuard } = require("./chatFlood");
 const { diagnoseRoom, createHealthMonitor } = require("./health");
@@ -464,9 +464,11 @@ function createRoom(HBInit) {
       if (choose.isActive()) choose.onPlayerJoin();
       return;
     }
-    // Jogo ainda rodando (warmup/x3 ou scores atrasados): não para pra "remontar".
+    // Warmup no mesmo mapa (2v2 → 1v1 no x3) segue sem RR.
+    // Treino ↔ x3 precisa parar: o Haxball não troca stadium com o jogo andando.
     if (room.getScores() && match.isRunning()) {
-      return;
+      const nextKind = stadiumKindForCount(eligibleCount);
+      if (!needsTrainingX3Swap(stadiumKind, nextKind)) return;
     }
     if (match.isCompetitive()) match.setCompetitive(false);
 

@@ -82,6 +82,13 @@ function stadiumKindForCount(count) {
   return "x4";
 }
 
+/** Treino ↔ x3 precisa parar o jogo; 2v2 → 1v1 no mesmo x3 não. */
+function needsTrainingX3Swap(fromKind, toKind) {
+  const from = String(fromKind || "");
+  const to = String(toKind || "");
+  return (to === "x3" && from === "training") || (to === "training" && from !== "training");
+}
+
 function stadiumForPlayerCount(count) {
   ensureLoaded();
   const kind = stadiumKindForCount(count);
@@ -126,6 +133,7 @@ module.exports = {
   applyStadium,
   stadiumForPlayerCount,
   stadiumKindForCount,
+  needsTrainingX3Swap,
   reloadMaps,
   parseStadium,
   stripHbsComments,

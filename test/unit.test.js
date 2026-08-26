@@ -48,7 +48,7 @@ const {
   STREAK_TITLE_MIN,
   wearsStreakTitle,
 } = require("../src/titles");
-const { stadiumForPlayerCount, stadiumKindForCount, reloadMaps, parseStadium } = require("../src/room/maps");
+const { stadiumForPlayerCount, stadiumKindForCount, needsTrainingX3Swap, reloadMaps, parseStadium } = require("../src/room/maps");
 const { buildSummary } = require("../src/discord/replay");
 const { formatStatusCard, emptyPlayerStats, winratePct } = require("../src/db/stats");
 
@@ -677,6 +677,15 @@ describe("maps", () => {
     assert.equal(stadiumKindForCount(1), "training");
     assert.equal(stadiumKindForCount(7), "x3");
     assert.equal(stadiumKindForCount(8), "x4");
+  });
+
+  it("treino ↔ x3 precisa trocar de mapa; 2v2 → 1v1 no x3 não", () => {
+    assert.equal(needsTrainingX3Swap("training", "x3"), true);
+    assert.equal(needsTrainingX3Swap("x3", "training"), true);
+    assert.equal(needsTrainingX3Swap("x4", "training"), true);
+    assert.equal(needsTrainingX3Swap("x3", "x3"), false);
+    assert.equal(needsTrainingX3Swap("x4", "x3"), false);
+    assert.equal(needsTrainingX3Swap("training", "training"), false);
   });
 
   it("hardcode tem treino, x3 e x4", () => {
