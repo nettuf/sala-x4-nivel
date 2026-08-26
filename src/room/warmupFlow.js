@@ -227,4 +227,15 @@ function planHeldWinnersToChoose(players, { isExcluded, teamSize = 4 } = {}) {
   return null;
 }
 
-module.exports = { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose };
+/** Warmup ao vivo: vaga num time + spec pronto → puxa; senão o jogo segue. */
+function warmupNeedsLiveFill(redCount, blueCount, specReady) {
+  return redCount !== blueCount && specReady > 0;
+}
+
+module.exports = {
+  planWarmup,
+  applyWarmupMoves,
+  planPromoteToX4,
+  planHeldWinnersToChoose,
+  warmupNeedsLiveFill,
+};

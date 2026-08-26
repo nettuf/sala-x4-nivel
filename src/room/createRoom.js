@@ -9,7 +9,7 @@ const { createAfkTracker, shouldCountAutoAfk } = require("./afk");
 const { createChatFloodGuard } = require("./chatFlood");
 const { diagnoseRoom, createHealthMonitor } = require("./health");
 const { createChooseController, TEAM } = require("./choose");
-const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose } = require("./warmupFlow");
+const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose, warmupNeedsLiveFill } = require("./warmupFlow");
 const {
   planCompetitiveRecovery,
   planExactFill,
@@ -466,9 +466,15 @@ function createRoom(HBInit) {
     }
     // Warmup no mesmo mapa (2v2 → 1v1 no x3) segue sem RR.
     // Treino ↔ x3 precisa parar: o Haxball não troca stadium com o jogo andando.
+    // 1v1/2v2 com vaga + spec pronto ainda puxa (AFK no x3).
     if (room.getScores() && match.isRunning()) {
       const nextKind = stadiumKindForCount(eligibleCount);
-      if (!needsTrainingX3Swap(stadiumKind, nextKind)) return;
+      if (
+        !needsTrainingX3Swap(stadiumKind, nextKind) &&
+        !warmupNeedsLiveFill(redN, blueN, specReadyCount())
+      ) {
+        return;
+      }
     }
     if (match.isCompetitive()) match.setCompetitive(false);
 
@@ -1573,6 +1579,7 @@ function createRoom(HBInit) {
       },
       check: health.check,
     },
+    refreshLobby,
   };
 }
 

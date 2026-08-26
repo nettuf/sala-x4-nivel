@@ -1,7 +1,7 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose } = require("../src/room/warmupFlow");
+const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose, warmupNeedsLiveFill } = require("../src/room/warmupFlow");
 const { createChooseController, TEAM } = require("../src/room/choose");
 
 function p(id, team = TEAM.SPEC) {
@@ -170,6 +170,22 @@ describe("máquina de estados do treino/warmup", () => {
     assert.ok(!plan.moves.some((m) => m.id === 4 && m.team !== TEAM.SPEC));
     const teams = finalTeams(players, plan);
     assert.ok(teams.spec.includes(4));
+  });
+
+  it("1v1 com spec: AFK no azul puxa o spec, sem choose", () => {
+    const players = [p(1, TEAM.RED), p(2, TEAM.BLUE), p(3)];
+    const plan = planWarmup(players, { isExcluded: (player) => player.id === 2 });
+    assert.equal(plan.replacementTeam, null);
+    assert.equal(plan.shouldStart, true);
+    assert.ok(plan.moves.some((m) => m.id === 3 && m.team === TEAM.BLUE));
+    assert.deepEqual(finalTeams(players, plan), { red: [1], blue: [3], spec: [2] });
+  });
+
+  it("warmup ao vivo só puxa spec quando um time está com vaga", () => {
+    assert.equal(warmupNeedsLiveFill(1, 0, 1), true);
+    assert.equal(warmupNeedsLiveFill(1, 1, 1), false);
+    assert.equal(warmupNeedsLiveFill(1, 0, 0), false);
+    assert.equal(warmupNeedsLiveFill(2, 1, 1), true);
   });
 
   it("1v1 com um AFK deixa o outro no vermelho (treino)", () => {

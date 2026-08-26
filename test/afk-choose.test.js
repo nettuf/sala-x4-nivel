@@ -60,6 +60,37 @@ describe("AFK: relógio, aviso e ação", () => {
     host.cleanup();
   });
 
+  it("1v1 no x3 com spec: AFK no campo puxa o spec e o jogo segue", async () => {
+    const host = bootRoom();
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.handles.refreshLobby();
+    await new Promise((r) => setTimeout(r, 350));
+
+    assert.equal(host.teamCount(TEAM.RED), 1);
+    assert.equal(host.teamCount(TEAM.BLUE), 1);
+    assert.ok(host.live(), "1v1 já está rodando no x3");
+
+    const spec = host.addPlayer(TEAM.SPEC);
+    host.handles.refreshLobby();
+    assert.equal(spec.team, TEAM.SPEC, "o 3º espera no spec");
+
+    const red = host.players.find((p) => p.team === TEAM.RED);
+    const blue = host.players.find((p) => p.team === TEAM.BLUE);
+    host.activity(red);
+    host.activity(blue);
+    host.handles.afk.setAfk(blue, true);
+    await settle();
+
+    assert.equal(host.find(blue.id).team, TEAM.SPEC);
+    assert.equal(host.handles.afk.isAfk(blue.id), true);
+    assert.equal(spec.team, TEAM.BLUE, "spec entra no lugar do AFK");
+    assert.equal(host.teamCount(TEAM.RED), 1);
+    assert.equal(host.teamCount(TEAM.BLUE), 1);
+    assert.ok(host.live(), "1v1 não para");
+    host.cleanup();
+  });
+
   it("avisa no tempo do aviso e só manda pro spec no tempo da ação", () => {
     const host = bootRoom();
     const all = fill4v4(host);
