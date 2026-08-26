@@ -330,10 +330,12 @@ function createRoom(HBInit) {
     bump(250);
   }
 
-  function releaseReplacementPause() {
+  function releaseReplacementPause({ force = false } = {}) {
+    const ours = replacementPauseActive || holdUntilPick;
     holdUntilPick = false;
     replacementPauseActive = false;
     stopHoldPauseLoop();
+    if (!force && !ours) return;
     afk.setPaused(false);
     if (!enginePaused) return;
     try {
@@ -450,28 +452,37 @@ function createRoom(HBInit) {
     const eligibleCount = players.filter((p) => !afk.isAfk(p.id)).length;
     const redN = players.filter((p) => p.team === TEAM.RED && !afk.isAfk(p.id)).length;
     const blueN = players.filter((p) => p.team === TEAM.BLUE && !afk.isAfk(p.id)).length;
-    const liveOfficial =
-      match.isRunning() &&
-      match.isCompetitive() &&
-      !!room.getScores() &&
-      stadiumKind === "x4" &&
-      redN > 0 &&
-      blueN > 0;
+    const live = !!(match.isRunning() && room.getScores());
+    const fourOnField = redN >= config.teamSize && blueN >= config.teamSize;
 
-    // 4v4 oficial de verdade: não desmonta por entrada/saída de spec.
-    // Flag competitive preso no treino 1v0 não pode bloquear o lobby.
-    if (liveOfficial) {
-      if (choose.isActive()) choose.onPlayerJoin();
+    // 4v4 ao vivo completo: nunca warmup, nunca RR, nunca choose, nunca pausa presa.
+    // Cobre admin puxando no x3/treino e o mapa x4 oficial.
+    if (live && fourOnField) {
+      if (choose.isReplacement()) choose.deactivate();
+      releaseReplacementPause();
+      if (!match.isCompetitive()) match.setCompetitive(true);
       return;
     }
-    // Warmup no mesmo mapa (2v2 → 1v1 no x3) segue sem RR.
-    // Treino ↔ x3 precisa parar: o Haxball não troca stadium com o jogo andando.
-    // 1v1/2v2 com vaga + spec pronto ainda puxa (AFK no x3).
-    if (room.getScores() && match.isRunning()) {
+
+    // 4v4 oficial incompleto (x4 competitivo): reposição é recover/health, não o lobby.
+    // Flag competitive preso no treino 1v0 não entra aqui (mapa ≠ x4).
+    if (live && match.isCompetitive() && stadiumKind === "x4") {
+      if (choose.isActive()) choose.onPlayerJoin();
+      else recoverCompetitiveLineup();
+      return;
+    }
+
+    // No x3/x4: desigual equilibra; 2 specs sobem o par sem RR; 8 gente no x3 RR para o x4.
+    // Treino ↔ x3 precisa parar (Haxball não troca mapa ao vivo).
+    if (live) {
       const nextKind = stadiumKindForCount(eligibleCount);
+      const growOnSameMap =
+        nextKind === stadiumKind && (stadiumKind === "x3" || stadiumKind === "x4");
+      const promoteToX4 = stadiumKind !== "x4" && eligibleCount >= config.teamSize * 2;
       if (
         !needsTrainingX3Swap(stadiumKind, nextKind) &&
-        !warmupNeedsLiveFill(redN, blueN, specReadyCount())
+        !warmupNeedsLiveFill(redN, blueN, specReadyCount(), { grow: growOnSameMap }) &&
+        !promoteToX4
       ) {
         return;
       }
@@ -490,11 +501,32 @@ function createRoom(HBInit) {
         return;
       }
 
+      const fieldRed = players.filter((p) => p.team === TEAM.RED && !afk.isAfk(p.id)).length;
+      const fieldBlue = players.filter((p) => p.team === TEAM.BLUE && !afk.isAfk(p.id)).length;
+      // Admin (ou o par do 3v3) já fechou o 4v4: inicia. Não abre choose nem segura pausa.
+      if (fieldRed >= config.teamSize && fieldBlue >= config.teamSize) {
+        choose.deactivate();
+        releaseReplacementPause();
+        if (live) {
+          match.setCompetitive(true);
+          return;
+        }
+        setLobbyStadium(config.teamSize * 2);
+        laterForCurrentLobby(startCompetitiveFromCurrentField);
+        return;
+      }
+
       const promo = planPromoteToX4(players, {
         isExcluded: (p) => afk.isAfk(p.id),
         teamSize: config.teamSize,
       });
       if (promo) {
+        if (live && stadiumKind === "x4") {
+          applyWarmupMoves(room, promo);
+          releaseReplacementPause();
+          match.setCompetitive(true);
+          return;
+        }
         stopCurrentGame({ lobbyTransition: true });
         applyWarmupMoves(room, promo);
         setLobbyStadium(eligibleCount);
@@ -537,7 +569,6 @@ function createRoom(HBInit) {
       return;
     }
 
-    const live = !!(match.isRunning() && room.getScores());
     const nextKind = stadiumKindForCount(plan.eligibleCount);
     // Treino → x3 (1v1). Queda 1v1 → treino precisa parar: o Haxball não troca mapa com o jogo andando.
     const loadX3 = nextKind === "x3" && stadiumKind === "training";
@@ -551,9 +582,15 @@ function createRoom(HBInit) {
       } else {
         if (live) pauseForReplacement();
         choose.deactivate();
-        choose.startReplacement(plan.replacementTeam, () => {
-          refreshLobby();
-        });
+        const formatSize = Math.min(config.teamSize, Math.max(redN, blueN, 1));
+        choose.startReplacement(
+          plan.replacementTeam,
+          () => {
+            releaseReplacementPause();
+            refreshLobby();
+          },
+          { teamSize: formatSize }
+        );
       }
       return;
     }
@@ -632,6 +669,7 @@ function createRoom(HBInit) {
     const blue = players.filter((p) => p.team === TEAM.BLUE);
     const specs = players.filter((p) => p.team === TEAM.SPEC);
     if (red.length === config.teamSize && blue.length === config.teamSize) {
+      releaseReplacementPause();
       return;
     }
 
@@ -1502,7 +1540,7 @@ function createRoom(HBInit) {
         paused: afk.isPaused(),
         chooseActive: choose.isActive(),
         replacement: choose.isReplacement(),
-        holdingPause: replacementPauseActive,
+        holdingPause: replacementPauseActive || holdUntilPick,
         hasCaptain: !!choose.currentCaptain(),
         competitive: match.isCompetitive(),
         redCount: red.filter((p) => !afk.isAfk(p.id)).length,
@@ -1535,7 +1573,7 @@ function createRoom(HBInit) {
           requestEnginePause();
           return;
         }
-        releaseReplacementPause();
+        releaseReplacementPause({ force: true });
         return;
       }
       if (action === "prompt-choose") {

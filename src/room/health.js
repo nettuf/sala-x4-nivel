@@ -47,6 +47,11 @@ function diagnoseRoom({
     // Reposição: o Haxball despausa no setPlayerTeam. Segura a pausa até o
     // pick — mesmo se os counts “parecem” 4v4 (AFK ainda listado no time).
     if (waitingOnPick) {
+      if (official && redCount >= teamSize && blueCount >= teamSize && !chooseActive) {
+        return paused
+          ? { action: "unpause", reason: "4v4 completo com reposição órfã" }
+          : { action: "none" };
+      }
       if (!chooseActive) {
         return { action: "recover", reason: `reposição caiu (${redCount}v${blueCount})` };
       }

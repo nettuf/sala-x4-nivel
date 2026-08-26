@@ -125,6 +125,20 @@ describe("diagnóstico da sala", () => {
     assert.equal(d.action, "unpause");
   });
 
+  it("4v4 completo com reposição órfã despausa; não fica em recover", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      paused: true,
+      chooseActive: false,
+      replacement: false,
+      holdingPause: true,
+      redCount: 4,
+      blueCount: 4,
+    });
+    assert.equal(d.action, "unpause");
+  });
+
   it("reposição pausada 3v4 não é liberada pelo watchdog", () => {
     const d = diagnoseRoom({
       live: true,

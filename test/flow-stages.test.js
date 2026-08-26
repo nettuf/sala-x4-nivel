@@ -1327,7 +1327,7 @@ describe("fluxo por estágios da sala", () => {
     config.chooseTimeSec = 0.05;
     await host.enterChoose({ extra: 4 }); // 4 vagas azuis? 4 red + 1 blue + 8 specs
     const capId = host.currentCaptain().id;
-    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => setTimeout(r, 150));
     assert.equal(host.kicks.some((k) => k.id === capId), false, "não kicka");
     const parked = host.players.find((p) => p.id === capId);
     assert.equal(parked?.team, TEAM.SPEC);

@@ -181,11 +181,17 @@ describe("máquina de estados do treino/warmup", () => {
     assert.deepEqual(finalTeams(players, plan), { red: [1], blue: [3], spec: [2] });
   });
 
-  it("warmup ao vivo só puxa spec quando um time está com vaga", () => {
+  it("warmup ao vivo: desigual equilibra; par só sobe com grow; ímpar espera", () => {
     assert.equal(warmupNeedsLiveFill(1, 0, 1), true);
     assert.equal(warmupNeedsLiveFill(1, 1, 1), false);
-    assert.equal(warmupNeedsLiveFill(1, 0, 0), false);
+    assert.equal(warmupNeedsLiveFill(1, 0, 0), true, "1v0 desce extra / vai ao treino");
+    assert.equal(warmupNeedsLiveFill(2, 1, 0), true, "2v1 sem spec desce o extra");
     assert.equal(warmupNeedsLiveFill(2, 1, 1), true);
+    assert.equal(warmupNeedsLiveFill(2, 2, 2), false, "sem grow o par não sobe aqui (é o x4)");
+    assert.equal(warmupNeedsLiveFill(2, 2, 1, { grow: true }), false, "ímpar continua no spec");
+    assert.equal(warmupNeedsLiveFill(2, 2, 2, { grow: true }), true, "2º spec sobe o 3v3");
+    assert.equal(warmupNeedsLiveFill(1, 1, 2, { grow: true }), true);
+    assert.equal(warmupNeedsLiveFill(3, 3, 2, { grow: false }), false, "3v3+2 é RR para o x4");
   });
 
   it("1v1 com um AFK deixa o outro no vermelho (treino)", () => {
@@ -514,7 +520,7 @@ describe("escolha de reposição", () => {
     const choose = createChooseController(room, { onReadyToStart: () => {} });
     choose.startReplacement(TEAM.RED, () => {
       ready += 1;
-    });
+    }, { teamSize: 2 });
     assert.equal(choose.handleCaptainChat(players[0], "top"), true);
     assert.equal(players.find((player) => player.id === 4).team, TEAM.RED);
     assert.equal(ready, 1);

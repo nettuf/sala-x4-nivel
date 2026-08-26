@@ -91,6 +91,93 @@ describe("AFK: relógio, aviso e ação", () => {
     host.cleanup();
   });
 
+  it("2v2 no x3: o 2º spec sobe o 3v3 e o jogo segue", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.SPEC);
+    host.handles.refreshLobby();
+    await new Promise((r) => setTimeout(r, 350));
+
+    assert.equal(host.teamCount(TEAM.RED), 2);
+    assert.equal(host.teamCount(TEAM.BLUE), 2);
+    assert.ok(host.live(), "2v2 já está rodando");
+
+    const first = host.addPlayer(TEAM.SPEC);
+    host.handles.refreshLobby();
+    assert.equal(first.team, TEAM.SPEC, "o 5º espera no spec");
+    assert.equal(host.teamCount(TEAM.RED), 2);
+    assert.equal(host.teamCount(TEAM.BLUE), 2);
+    assert.ok(host.live());
+
+    const second = host.addPlayer(TEAM.SPEC);
+    host.handles.refreshLobby();
+    assert.equal(first.team !== TEAM.SPEC, true, "os dois specs entram");
+    assert.equal(second.team !== TEAM.SPEC, true);
+    assert.equal(host.teamCount(TEAM.RED), 3);
+    assert.equal(host.teamCount(TEAM.BLUE), 3);
+    assert.equal(host.teamCount(TEAM.SPEC), 0);
+    assert.ok(host.live(), "3v3 não reinicia");
+    host.cleanup();
+  });
+
+  it("2v2 no x3: quem sai manda o extra pro spec e segue 1v1", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.SPEC);
+    host.handles.refreshLobby();
+    await new Promise((r) => setTimeout(r, 350));
+
+    const leaving = host.players.find((p) => p.team === TEAM.BLUE);
+    host.quit(leaving);
+    await settle();
+
+    assert.equal(host.teamCount(TEAM.RED), 1);
+    assert.equal(host.teamCount(TEAM.BLUE), 1);
+    assert.equal(host.teamCount(TEAM.SPEC), 1);
+    assert.ok(host.live(), "desce o formato sem RR");
+    host.cleanup();
+  });
+
+  it("3v3 no x3: o 2º spec dá RR e vira 4v4", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 6; i++) host.addPlayer(TEAM.SPEC);
+    host.handles.refreshLobby();
+    await new Promise((r) => setTimeout(r, 350));
+
+    assert.equal(host.teamCount(TEAM.RED), 3);
+    assert.equal(host.teamCount(TEAM.BLUE), 3);
+    assert.equal(host.handles.match.isCompetitive(), false);
+
+    host.addPlayer(TEAM.SPEC);
+    host.handles.refreshLobby();
+    assert.equal(host.teamCount(TEAM.SPEC), 1, "o 7º espera");
+
+    host.addPlayer(TEAM.SPEC);
+    host.handles.refreshLobby();
+    await new Promise((r) => setTimeout(r, 350));
+
+    assert.equal(host.teamCount(TEAM.RED), 4);
+    assert.equal(host.teamCount(TEAM.BLUE), 4);
+    assert.equal(host.handles.match.isCompetitive(), true);
+    assert.ok(host.live());
+    host.cleanup();
+  });
+
+  it("4v4 já montado no campo inicia competitivo e não fica pausando", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.BLUE);
+    host.startMatch({ competitive: false });
+    host.handles.refreshLobby();
+    await new Promise((r) => setTimeout(r, 350));
+
+    assert.equal(host.teamCount(TEAM.RED), 4);
+    assert.equal(host.teamCount(TEAM.BLUE), 4);
+    assert.equal(host.handles.match.isCompetitive(), true);
+    assert.ok(host.live(), "não dá RR: o 4v4 ao vivo segue no mesmo jogo");
+    assert.equal(host.handles.choose.isActive(), false);
+    assert.equal(host.pauses.some(Boolean), false, "não abre pausa de reposição");
+    host.cleanup();
+  });
+
   it("avisa no tempo do aviso e só manda pro spec no tempo da ação", () => {
     const host = bootRoom();
     const all = fill4v4(host);

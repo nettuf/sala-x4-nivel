@@ -227,9 +227,11 @@ function planHeldWinnersToChoose(players, { isExcluded, teamSize = 4 } = {}) {
   return null;
 }
 
-/** Warmup ao vivo: vaga num time + spec pronto → puxa; senão o jogo segue. */
-function warmupNeedsLiveFill(redCount, blueCount, specReady) {
-  return redCount !== blueCount && specReady > 0;
+/** Warmup ao vivo: time desigual (puxa spec ou desce extra) ou par pronto no x3. */
+function warmupNeedsLiveFill(redCount, blueCount, specReady, { grow = false } = {}) {
+  if (redCount !== blueCount) return true;
+  const specs = Number(specReady) || 0;
+  return !!grow && redCount > 0 && specs >= 2;
 }
 
 module.exports = {
