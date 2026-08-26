@@ -10,10 +10,13 @@ function shouldCountAutoAfk(players) {
   return fieldPlayerCount(players) >= 2;
 }
 
-/** Salto grande neste tick (empurrão / corrida). Jitter acumulado NÃO conta. */
+/** Salto grande neste tick (empurrão). Jitter acumulado NÃO conta. */
 const MOVE_EPS = 1.5;
-/** Velocidade de andar de verdade. Residual da física (~0) não zera o AFK. */
-const SPEED_EPS = 0.25;
+/** Andar de verdade (linha reta conta). Residual da física (~0) não zera. */
+const SPEED_EPS = 0.4;
+const SPEED_EPS_SQ = SPEED_EPS * SPEED_EPS;
+/** Deslocamento mínimo junto da velocidade: xspeed sujo com disco parado não conta. */
+const WALK_DELTA_EPS = 0.35;
 /** Haxball: onGameTick = 60 Hz. Apex incrementa ACT nesse loop. */
 const TICK_HZ = 60;
 const MS_PER_TICK = 1000 / TICK_HZ;
@@ -25,6 +28,14 @@ function hasMoved(prev, next, eps = MOVE_EPS) {
   return dx * dx + dy * dy >= eps * eps;
 }
 
+function isWalkingSpeed(pos) {
+  if (!pos) return false;
+  const xs = Number(pos.xspeed);
+  const ys = Number(pos.yspeed);
+  if (!Number.isFinite(xs) && !Number.isFinite(ys)) return false;
+  return (xs || 0) ** 2 + (ys || 0) ** 2 >= SPEED_EPS_SQ;
+}
+
 function afkRemainSec() {
   const remain = Number(config.afkActionMs) - Number(config.afkWarnMs);
   return Math.max(1, Math.ceil(remain / 1000));
@@ -33,10 +44,9 @@ function afkRemainSec() {
 /**
  * AFK é um estado só, venha do !afk ou de ficar parado em campo.
  *
- * Relógio = parede (8s aviso, 12s spec). Só zera se o disco ANDAR no tick
- * da física (delta de posição). Velocidade do host e o setInterval de 1s
- * NÃO zeram — 1s de deriva passava de 1.5 e o AFK nunca estourava.
- * Tecla no lugar não conta.
+ * Relógio = parede (8s aviso, 12s spec). Zera se o disco ANDAR no tick
+ * (delta grande ou velocidade de corrida — linha reta conta).
+ * Tecla no lugar e deriva de 1s NÃO zeram.
  */
 function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number, lastPos: {x:number,y:number}|null }>} */
@@ -97,16 +107,17 @@ function createAfkTracker(room, opts = {}) {
   }
 
   /**
-   * Andou NESTE frame da física? Só posição, como o map.txt.
-   * Velocidade do haxball.js vem suja e zerava o relógio o tempo todo.
-   * lastPos atualiza sempre, para jitter de 0.3/tick não somar até 1.5.
+   * Andou NESTE frame? Empurrão (delta ≥ 1.5) ou corrida (xspeed/yspeed).
+   * Segurar uma tecla em linha reta tem velocidade e conta; jitter parado não.
    */
   function applyMotion(p, st, wallNow) {
     const pos = playerPos(p);
     if (!pos) return false;
-    const moved = !!(st.lastPos && hasMoved(st.lastPos, pos, MOVE_EPS));
+    const jumped = !!(st.lastPos && hasMoved(st.lastPos, pos, MOVE_EPS));
+    const slid = !!(st.lastPos && hasMoved(st.lastPos, pos, WALK_DELTA_EPS));
+    const walking = isWalkingSpeed(pos) && slid;
     st.lastPos = { x: pos.x, y: pos.y };
-    if (!moved) return false;
+    if (!jumped && !walking) return false;
     st.lastActive = wallNow;
     st.warned = false;
     st.idleTicks = 0;
@@ -427,6 +438,12 @@ function createAfkTracker(room, opts = {}) {
     effectiveNow,
     tick,
     noteGameTick,
+    /** Tecla: só zera AFK se o disco estiver andando (linha reta conta). */
+    noteActivity(player, wallNow = Date.now()) {
+      if (!player?.id || afks.has(player.id)) return;
+      if (!state.has(player.id)) touch(player.id, wallNow);
+      applyMotion(player, state.get(player.id), wallNow);
+    },
     stop() {
       clearInterval(interval);
     },
@@ -438,7 +455,9 @@ module.exports = {
   fieldPlayerCount,
   shouldCountAutoAfk,
   hasMoved,
+  isWalkingSpeed,
   MOVE_EPS,
   SPEED_EPS,
+  WALK_DELTA_EPS,
   TICK_HZ,
 };

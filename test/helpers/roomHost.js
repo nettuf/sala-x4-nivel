@@ -144,6 +144,15 @@ function bootRoom({ deferTeamChanges = false } = {}) {
       room.onPlayerLeave(snapshot(gone));
       room.onPlayerKicked(snapshot(gone), "expulso", false, snapshot(admin));
     },
+    /** Kick do Haxball (leave + kicked). byPlayer null = bot / !bb. */
+    haxballKick(target, { reason = "", ban = false, byPlayer = null } = {}) {
+      const i = players.findIndex((p) => p.id === target.id);
+      const gone = i >= 0 ? snapshot(players[i]) : snapshot(target);
+      if (i >= 0) players.splice(i, 1);
+      room.onPlayerLeave(gone);
+      room.onPlayerKicked(gone, reason, ban, byPlayer ? snapshot(byPlayer) : null);
+      return gone;
+    },
     /** Jogador fechou o navegador (sem admin envolvido). */
     quit(target) {
       const i = players.findIndex((p) => p.id === target.id);

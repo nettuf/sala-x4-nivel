@@ -584,11 +584,11 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
   /**
    * Ragequit: quem saiu do time perdedor com o jogo decidido (diff 2+, placar 3, ou 1 no fim).
-   * Treino/warmup não conta. Se o 4v4 oficial virou 3v3 no meio (competitive off),
-   * ainda conta — senão quit no 3x1 não encerrava.
+   * Vale no 4v4 oficial e no warmup: 2x0 e sair tem que encerrar.
+   * Se o 4v4 virou 3v3 no meio (competitive off), ainda conta.
    */
   function rageQuitReason(player, scores) {
-    if (!match?.everCompetitive || !player) return null;
+    if (!match || !player) return null;
     const resolved = scores || snapshotScores();
     if (!resolved) return null;
 

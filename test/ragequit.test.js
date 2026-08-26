@@ -127,10 +127,10 @@ describe("ragequit no x4 oficial", () => {
     );
   });
 
-  it("treino/warmup nunca classifica ragequit", () => {
+  it("2x0 no warmup também é ragequit", () => {
     const host = setup({ competitive: false });
     host.setScores({ red: 2, blue: 0 });
-    assert.equal(host.match.rageQuitReason(host.players[1]), null);
+    assert.match(host.match.rageQuitReason(host.players[1]), /abandonou perdendo 2x0/i);
   });
 
   it("0x3 o perdedor sai → ragequit; o vencedor não", () => {

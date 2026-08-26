@@ -312,19 +312,47 @@ describe("comandos (mock room)", () => {
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[2], "!ajuda");
     const msg = room.announcements.find((a) => String(a.msg).includes("!afks"))?.msg || "";
-    assert.match(msg, /!ajuda/);
     assert.match(msg, /!afk /);
-    assert.equal(msg.includes("!ban"), false);
-    assert.equal(msg.includes("!ajudaadm"), false);
     assert.match(msg, /!unis/);
     assert.match(msg, /@nick/);
-    assert.match(msg, /!roleta/);
-    assert.match(msg, /!gols/);
-    assert.match(msg, /!topstreak/);
+    assert.match(msg, /!zoeira/);
+    assert.match(msg, /!ranking/);
     assert.match(msg, /!listacargos/);
+    assert.equal(msg.includes("!ban"), false);
+    assert.equal(msg.includes("!ajudaadm"), false);
+    assert.equal(msg.includes("!roleta"), false);
+    assert.equal(msg.includes("!gordo"), false);
     assert.equal(/!uni /.test(msg), false);
     assert.equal(msg.includes("!t "), false);
     assert.equal(msg.includes("% <msg>"), false);
+    afk.stop();
+  });
+
+  it("!zoeira lista as zoeiras", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk, titles: new Map() };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[2], "!zoeira");
+    const msg = room.announcements.find((a) => String(a.msg).includes("!roleta"))?.msg || "";
+    assert.match(msg, /!bet/);
+    assert.match(msg, /!provocar/);
+    assert.match(msg, /!gordo/);
+    assert.match(msg, /!aura/);
+    assert.equal(msg.includes("!ban"), false);
+    afk.stop();
+  });
+
+  it("!ranking lista os tops", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk, titles: new Map() };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[2], "!ranking");
+    const msg = room.announcements.find((a) => String(a.msg).includes("!gols"))?.msg || "";
+    assert.match(msg, /!assists/);
+    assert.match(msg, /!topstreak/);
+    assert.equal(msg.includes("!roleta"), false);
     afk.stop();
   });
 
@@ -575,8 +603,8 @@ describe("comandos (mock room)", () => {
     const mute = ctx.mutes.get(3);
     assert.ok(mute);
     assert.equal(mute.reason, "roleta");
-    assert.ok(mute.endsAt - Date.now() > 50_000);
-    assert.ok(mute.endsAt - Date.now() <= 60_000);
+    assert.ok(mute.endsAt - Date.now() > 179_000);
+    assert.ok(mute.endsAt - Date.now() <= 180_000);
 
     room.announcements.length = 0;
     await cmd.handle(room._players[1], "!roleta Spec");

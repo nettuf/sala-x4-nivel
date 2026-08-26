@@ -59,49 +59,73 @@ function playerHelpLines({
   canChoose = false,
 } = {}) {
   const lines = [
-    "!ajuda — lista de comandos",
+    "— Sala —",
     "!bb — sair da sala",
     "!discord — convite do Discord",
     "!site — stats e rankings no Haxbook",
-    "!status / !stats — estatísticas (jogos, gols, CS, MVP, WR, cargo)",
-    "!cargos — emblemas desbloqueados",
-    "!listacargos — todos os emblemas e como desbloquear",
-    "!cargo <id|n> — escolher emblema",
   ];
   if (isAfk) lines.push("!voltar — sair do AFK");
   else if (canAfk) lines.push("!afk — ficar AFK / voltar");
   lines.push("!afks — ver quem está AFK");
+  lines.push("!ids — lista id dos jogadores");
+  lines.push("@nick msg — mensagem privada (ou @#id)");
   if (onField) lines.push("t <msg> — chat do time");
   if (isAdmin) lines.push("% <msg> — chat só de staff");
   lines.push(
-    "!ids — lista id dos jogadores",
-    "@nick msg — mensagem privada (ou @#id)",
-    "!gols !assists !golcontra !cs — top 5",
-    "!streak — streak atual · !topstreak — recorde da sala",
-    "!bet — aposta na Haxbooket",
-    "!viado — viraram viado (contador)",
-    "!provocar [#id|nick] — zoação de quem entregou",
-    "!elogiar [#id|nick] — elogio de craque",
-    "!roleta <#id|nick> — 50/50: mute 1min em você ou no alvo (15min na sala)",
-    "!gordo [#id|nick] — cargo 🍔 Gordo por 20min",
-    "!aura / !ego [#id|nick] — cargo 🗿 Aura por 20min",
+    "— Stats —",
+    "!status / !stats — jogos, gols, CS, MVP, WR, cargo",
+    "!cargos — emblemas desbloqueados",
+    "!listacargos — todos os emblemas e como desbloquear",
+    "!cargo <id|n> — escolher emblema",
+    "— Uniforme —",
     "!unis — uniformes disponíveis"
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — troca o uniforme do time");
     lines.push("!uni random — sorteia o uniforme do time");
   }
-  if (canChoose) {
-    lines.push("Pick: número | top | random | bottom");
-  }
-  if (isAdmin) {
-    lines.push("!ajudaadm — comandos de admin");
-  }
+  lines.push(
+    "— Categorias —",
+    "!zoeira — zoeiras da sala",
+    "!ranking — tops e streak"
+  );
+  if (canChoose) lines.push("Pick: número | top | random | bottom");
+  if (isAdmin) lines.push("!ajudaadm — comandos de admin");
   return lines;
+}
+
+function zoeiraHelpLines() {
+  return [
+    "— Zoeira —",
+    "!bet — aposta na Haxbooket",
+    "!viado — viraram viado (contador)",
+    "!provocar [#id|nick] — zoação de quem entregou",
+    "!elogiar [#id|nick] — elogio de craque",
+    "!roleta <#id|nick> — 50/50: mute 3min em você ou no alvo (15min na sala)",
+    "!gordo [#id|nick] — cargo 🍔 Gordo por 20min",
+    "!aura / !ego [#id|nick] — cargo 🗿 Aura por 20min",
+  ];
+}
+
+function rankingHelpLines() {
+  return [
+    "— Ranking —",
+    "!gols !assists !golcontra !cs — top 5",
+    "!streak — streak atual",
+    "!topstreak — recorde da sala",
+  ];
 }
 
 function playerHelpText(opts) {
   return playerHelpLines(opts).join("\n");
+}
+
+function zoeiraHelpText() {
+  return zoeiraHelpLines().join("\n");
+}
+
+function rankingHelpText() {
+  return rankingHelpLines().join("\n");
 }
 
 /**
@@ -158,7 +182,7 @@ function createCommandHandler(room, ctx) {
   const LOOKUP_MS = config.cmdLookupPlayerMs || 10000;
   const JOKE_CD_MS = config.tempTitleCooldownMs || 15 * 60 * 1000;
   const JOKE_MS = config.tempTitleMs || 20 * 60 * 1000;
-  const ROLETA_MS = config.roletaMuteMs || 60 * 1000;
+  const ROLETA_MS = config.roletaMuteMs || 3 * 60 * 1000;
   const ROLETA_CD_MS = config.roletaCooldownMs || 15 * 60 * 1000;
   /** @type {Map<string, { kind: string, title: object, endsAt: number, previous: object|null }>} */
   const jokeTitles = new Map();
@@ -255,7 +279,7 @@ function createCommandHandler(room, ctx) {
       ctx.mutes.set(loser.id, { endsAt, reason: "roleta" });
     }
     room.sendAnnouncement(
-      `🎰 Roleta: ${player.name} apontou pra ${target.name}. Caiu em ${loser.name} — mudo 1min.`,
+      `🎰 Roleta: ${player.name} apontou pra ${target.name}. Caiu em ${loser.name} — mudo 3min.`,
       null,
       0x9b59b6,
       "bold",
@@ -560,6 +584,16 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
+    if (cmd === "zoeira" || cmd === "zoeiras" || cmd === "zoera" || cmd === "zueira") {
+      room.sendAnnouncement(zoeiraHelpText(), player.id, 0xecf0f1, "small", 1);
+      return true;
+    }
+
+    if (cmd === "ranking" || cmd === "rankings" || cmd === "tops") {
+      room.sendAnnouncement(rankingHelpText(), player.id, 0xecf0f1, "small", 1);
+      return true;
+    }
+
     if (cmd === "ajudaadm" || cmd === "helpadm" || cmd === "comandosadm") {
       if (!admin) return true;
       room.sendAnnouncement(adminHelpText(admin.level), player.id, 0xecf0f1, "small", 1);
@@ -568,9 +602,10 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "bb") {
       try {
+        ctx.selfLeaves?.add(player.id);
         room.kickPlayer(player.id, "Até mais!", false);
       } catch {
-        /* ignore */
+        ctx.selfLeaves?.delete(player.id);
       }
       return true;
     }
@@ -1308,6 +1343,8 @@ function createCommandHandler(room, ctx) {
     playerHelpText,
     adminHelpText,
     playerHelpLines,
+    zoeiraHelpText,
+    rankingHelpText,
   };
 }
 

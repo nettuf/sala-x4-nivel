@@ -1,5 +1,5 @@
 const config = require("../config");
-const { connToIp, kickReason } = require("../utils");
+const { connToIp, kickReason, formatDuration } = require("../utils");
 const { upsertPlayer, getAdmin } = require("../db/players");
 const { findActiveBan, createBan } = require("../db/bans");
 const { notifyJoin, notifyBan } = require("../discord/webhook");
@@ -67,6 +67,7 @@ function createRoom(HBInit) {
     uniforms: null,
     roomStats: null,
     chatLog: null,
+    selfLeaves: new Set(),
   };
 
   const movedThisMatch = new Set();
@@ -1007,6 +1008,17 @@ function createRoom(HBInit) {
     player,
     { kicked = false, scoresAtLeave = null, chooseNotified = false } = {}
   ) {
+    if (match.isRunning()) {
+      const rageReason = kicked ? null : match.rageQuitReason(player, scoresAtLeave);
+      if (rageReason) {
+        if (choose.isActive()) choose.deactivate();
+        announceRageQuit(player, rageReason);
+        match.markVictory();
+        setTimeout(() => room.stopGame(), 100);
+        return;
+      }
+    }
+
     if (choose.isActive()) {
       // onPlayerLeave já avisou o choose na hora: avisar de novo reiniciaria o
       // timer do capitão e poderia rebalancear duas vezes.
@@ -1018,16 +1030,6 @@ function createRoom(HBInit) {
       }, 150);
       if (typeof timer.unref === "function") timer.unref();
       return;
-    }
-
-    if (match.isRunning()) {
-      const rageReason = kicked ? null : match.rageQuitReason(player, scoresAtLeave);
-      if (rageReason) {
-        announceRageQuit(player, rageReason);
-        match.markVictory();
-        setTimeout(() => room.stopGame(), 100);
-        return;
-      }
     }
 
     if (match.isCompetitive()) {
@@ -1119,11 +1121,15 @@ function createRoom(HBInit) {
     if (pending) {
       clearTimeout(pending.timer);
       pendingLeaves.delete(kickedPlayer.id);
+      const selfLeave =
+        ctx.selfLeaves.delete(kickedPlayer.id) || String(reason || "") === "Até mais!";
       processDeparture(pending.player, {
-        kicked: true,
+        kicked: !selfLeave,
+        scoresAtLeave: pending.scoresAtLeave,
         chooseNotified: pending.chooseNotified,
       });
     }
+    ctx.selfLeaves.delete(kickedPlayer.id);
     cleanupPlayer(kickedPlayer);
     if (byPlayer) afk.touch(byPlayer.id);
 
@@ -1246,11 +1252,11 @@ function createRoom(HBInit) {
     }
   };
 
-  // Tecla no lugar NÃO zera o relógio de AFK (map.txt). Só marca que
-  // já mexeu nesta partida, para o RR do começo não valer.
+  // Tecla no lugar NÃO zera. Corrida (inclusive linha reta) zera pelo disco.
   room.onPlayerActivity = (player) => {
     if (!player?.id) return;
     movedThisMatch.add(player.id);
+    afk.noteActivity(player);
   };
 
   room.onPlayerBallKick = (player) => {
@@ -1303,7 +1309,7 @@ function createRoom(HBInit) {
     const muted = commands.peekMute(who);
     if (muted) {
       room.sendAnnouncement(
-        `Você está mutado até ${new Date(muted.endsAt).toLocaleString("pt-BR")}. Só comandos com ! estão liberados.`,
+        `Você está mutado por mais ${formatDuration(muted.endsAt - Date.now())}. Só comandos com ! estão liberados.`,
         player.id,
         0xe67e22,
         "bold",

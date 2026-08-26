@@ -764,4 +764,33 @@ describe("AFK: ações e pausa", () => {
     assert.equal(hasMoved({ x: 0, y: 0 }, { x: 3, y: 0 }), true);
     assert.equal(hasMoved({ x: 0, y: 0 }, { x: 10, y: 0 }), true);
   });
+
+  it("correr em linha reta zera o AFK; parado cai", () => {
+    const { room, players } = afkSetup(4);
+    const { TICK_HZ, isWalkingSpeed } = require("../src/room/afk");
+    assert.equal(isWalkingSpeed({ xspeed: 0.8, yspeed: 0 }), true);
+    assert.equal(isWalkingSpeed({ xspeed: 0, yspeed: 0 }), false);
+    let x = 0;
+    room.getPlayerDiscProperties = (id) =>
+      id === 1
+        ? { x, y: 0, xspeed: 0.8, yspeed: 0 }
+        : { x: 0, y: 0, xspeed: 0, yspeed: 0 };
+    const afk = createAfkTracker(room);
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const t0 = Date.now();
+    afk.touch(1, t0);
+    afk.touch(2, t0);
+    const ticks = Math.ceil(13 * TICK_HZ);
+    for (let i = 0; i < ticks; i++) {
+      x += 0.8;
+      afk.noteGameTick(t0 + Math.floor((i * 1000) / TICK_HZ));
+    }
+    assert.equal(players.find((p) => p.id === 1).team, 1, "linha reta tem que contar");
+    assert.equal(players.find((p) => p.id === 2).team, 0, "parado cai");
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
+  });
 });

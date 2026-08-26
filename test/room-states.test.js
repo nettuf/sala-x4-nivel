@@ -409,6 +409,95 @@ describe("ações de admin", () => {
     host.cleanup();
   });
 
+  it("4v4 2x0: perdedor sair encerra a partida", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch();
+    Object.assign(host.live(), { red: 2, blue: 0, time: 40 });
+    host.handles.match.onTick();
+    const blue = all.find((p) => p.team === TEAM.BLUE);
+    host.quit(blue);
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(
+      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
+      `devia anunciar ragequit, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.equal(host.live(), null, "partida tem que parar");
+    host.cleanup();
+  });
+
+  it("4v4 2x0 com spec: perdedor sair encerra, não repõe", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+    Object.assign(host.live(), { red: 2, blue: 0, time: 40 });
+    host.handles.match.onTick();
+    const blue = all.find((p) => p.team === TEAM.BLUE);
+    host.quit(blue);
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)));
+    assert.equal(host.live(), null, "não pode seguir no 4v4 com reposição");
+    host.cleanup();
+  });
+
+  it("4v4 2x0: leave com team=0 ainda é ragequit (lineup)", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch();
+    Object.assign(host.live(), { red: 2, blue: 0, time: 40 });
+    host.handles.match.onTick();
+    const blue = all.find((p) => p.team === TEAM.BLUE);
+    const i = host.players.findIndex((p) => p.id === blue.id);
+    host.players.splice(i, 1);
+    host.room.onPlayerLeave({ ...blue, team: TEAM.SPEC });
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(
+      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
+      `devia anunciar ragequit mesmo com team spec, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.equal(host.live(), null);
+    host.cleanup();
+  });
+
+  it("4v4 2x0: !bb do perdedor encerra (kick sem admin)", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch();
+    Object.assign(host.live(), { red: 2, blue: 0, time: 40 });
+    host.handles.match.onTick();
+    const blue = all.find((p) => p.team === TEAM.BLUE);
+    host.haxballKick(blue, { reason: "Até mais!" });
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(
+      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
+      `!bb devia ser ragequit, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.equal(host.live(), null);
+    host.cleanup();
+  });
+
+  it("4v4 2x0: perdedor sair no meio da reposição encerra", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+    Object.assign(host.live(), { red: 2, blue: 0, time: 40 });
+    host.handles.match.onTick();
+    const red = all.find((p) => p.team === TEAM.RED);
+    host.handles.afk.setAfk(red, true);
+    assert.equal(host.handles.choose.isReplacement(), true, "reposição aberta");
+    const blue = all.find((p) => p.team === TEAM.BLUE && host.find(p.id));
+    host.quit(blue);
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(
+      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
+      `devia encerrar mesmo com choose aberto, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.equal(host.live(), null);
+    host.cleanup();
+  });
+
   it("saída de spec durante o choose só atualiza a lista do capitão", async () => {
     const host = bootRoom();
     startChoose(host);
