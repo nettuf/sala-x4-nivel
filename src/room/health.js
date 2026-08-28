@@ -24,6 +24,7 @@ function diagnoseRoom({
   holdingPause = false,
   hasCaptain = false,
   competitive = false,
+  winnerStaysPending = false,
   redCount = 0,
   blueCount = 0,
   specReadyCount = 0,
@@ -77,6 +78,11 @@ function diagnoseRoom({
     if (!hasCaptain) {
       return { action: "prompt-choose", reason: "choose sem capitão" };
     }
+    return { action: "none" };
+  }
+
+  // Perdedores ainda no campo: não relança o mesmo 4v4 pelo atalho do lobby.
+  if (winnerStaysPending) {
     return { action: "none" };
   }
 

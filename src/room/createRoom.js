@@ -205,6 +205,8 @@ function createRoom(HBInit) {
 
   let lobbyRevision = 0;
   let postMatchBusy = false;
+  /** Winner stays: perdedores ainda no campo (setPlayerTeam atrasado). */
+  let winnerStaysPending = null;
   /** RR por AFK no começo do treino: o onGameStop não pode gravar stats nem remontar de novo. */
   let kickoffAfkRestart = false;
   /**
@@ -448,6 +450,10 @@ function createRoom(HBInit) {
 
   function refreshLobby() {
     if (postMatchBusy) return;
+    if (winnerStaysPending) {
+      if (tryFinishWinnerStays()) return;
+      return;
+    }
     lobbyRevision += 1;
     const players = room.getPlayerList().filter((p) => p.id !== 0);
     const eligibleCount = players.filter((p) => !afk.isAfk(p.id)).length;
@@ -626,6 +632,8 @@ function createRoom(HBInit) {
   }
 
   function startFromCurrentField() {
+    if (winnerStaysPending && !winnerStaysSettled(winnerStaysPending.winner)) return;
+    winnerStaysPending = null;
     if (room.getScores() || match.isRunning()) return;
     parkAfkOnField();
     const eligible = room
@@ -1238,6 +1246,11 @@ function createRoom(HBInit) {
     if (match.isCompetitive() && changedPlayer.team !== TEAM.SPEC) {
       match.addToLineup(changedPlayer, changedPlayer.team);
     }
+    if (winnerStaysPending && !byPlayer) {
+      tryFinishWinnerStays();
+      return;
+    }
+    if (byPlayer && winnerStaysPending) winnerStaysPending = null;
     // Admin mexeu nos times no choose → reavalia sem resetar o que já foi escolhido
     if (byPlayer && choose.isActive()) choose.onTeamChange(changedPlayer);
     else if (byPlayer && !match.isCompetitive()) refreshLobby();
@@ -1278,6 +1291,7 @@ function createRoom(HBInit) {
     enginePaused = false;
     holdUntilPick = false;
     replacementPauseActive = false;
+    winnerStaysPending = null;
     stopHoldPauseLoop();
     movedThisMatch.clear();
     kickoffAfkRestart = false;
@@ -1423,6 +1437,68 @@ function createRoom(HBInit) {
     return blue <= 1 && red > 0;
   }
 
+  function winnerStaysExclude(p) {
+    return afk.isAfk(p.id);
+  }
+
+  /** Campo já assentou: choose ou fill. Sem isso o 4v4 fantasma relança. */
+  function tryFinishWinnerStays() {
+    if (!winnerStaysPending || winnerStaysPending.filling) return false;
+    if (choose.isActive() || room.getScores() || match.isRunning()) {
+      winnerStaysPending = null;
+      return true;
+    }
+    const winner = winnerStaysPending.winner;
+    if (!winnerStaysSettled(winner)) return false;
+
+    winnerStaysPending.filling = true;
+    const eligible = room.getPlayerList().filter((p) => p.id !== 0 && !afk.isAfk(p.id));
+    const specs = eligible.filter((p) => p.team === TEAM.SPEC);
+    const fill = planExactFill({
+      redCount: eligible.filter((p) => p.team === TEAM.RED).length,
+      blueCount: eligible.filter((p) => p.team === TEAM.BLUE).length,
+      specCount: specs.length,
+      teamSize: targetTeamSize(eligible.length, config.teamSize),
+    });
+    winnerStaysPending = null;
+    postMatchBusy = false;
+
+    if (fill.action === "start") {
+      startFromCurrentField();
+      return true;
+    }
+    if (fill.action === "fill-all") {
+      applyExactFill(room, specs, fill);
+      startFromCurrentField();
+      return true;
+    }
+    if (fill.action === "keep") {
+      const redN = eligible.filter((p) => p.team === TEAM.RED).length;
+      const blueN = eligible.filter((p) => p.team === TEAM.BLUE).length;
+      if (specs.length && (redN >= 1 || blueN >= 1) && redN !== blueN) {
+        choose.continueFromField();
+        return true;
+      }
+      laterForCurrentLobby(refreshLobby);
+      return true;
+    }
+    choose.continueFromField();
+    return true;
+  }
+
+  function scheduleWinnerStaysRetry() {
+    laterForCurrentLobby(() => {
+      if (!winnerStaysPending) return;
+      if (tryFinishWinnerStays()) return;
+      applyWinnerStays(room, winnerStaysPending.winner, streak, {
+        isExcluded: winnerStaysExclude,
+        recordStreak: false,
+        quiet: true,
+      });
+      laterForCurrentLobby(() => tryFinishWinnerStays(), 400);
+    }, 1500);
+  }
+
   function announceTitleUnlocks(unlocks) {
     if (!unlocks?.length) return;
     for (const u of unlocks) {
@@ -1456,8 +1532,7 @@ function createRoom(HBInit) {
 
   async function remountWinnerStays(result) {
     const { mode } = applyWinnerStays(room, result.winner, streak, {
-      isExcluded: (p) => afk.isAfk(p.id),
-      // Streak só em 4v4 que realmente acabou (placar/tempo/vitória).
+      isExcluded: winnerStaysExclude,
       recordStreak: !!(result.valid && result.decided),
     });
     uniforms.onWinnerStays(result.winner);
@@ -1465,38 +1540,11 @@ function createRoom(HBInit) {
       laterForCurrentLobby(refreshLobby, 800);
       return;
     }
+    winnerStaysPending = { winner: result.winner };
     await waitUntil(() => winnerStaysSettled(result.winner), { timeout: 1000 });
-    const eligible = room.getPlayerList().filter((p) => p.id !== 0 && !afk.isAfk(p.id));
-    const specs = eligible.filter((p) => p.team === TEAM.SPEC);
-    const fill = planExactFill({
-      redCount: eligible.filter((p) => p.team === TEAM.RED).length,
-      blueCount: eligible.filter((p) => p.team === TEAM.BLUE).length,
-      specCount: specs.length,
-      teamSize: targetTeamSize(eligible.length, config.teamSize),
-    });
-    const settled = winnerStaysSettled(result.winner);
-    postMatchBusy = false;
-    // 4v4 fantasma (perdedores ainda no campo) nunca inicia a próxima.
-    if (fill.action === "start" && settled) {
-      startFromCurrentField();
-      return;
-    }
-    if (fill.action === "fill-all" && settled) {
-      applyExactFill(room, specs, fill);
-      startFromCurrentField();
-      return;
-    }
-    if (fill.action === "keep") {
-      const redN = eligible.filter((p) => p.team === TEAM.RED).length;
-      const blueN = eligible.filter((p) => p.team === TEAM.BLUE).length;
-      if (specs.length && (redN >= 1 || blueN >= 1) && redN !== blueN) {
-        choose.continueFromField();
-        return;
-      }
-      laterForCurrentLobby(refreshLobby);
-      return;
-    }
-    choose.continueFromField();
+    if (tryFinishWinnerStays()) return;
+    // setPlayerTeam ainda não aplicou: não relança o 4v4. Espera o evento ou o retry.
+    scheduleWinnerStaysRetry();
   }
 
   async function handleGameStop() {
@@ -1548,7 +1596,7 @@ function createRoom(HBInit) {
 
   const health = createHealthMonitor({
     diagnose() {
-      if (postMatchBusy) return { action: "none" };
+      if (postMatchBusy || winnerStaysPending) return { action: "none" };
       const { red, blue, specReady } = choose.list();
       return diagnoseRoom({
         live: !!room.getScores(),
@@ -1558,6 +1606,7 @@ function createRoom(HBInit) {
         holdingPause: replacementPauseActive || holdUntilPick,
         hasCaptain: !!choose.currentCaptain(),
         competitive: match.isCompetitive(),
+        winnerStaysPending: !!winnerStaysPending,
         redCount: red.filter((p) => !afk.isAfk(p.id)).length,
         blueCount: blue.filter((p) => !afk.isAfk(p.id)).length,
         specReadyCount: specReady.length,

@@ -294,6 +294,44 @@ describe("winner stays ignora AFK no spec", () => {
     host.cleanup();
   });
 
+  it("4v4 + spec: refreshLobby/health não relançam o mesmo confronto antes dos perdedores saírem", async () => {
+    const host = bootRoom({ deferTeamChanges: true });
+    fill4v4(host);
+    const waiter = host.addPlayer(TEAM.SPEC, "Espera");
+    host.startMatch();
+
+    const scores = host.live();
+    Object.assign(scores, { red: config.scoreLimit, blue: 0, time: 240 });
+    host.handles.match.onTick();
+    host.handles.match.markVictory();
+    host.room.stopGame();
+    await host.room.onGameStop();
+
+    assert.equal(host.live(), null);
+    assert.equal(host.teamCount(TEAM.BLUE), 4, "setPlayerTeam ainda na fila");
+    assert.equal(host.handles.choose.isActive(), false);
+
+    host.handles.refreshLobby();
+    assert.equal(host.live(), null, "atalho 4v4 montado não pode pular o choose");
+    assert.equal(host.handles.choose.isActive(), false);
+    assert.equal(host.teamCount(TEAM.RED), 4);
+
+    host.handles.health.check();
+    host.handles.health.check();
+    assert.equal(host.live(), null, "health também não relança");
+
+    host.flushTeams();
+    for (const p of [...host.players]) {
+      host.room.onPlayerTeamChange({ ...p }, null);
+    }
+
+    assert.equal(host.handles.choose.isActive(), true);
+    assert.equal(host.teamCount(TEAM.RED), 4);
+    assert.equal(host.teamCount(TEAM.BLUE), 1);
+    assert.equal(host.handles.choose.currentCaptain()?.id, waiter.id);
+    host.cleanup();
+  });
+
   it("!streak mostra a vitória; treino e segundo stop não apagam", async () => {
     const host = bootRoom();
     fill4v4(host);

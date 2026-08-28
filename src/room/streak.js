@@ -227,7 +227,12 @@ function formatBestStreak(best, current = 0, holders = []) {
  * Monta o campo pós-partida para choose: vencedores no vermelho + 1º spec no azul.
  * @returns {{ mode: "choose"|"keep", streak: number }}
  */
-function applyWinnerStays(room, winner, streakTracker, { isExcluded, recordStreak = true } = {}) {
+function applyWinnerStays(
+  room,
+  winner,
+  streakTracker,
+  { isExcluded, recordStreak = true, quiet = false } = {}
+) {
   const players = room.getPlayerList().filter((p) => p.id !== 0);
   const eligible = (p) =>
     p && p.id !== 0 && !(typeof isExcluded === "function" && isExcluded(p));
@@ -249,24 +254,28 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded, recordStrea
 
   if (winner === TEAM.RED) {
     for (const p of blue) room.setPlayerTeam(p.id, TEAM.SPEC);
-    room.sendAnnouncement(
-      `✨ Vermelho venceu! Ficam no campo${streakBit}`,
-      null,
-      0xe74c3c,
-      "bold",
-      2
-    );
+    if (!quiet) {
+      room.sendAnnouncement(
+        `✨ Vermelho venceu! Ficam no campo${streakBit}`,
+        null,
+        0xe74c3c,
+        "bold",
+        2
+      );
+    }
   } else if (winner === TEAM.BLUE) {
     for (const p of red) room.setPlayerTeam(p.id, TEAM.SPEC);
     const bluesNow = room.getPlayerList().filter((p) => p.team === TEAM.BLUE);
     for (const p of bluesNow) room.setPlayerTeam(p.id, TEAM.RED);
-    room.sendAnnouncement(
-      `✨ Azul venceu! Vão para o vermelho${streakBit}`,
-      null,
-      0x3498db,
-      "bold",
-      2
-    );
+    if (!quiet) {
+      room.sendAnnouncement(
+        `✨ Azul venceu! Vão para o vermelho${streakBit}`,
+        null,
+        0x3498db,
+        "bold",
+        2
+      );
+    }
   }
 
   const specsNow = room
@@ -275,14 +284,16 @@ function applyWinnerStays(room, winner, streakTracker, { isExcluded, recordStrea
   const captain = waitingSpecs[0] || specsNow[0];
   if (captain) room.setPlayerTeam(captain.id, TEAM.BLUE);
 
-  announceStreakFlavor(room, {
-    prevStreak,
-    nextStreak,
-    winner,
-    holders,
-    fallenHolders,
-    recordStreak,
-  });
+  if (!quiet) {
+    announceStreakFlavor(room, {
+      prevStreak,
+      nextStreak,
+      winner,
+      holders,
+      fallenHolders,
+      recordStreak,
+    });
+  }
 
   return { mode: "choose", streak: nextStreak };
 }

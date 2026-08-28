@@ -93,6 +93,12 @@ const config = {
   pm2ProcessName: process.env.PM2_PROCESS_NAME || "sala-x4",
   discordInviteUrl: process.env.DISCORD_INVITE_URL || "https://discord.gg/ZTu7zwgvhm",
   siteUrl: process.env.SITE_URL || "https://www.haxbook.com.br",
+  // Stats 4v4 do site (além do Discord/Supabase). Sem API key não envia.
+  haxbookStatsUrl:
+    process.env.HAXBOOK_STATS_URL ||
+    "https://api.haxbook.com.br/api/webhooks/servers/COMUNISMO/rooms/comunax4/stats",
+  haxbookApiKey: process.env.HAXBOOK_API_KEY || "",
+  haxbookRoomName: process.env.HAXBOOK_ROOM_NAME || "Comunismo x4",
   // Carrossel na sala: Discord, site, gols, partidas (um a cada 10 min)
   carouselMs: Number(process.env.CAROUSEL_MS || process.env.DISCORD_AD_MS || 10 * 60 * 1000),
   discordAdMs: Number(process.env.DISCORD_AD_MS || process.env.CAROUSEL_MS || 10 * 60 * 1000),

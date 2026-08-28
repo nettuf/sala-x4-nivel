@@ -13,6 +13,14 @@ const {
   dedupeMatchPlayers,
 } = require("../gameLogic");
 const { pickMatchMvps, pickMatchWorst } = require("../titles");
+const {
+  fieldEightAtWhistle,
+  shouldSendHaxbookStats,
+  makeMatchId,
+  buildParticipants,
+  buildStatsBody,
+  postMatchStats,
+} = require("../haxbook/statsWebhook");
 
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
@@ -149,9 +157,13 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     bluePoss = 0;
     tickN = 0;
     gkSamples = new Map();
+    const redN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 1).length;
+    const blueN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 2).length;
     match = {
       competitive,
       everCompetitive: !!competitive,
+      startedFourOnFour: !!competitive && redN >= 4 && blueN >= 4,
+      formatBroken: false,
       recordingStarted: false,
       touches: [],
       goals: [],
@@ -363,10 +375,11 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     });
   }
 
-  function gkAuths() {
+  function gkFromSamples(ids = null) {
     const samples = [];
     for (const [id, s] of gkSamples) {
       if (!s.n) continue;
+      if (ids && !ids.has(id)) continue;
       samples.push({ id, team: s.team, xAvg: s.xSum / s.n });
     }
     const red = pickGoalkeeper(samples, 1);
@@ -375,6 +388,10 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       redId: red?.id ?? null,
       blueId: blue?.id ?? null,
     };
+  }
+
+  function gkAuths() {
+    return gkFromSamples();
   }
 
   function buildPlayersPayload(scores, winner, lineupRed, lineupBlue) {
@@ -456,6 +473,35 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     });
     match.goals = goals;
     const players = buildPlayersPayload(finalScores, winner, lineupRed, lineupBlue);
+    const fieldEight = fieldEightAtWhistle(
+      room.getPlayerList().map((p) => who(p))
+    );
+    const siteEligible = shouldSendHaxbookStats({
+      valid,
+      startedFourOnFour: !!match.startedFourOnFour,
+      formatBroken: !!match.formatBroken,
+      fieldEight,
+    });
+    const fieldIds = siteEligible
+      ? new Set([...fieldEight.red, ...fieldEight.blue].map((p) => p.id))
+      : null;
+    const haxbook = siteEligible
+      ? buildStatsBody({
+          matchId: makeMatchId(),
+          redScore: scoreRed,
+          blueScore: scoreBlue,
+          winner,
+          roomName: config.haxbookRoomName,
+          participants: buildParticipants({
+            red: fieldEight.red,
+            blue: fieldEight.blue,
+            tally: tallyForPlayer,
+            gk: gkFromSamples(fieldIds),
+            redScore: scoreRed,
+            blueScore: scoreBlue,
+          }),
+        })
+      : null;
     const mvps = valid ? pickMatchMvps(players) : [];
     const worst = valid ? pickMatchWorst(players) : [];
     const poss = possessionPercents(redPoss, bluePoss);
@@ -483,7 +529,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
     let titleUnlocks = [];
     const persistPayload = valid
-      ? { scoreRed, scoreBlue, winner, players, goals, snapshot }
+      ? { scoreRed, scoreBlue, winner, players, goals, snapshot, haxbook }
       : null;
 
     if (valid) {
@@ -548,6 +594,11 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     setTimeout(() => {
       sendReplayAndSummary(payload.snapshot).catch(() => {});
     }, 400);
+    if (payload.haxbook) {
+      postMatchStats(config.haxbookStatsUrl, config.haxbookApiKey, payload.haxbook).catch((err) => {
+        console.warn("[haxbook] stats", err?.message || err);
+      });
+    }
     return { titleUnlocks };
   }
 
@@ -632,6 +683,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       if (!match) return;
       match.competitive = !!value;
       if (value) match.everCompetitive = true;
+      else match.formatBroken = true;
     },
     isRunning: () => !!match,
     isCompetitive: () => !!match?.competitive,

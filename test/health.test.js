@@ -214,6 +214,18 @@ describe("diagnóstico da sala", () => {
     assert.equal(diagnoseRoom({ specReadyCount: 4 }).action, "refresh-lobby");
     assert.equal(diagnoseRoom({ specReadyCount: 1 }).action, "none");
   });
+
+  it("winner stays pendente não relança o 4v4 pelo health", () => {
+    assert.equal(
+      diagnoseRoom({
+        redCount: 4,
+        blueCount: 4,
+        specReadyCount: 2,
+        winnerStaysPending: true,
+      }).action,
+      "none"
+    );
+  });
 });
 
 describe("monitor de saúde", () => {
