@@ -223,7 +223,8 @@ function createRoom(HBInit) {
   let holdPauseTimer = null;
   /** Invalida callback de reposição antiga (setPlayerTeam async fechava e despausava cedo). */
   let replacementEpoch = 0;
-  let repressingUnpause = false;
+  /** Admin pausou/despausou manualmente: não re-pausa reposição por cima. */
+  let adminPauseOverride = false;
   const slowChat = new Set();
   const chatFlood = createChatFloodGuard({
     limit: config.chatFloodLimit,
@@ -274,6 +275,7 @@ function createRoom(HBInit) {
 
   function pauseForReplacement() {
     if (!room.getScores()) return;
+    adminPauseOverride = false;
     holdUntilPick = true;
     requestEnginePause();
     startHoldPauseLoop();
@@ -310,6 +312,7 @@ function createRoom(HBInit) {
 
   /** Pausa de reposição ainda vale: choose aberto, ou buraco com gente no spec. */
   function shouldHoldReplacementPause() {
+    if (adminPauseOverride) return false;
     if (!room.getScores()) return false;
     if (!holdUntilPick && !replacementPauseActive) return false;
     if (choose.isReplacement()) return true;
@@ -337,6 +340,7 @@ function createRoom(HBInit) {
     const ours = replacementPauseActive || holdUntilPick;
     holdUntilPick = false;
     replacementPauseActive = false;
+    adminPauseOverride = false;
     stopHoldPauseLoop();
     if (!force && !ours) return;
     afk.setPaused(false);
@@ -1014,10 +1018,10 @@ function createRoom(HBInit) {
 
   function processDeparture(
     player,
-    { kicked = false, scoresAtLeave = null, chooseNotified = false } = {}
+    { kicked = false, adminKick = false, scoresAtLeave = null, chooseNotified = false } = {}
   ) {
     if (match.isRunning()) {
-      const rageReason = kicked ? null : match.rageQuitReason(player, scoresAtLeave);
+      const rageReason = adminKick ? null : match.rageQuitReason(player, scoresAtLeave);
       if (rageReason) {
         if (choose.isActive()) choose.deactivate();
         announceRageQuit(player, rageReason);
@@ -1048,7 +1052,7 @@ function createRoom(HBInit) {
         if (red === config.teamSize && blue === config.teamSize) return;
       }
 
-      if (!kicked) {
+      if (!adminKick) {
         const remaining = room
           .getPlayerList()
           .filter((p) => p.id !== 0 && !afk.isAfk(p.id));
@@ -1133,6 +1137,7 @@ function createRoom(HBInit) {
         ctx.selfLeaves.delete(kickedPlayer.id) || String(reason || "") === "Até mais!";
       processDeparture(pending.player, {
         kicked: !selfLeave,
+        adminKick: !!byPlayer,
         scoresAtLeave: pending.scoresAtLeave,
         chooseNotified: pending.chooseNotified,
       });
@@ -1205,12 +1210,22 @@ function createRoom(HBInit) {
   room.onGamePause = (byPlayer) => {
     enginePaused = true;
     afk.setPaused(true);
-    if (byPlayer) afk.touch(byPlayer.id);
+    if (byPlayer) {
+      afk.touch(byPlayer.id);
+      adminPauseOverride = true;
+      stopHoldPauseLoop();
+    }
   };
 
   room.onGameUnpause = (byPlayer) => {
     enginePaused = false;
     if (byPlayer) afk.touch(byPlayer.id);
+    if (byPlayer) {
+      adminPauseOverride = true;
+      stopHoldPauseLoop();
+      afk.setPaused(false);
+      return;
+    }
     // pauseGame aqui dentro é ignorado. Re-pausa no timeout/loop.
     if (shouldHoldReplacementPause()) {
       afk.setPaused(true);
@@ -1291,6 +1306,7 @@ function createRoom(HBInit) {
     enginePaused = false;
     holdUntilPick = false;
     replacementPauseActive = false;
+    adminPauseOverride = false;
     winnerStaysPending = null;
     stopHoldPauseLoop();
     movedThisMatch.clear();
@@ -1550,6 +1566,7 @@ function createRoom(HBInit) {
   async function handleGameStop() {
     holdUntilPick = false;
     replacementPauseActive = false;
+    adminPauseOverride = false;
     stopHoldPauseLoop();
     if (kickoffAfkRestart) {
       postMatchBusy = false;

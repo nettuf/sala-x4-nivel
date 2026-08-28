@@ -434,6 +434,29 @@ describe("ações de admin", () => {
     host.cleanup();
   });
 
+  it("4v3 com reposição: admin pausa e despausa sem o bot re-pausar", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+
+    host.quit(all[0]);
+    await settle();
+    assert.equal(host.handles.choose.isReplacement(), true);
+    assert.equal(host.lastPause(), true);
+
+    const admin = host.addPlayer();
+    host.adminPause(true, admin);
+    assert.equal(host.lastPause(), true);
+
+    host.adminPause(false, admin);
+    await settle();
+    host.room.onGameTick();
+    assert.equal(host.lastPause(), false, "bot não re-pausa após admin despausar");
+    assert.equal(host.handles.choose.isReplacement(), true);
+    host.cleanup();
+  });
+
   it("admin expulsando jogador não conta ragequit", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
@@ -510,6 +533,23 @@ describe("ações de admin", () => {
     assert.ok(
       host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
       `!bb devia ser ragequit, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.equal(host.live(), null);
+    host.cleanup();
+  });
+
+  it("4v4 2x0 faltando 20s: kick do perdedor sem admin ainda é ragequit", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch();
+    Object.assign(host.live(), { red: 2, blue: 0, time: 220, timeLimit: 240 });
+    host.handles.match.onTick();
+    const blue = all.find((p) => p.team === TEAM.BLUE);
+    host.haxballKick(blue, { reason: "" });
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(
+      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
+      `kick sem admin devia ser ragequit, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
     );
     assert.equal(host.live(), null);
     host.cleanup();

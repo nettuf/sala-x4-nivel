@@ -1242,7 +1242,7 @@ describe("choose: reposição em partida", () => {
 
     host.adminPause(false);
     await settle();
-    assert.equal(host.lastPause(), true, "admin despausar também é revertido");
+    assert.equal(host.lastPause(), false, "admin pode despausar no 4v3");
     assert.equal(host.handles.choose.isReplacement(), true);
 
     const cap = host.handles.choose.currentCaptain();

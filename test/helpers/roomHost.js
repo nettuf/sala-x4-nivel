@@ -118,10 +118,11 @@ function bootRoom({ deferTeamChanges = false } = {}) {
       p.team = team;
       room.onPlayerTeamChange(snapshot(p), snapshot(admin));
     },
-    adminPause(on) {
+    adminPause(on, admin) {
       pauses.push(!!on);
-      if (on) room.onGamePause();
-      else room.onGameUnpause();
+      const who = snapshot(admin || players.find((p) => p.admin) || players[0]);
+      if (on) room.onGamePause(who);
+      else room.onGameUnpause(who);
     },
     /**
      * Motor despausou sozinho (setPlayerTeam). pauseGame() dentro do
