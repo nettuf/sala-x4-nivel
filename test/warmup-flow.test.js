@@ -1,7 +1,7 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose, warmupNeedsLiveFill } = require("../src/room/warmupFlow");
+const { planWarmup, applyWarmupMoves, planBalanceNoPick, planPromoteToX4, planHeldWinnersToChoose, warmupNeedsLiveFill } = require("../src/room/warmupFlow");
 const { createChooseController, TEAM } = require("../src/room/choose");
 
 function p(id, team = TEAM.SPEC) {
@@ -262,6 +262,40 @@ describe("máquina de estados do treino/warmup", () => {
       blue: [],
       spec: [5, 6],
     });
+  });
+
+  it("4 vencedores sem spec ativo → 2v2 (não fica 4v0)", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.RED),
+      p(3, TEAM.RED),
+      p(4, TEAM.RED),
+    ];
+    const plan = planWarmup(players);
+    assert.equal(plan.forcedBalance, true);
+    assert.equal(plan.shouldStart, true);
+    assert.deepEqual(finalTeams(players, plan), {
+      red: [1, 2],
+      blue: [3, 4],
+      spec: [],
+    });
+  });
+
+  it("6 vencedores no vermelho sem spec → 3v3", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.RED),
+      p(3, TEAM.RED),
+      p(4, TEAM.RED),
+      p(5, TEAM.RED),
+      p(6, TEAM.RED),
+    ];
+    const plan = planWarmup(players);
+    assert.equal(plan.shouldStart, true);
+    const teams = finalTeams(players, plan);
+    assert.equal(teams.red.length, 3);
+    assert.equal(teams.blue.length, 3);
+    assert.equal(teams.spec.length, 0);
   });
 
   it("4 vencedores + exatamente 4 specs → preenche o azul na ordem e inicia, sem pick", () => {

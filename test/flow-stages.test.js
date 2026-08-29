@@ -520,7 +520,7 @@ function createMockRoomHost() {
   };
 }
 
-/** Deixa só os 4 vencedores no vermelho (AFK no spec evita o auto-fill do 4v4). */
+/** Só os 4 vencedores elegíveis: sem spec ativo vira 2v2; specs depois fecham 4v4. */
 async function holdFourWinners(host) {
   host.growTo(9);
   await host.endValidMatch({ red: config.scoreLimit, blue: 1 });
@@ -673,16 +673,17 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("após vitória, só os 4 vencedores → ficam juntos (não vira 2v2)", async () => {
+  it("após vitória, só os 4 vencedores → remonta 2v2", async () => {
     const host = createMockRoomHost();
     await holdFourWinners(host);
     const s = host.snapshot();
     assert.equal(s.count, 4);
-    assert.equal(s.red, 4);
-    assert.equal(s.blue, 0);
+    assert.equal(s.red, 2);
+    assert.equal(s.blue, 2);
     assert.equal(s.spec, 0);
     assert.equal(s.chooseActive, false);
     assert.equal(host.match.isCompetitive(), false);
+    assert.equal(s.matchRunning, true, "próximo jogo inicia");
     host.cleanup();
   });
 
@@ -762,8 +763,10 @@ describe("fluxo por estágios da sala", () => {
   it("vencedores parados + 4 specs → 4v4 na ordem, sem pick", async () => {
     const host = createMockRoomHost();
     await holdFourWinners(host);
-    assert.equal(host.snapshot().red, 4);
-    assert.equal(host.snapshot().count, 4);
+    let s0 = host.snapshot();
+    assert.equal(s0.count, 4);
+    assert.equal(s0.red, 2);
+    assert.equal(s0.blue, 2);
 
     host.growTo(8);
     const s = host.snapshot();

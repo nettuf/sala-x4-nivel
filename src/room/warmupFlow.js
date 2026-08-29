@@ -1,4 +1,5 @@
 const { TEAM } = require("./choose");
+const { targetTeamSize } = require("../gameLogic");
 
 /**
  * Planeja o lobby de 1–7 jogadores sem alterar a sala.
@@ -47,11 +48,13 @@ function planWarmup(players, { isExcluded, teamSize = 4 } = {}) {
     };
   }
 
-  // Time vencedor completo (4) e o outro não está montado: não desmonta para 2v2/3v3.
+  // Time vencedor completo (4) e o outro vazio: espera spec pickar. Sem spec ativo,
+  // desce gente do vermelho pro azul (2v2/3v3) — não fica 4v0 sem capitão.
   const redN = list(TEAM.RED).length;
   const blueN = list(TEAM.BLUE).length;
+  const specReady = list(TEAM.SPEC).length;
   if (eligible.length < teamSize * 2) {
-    if (redN >= teamSize && blueN <= 1) {
+    if (redN >= teamSize && blueN <= 1 && specReady > 0) {
       for (const p of [...list(TEAM.BLUE)]) move(p, TEAM.SPEC);
       while (list(TEAM.RED).length > teamSize) move(list(TEAM.RED).at(-1), TEAM.SPEC);
       return {
@@ -61,7 +64,7 @@ function planWarmup(players, { isExcluded, teamSize = 4 } = {}) {
         shouldStart: false,
       };
     }
-    if (blueN >= teamSize && redN <= 1) {
+    if (blueN >= teamSize && redN <= 1 && specReady > 0) {
       for (const p of [...list(TEAM.RED)]) move(p, TEAM.SPEC);
       while (list(TEAM.BLUE).length > teamSize) move(list(TEAM.BLUE).at(-1), TEAM.SPEC);
       return {
@@ -71,6 +74,13 @@ function planWarmup(players, { isExcluded, teamSize = 4 } = {}) {
         shouldStart: false,
       };
     }
+    const forced = planBalanceNoPick(eligible, {
+      moves,
+      list,
+      move,
+      teamSize,
+    });
+    if (forced) return forced;
   }
 
   // Recupera estados incompletos (ex.: todos no spec após stop/admin).
@@ -162,6 +172,64 @@ function applyWarmupMoves(room, plan) {
 }
 
 /**
+ * Sem spec para pickar: equilibra no formato da faixa (4→2v2, 6→3v3…).
+ * Prioriza mover vermelho → azul (winner stays).
+ */
+function planBalanceNoPick(eligible, { moves, list, move, teamSize = 4 } = {}) {
+  if (!eligible?.length || typeof list !== "function" || typeof move !== "function") {
+    return null;
+  }
+  const n = eligible.length;
+  if (n < 2) return null;
+
+  const specs = list(TEAM.SPEC);
+  if (specs.length > 0) return null;
+
+  let red = list(TEAM.RED);
+  let blue = list(TEAM.BLUE);
+  const size = targetTeamSize(n, teamSize);
+  const targetEach = Math.min(size, Math.floor(n / 2));
+
+  const oneSidedFull =
+    (red.length >= size && blue.length < targetEach) ||
+    (blue.length >= size && red.length < targetEach);
+  const overFormat = red.length > size || blue.length > size;
+  const uneven = Math.abs(red.length - blue.length) > 1;
+  if (!oneSidedFull && !overFormat && !uneven) {
+    if (red.length === blue.length && red.length >= 1 && red.length <= size) return null;
+  }
+
+  while (blue.length < targetEach && red.length > targetEach) {
+    move(red.at(-1), TEAM.BLUE);
+    red = list(TEAM.RED);
+    blue = list(TEAM.BLUE);
+  }
+  while (red.length < targetEach && blue.length > targetEach) {
+    move(blue.at(-1), TEAM.RED);
+    red = list(TEAM.RED);
+    blue = list(TEAM.BLUE);
+  }
+
+  while (list(TEAM.RED).length > size) move(list(TEAM.RED).at(-1), TEAM.SPEC);
+  while (list(TEAM.BLUE).length > size) move(list(TEAM.BLUE).at(-1), TEAM.SPEC);
+
+  red = list(TEAM.RED);
+  blue = list(TEAM.BLUE);
+  while (red.length > blue.length + 1) move(red.at(-1), TEAM.SPEC);
+  while (blue.length > red.length + 1) move(blue.at(-1), TEAM.SPEC);
+
+  red = list(TEAM.RED);
+  blue = list(TEAM.BLUE);
+  return {
+    eligibleCount: n,
+    moves,
+    replacementTeam: null,
+    shouldStart: red.length > 0 && red.length === blue.length,
+    forcedBalance: true,
+  };
+}
+
+/**
  * Primeiro 4v4 a partir de um warmup equilibrado (ex.: 3v3 + specs):
  * só acrescenta nos times, sem resetar para choose.
  */
@@ -239,6 +307,7 @@ function warmupNeedsLiveFill(redCount, blueCount, specReady, { grow = false } = 
 module.exports = {
   planWarmup,
   applyWarmupMoves,
+  planBalanceNoPick,
   planPromoteToX4,
   planHeldWinnersToChoose,
   warmupNeedsLiveFill,

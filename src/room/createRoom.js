@@ -431,6 +431,15 @@ function createRoom(HBInit) {
     if (typeof timer.unref === "function") timer.unref();
   }
 
+  /** Jogo já parou: inicia na hora. Ao vivo: espera o stopGame aplicar. */
+  function scheduleLobbyStart(callback) {
+    if (!room.getScores() && !match.isRunning()) {
+      callback();
+      return;
+    }
+    laterForCurrentLobby(callback);
+  }
+
   function startWarmupIfPossible() {
     if (room.getScores() || match.isRunning()) return;
     parkAfkOnField();
@@ -524,7 +533,9 @@ function createRoom(HBInit) {
           return;
         }
         setLobbyStadium(config.teamSize * 2);
-        laterForCurrentLobby(startCompetitiveFromCurrentField);
+        // Pós-stop com fila: o winner stays monta o choose; não relança 4v4 por cima.
+        if (specReadyCount() > 0) return;
+        scheduleLobbyStart(startCompetitiveFromCurrentField);
         return;
       }
 
@@ -543,7 +554,7 @@ function createRoom(HBInit) {
         applyWarmupMoves(room, promo);
         setLobbyStadium(eligibleCount);
         room.sendAnnouncement("4v4: jogadores acrescentados — iniciando!", null, 0x2ecc71, "bold", 2);
-        laterForCurrentLobby(startCompetitiveFromCurrentField);
+        scheduleLobbyStart(startCompetitiveFromCurrentField);
         return;
       }
 
@@ -556,9 +567,9 @@ function createRoom(HBInit) {
         applyWarmupMoves(room, held);
         setLobbyStadium(eligibleCount);
         if (held.start) {
-          laterForCurrentLobby(startCompetitiveFromCurrentField);
+          scheduleLobbyStart(startCompetitiveFromCurrentField);
         } else {
-          laterForCurrentLobby(() => choose.continueFromField());
+          scheduleLobbyStart(() => choose.continueFromField());
         }
         return;
       }
