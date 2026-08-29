@@ -679,11 +679,19 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     rageQuitReason,
     snapshotScores,
     cancelRecordingOnly,
-    setCompetitive(value) {
+  /** breakFormat: true só quando o formato oficial quebrou (ex. 4v4→3v3). Lobby não marca. */
+    setCompetitive(value, { breakFormat = false } = {}) {
       if (!match) return;
       match.competitive = !!value;
-      if (value) match.everCompetitive = true;
-      else match.formatBroken = true;
+      if (value) {
+        match.everCompetitive = true;
+        return;
+      }
+      if (breakFormat) match.formatBroken = true;
+    },
+    markFormatBroken() {
+      if (!match) return;
+      match.formatBroken = true;
     },
     isRunning: () => !!match,
     isCompetitive: () => !!match?.competitive,

@@ -230,4 +230,16 @@ function startChoose(host) {
 
 const settle = () => new Promise((r) => setTimeout(r, 150));
 
-module.exports = { bootRoom, fill4v4, startChoose, settle, TEAM, config };
+/** Como o Haxball: stopGame + onGameStop (stats, winner stays, lobby). */
+async function endOfficialMatch(host, { victory = true } = {}) {
+  if (victory && host.handles.match?.markVictory) {
+    host.handles.match.markVictory();
+  }
+  host.room.stopGame();
+  if (host.room.onGameStop) {
+    await host.room.onGameStop();
+  }
+  await settle();
+}
+
+module.exports = { bootRoom, fill4v4, startChoose, settle, endOfficialMatch, TEAM, config };

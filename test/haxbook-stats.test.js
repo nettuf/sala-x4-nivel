@@ -327,12 +327,56 @@ describe("finish 4v4 → payload do site", () => {
     const { room } = roomWith(players, scores);
     const match = createMatchController(room);
     match.start({ competitive: true });
-    match.setCompetitive(false);
+    match.setCompetitive(false, { breakFormat: true });
     match.setCompetitive(true);
     match.markVictory();
     const result = await match.finish(scores, { persist: false });
     assert.equal(result.valid, true);
     assert.equal(result.persistPayload.haxbook, null);
+  });
+
+  it("só desligar competitive no lobby (sem breakFormat) não bloqueia o site", async () => {
+    const players = eightOnField();
+    const scores = finishScores();
+    const { room } = roomWith(players, scores);
+    const match = createMatchController(room);
+    match.start({ competitive: true });
+    match.setCompetitive(false);
+    match.setCompetitive(true);
+    match.markVictory();
+    const result = await match.finish(scores, { persist: false });
+    assert.equal(result.valid, true);
+    assert.ok(result.persistPayload.haxbook, "haxbook não pode ser null após toggle de lobby");
+    assert.equal(result.persistPayload.haxbook.participants.length, 8);
+  });
+
+  it("persistMatch dispara POST quando há payload haxbook e API key", async () => {
+    const posts = [];
+    globalThis.fetch = async (url, opts) => {
+      posts.push({ url, headers: opts.headers, body: JSON.parse(opts.body) });
+      return { ok: true };
+    };
+    const config = require("../src/config");
+    const prevKey = config.haxbookApiKey;
+    config.haxbookApiKey = "test-persist-key";
+
+    const players = eightOnField();
+    const scores = finishScores();
+    const { room } = roomWith(players, scores);
+    const match = createMatchController(room);
+    match.start({ competitive: true });
+    match.markVictory();
+    const result = await match.finish(scores, { persist: false });
+    assert.ok(result.persistPayload?.haxbook);
+
+    await match.persistMatch(result.persistPayload);
+
+    config.haxbookApiKey = prevKey;
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].headers["X-API-Key"], "test-persist-key");
+    assert.equal(posts[0].body.redScore, 3);
+    assert.equal(posts[0].body.participants.length, 8);
+    assert.match(posts[0].url, /haxbook\.com\.br/);
   });
 
   it("terminou 4v3 no apito não manda", async () => {

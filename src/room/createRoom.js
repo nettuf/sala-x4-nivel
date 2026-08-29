@@ -786,7 +786,7 @@ function createRoom(HBInit) {
         .filter((p) => p.id !== 0 && p.team === largerTeam);
       const last = larger[larger.length - 1];
       if (last) room.setPlayerTeam(last.id, TEAM.SPEC);
-      match.setCompetitive(false);
+      match.setCompetitive(false, { breakFormat: true });
       room.sendAnnouncement(
         "3v3: o jogo segue. 4v4 recomeça quando entrar mais gente.",
         null,
@@ -800,7 +800,7 @@ function createRoom(HBInit) {
 
     if (plan.action === "keep-play") {
       holdUntilPick = false;
-      match.setCompetitive(false);
+      match.setCompetitive(false, { breakFormat: true });
       if (live) releaseReplacementPause();
       return;
     }
@@ -1634,7 +1634,7 @@ function createRoom(HBInit) {
       console.warn(`[health] ${action}: ${reason}`);
       if (action === "stop-game") {
         choose.deactivate();
-        match.setCompetitive(false);
+        match.setCompetitive(false, { breakFormat: true });
         lobbyRevision += 1;
         forceResume();
         stopCurrentGame({ lobbyTransition: true });
