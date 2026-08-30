@@ -45,31 +45,45 @@ describe("proteções de entrada", () => {
     assert.equal(sameConnPlayers(players, players[1]).length, 2);
   });
 
-  it("ghost kick: auth repetida derruba a sessão antiga e herda o time", () => {
+  it("auth repetida: kicka a 2ª entrada e mantém a antiga", () => {
+    const players = [
+      { id: 1, name: "Netto", auth: "authA", conn: "c1", team: 1 },
+      { id: 2, name: "Netto", auth: "authA", conn: "c1", team: 0 },
+    ];
+    const room = mockRoom(players);
+    const result = applyJoinGuards(room, players[1]);
+    assert.equal(result, "duplicate");
+    assert.equal(room.kicks.length, 1);
+    assert.equal(room.kicks[0].id, 2);
+    assert.match(room.kicks[0].reason, /já está na sala/i);
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+    assert.equal(players.length, 1);
+  });
+
+  it("auth repetida em outra conn: também kicka o novo (F5 com sessão antiga)", () => {
     const players = [
       { id: 1, name: "Netto", auth: "authA", conn: "c1", team: 1 },
       { id: 2, name: "Netto", auth: "authA", conn: "c9", team: 0 },
     ];
     const room = mockRoom(players);
     const result = applyJoinGuards(room, players[1]);
-    assert.equal(result, "ghost-kick");
+    assert.equal(result, "duplicate");
     assert.equal(room.kicks.length, 1);
-    assert.equal(room.kicks[0].id, 1);
-    assert.match(room.kicks[0].reason, /ghost/i);
-    assert.equal(players.find((p) => p.id === 2).team, 1);
+    assert.equal(room.kicks[0].id, 2);
+    assert.equal(players.find((p) => p.id === 1).team, 1);
+    assert.equal(players.length, 1);
   });
 
-  it("limite por conexão: 3º da mesma conn é recusado", () => {
+  it("mesma conn sem auth: kicka o 2º", () => {
     const players = [
       { id: 1, name: "A", auth: "a1", conn: "same", team: 0 },
       { id: 2, name: "B", auth: "a2", conn: "same", team: 0 },
-      { id: 3, name: "C", auth: "a3", conn: "same", team: 0 },
     ];
     const room = mockRoom(players);
-    const result = applyJoinGuards(room, players[2], { maxPerConn: 2 });
-    assert.equal(result, "conn-limit");
-    assert.equal(room.kicks[0].id, 3);
-    assert.match(room.kicks[0].reason, /conex/i);
+    const result = applyJoinGuards(room, players[1]);
+    assert.equal(result, "duplicate");
+    assert.equal(room.kicks[0].id, 2);
+    assert.match(room.kicks[0].reason, /já está na sala/i);
   });
 
   it("entrada normal passa", () => {
@@ -82,20 +96,12 @@ describe("proteções de entrada", () => {
     assert.equal(room.kicks.length, 0);
   });
 
-  it("sem auth (host/anônimo) não vira ghost", () => {
+  it("sem auth e conns diferentes passa", () => {
     const players = [
       { id: 1, name: "A", auth: null, conn: "c1", team: 0 },
       { id: 2, name: "B", auth: null, conn: "c2", team: 0 },
     ];
     assert.equal(evaluateJoin(players, players[1]).action, "ok");
-  });
-
-  it("ghostKick desligado ignora auth repetida", () => {
-    const players = [
-      { id: 1, name: "A", auth: "same", conn: "c1", team: 0 },
-      { id: 2, name: "A", auth: "same", conn: "c2", team: 0 },
-    ];
-    assert.equal(evaluateJoin(players, players[1], { ghostKick: false }).action, "ok");
   });
 });
 

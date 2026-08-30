@@ -157,6 +157,8 @@ function createRoom(HBInit) {
       if (!live.auth) return;
       clearInterval(timer);
       rememberIdentity(live, ctx);
+      const guard = applyJoinGuards(room, identified(live));
+      if (guard === "duplicate") return;
       const ban = await findActiveBan({ auth: live.auth, conn: live.conn || ctx.conns.get(playerId) });
       if (ban) {
         const until = ban.ends_at ? ` até ${ban.ends_at}` : " (permanente)";
@@ -971,7 +973,7 @@ function createRoom(HBInit) {
 
     // Ghost kick (auth duplicada) e limite por conexão
     const guard = applyJoinGuards(room, identified(player));
-    if (guard === "conn-limit") return;
+    if (guard === "duplicate") return;
 
     // Monta o 4v4/warmup já; stats/cargo/Discord não podem atrasar o jogo
     // (era o mesmo tipo de espera do saveMatch no fim da partida).

@@ -78,8 +78,6 @@ const config = {
   // !roleta: mute 3min 50/50, cooldown global da sala
   roletaMuteMs: Number(process.env.ROLETA_MUTE_MS || 3 * 60 * 1000),
   roletaCooldownMs: Number(process.env.ROLETA_COOLDOWN_MS || 15 * 60 * 1000),
-  maxPerConn: Number(process.env.MAX_PER_CONN || 2),
-  ghostKick: bool(process.env.GHOST_KICK, true),
   supabaseUrl: process.env.SUPABASE_URL || "",
   supabaseKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL || "",

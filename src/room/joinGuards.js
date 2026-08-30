@@ -1,13 +1,6 @@
-const config = require("../config");
 const { kickReason } = require("../utils");
 
-/**
- * Proteções de entrada usadas pelos bots headless de referência:
- * - ghost kick: mesma `auth` já na sala (reconexão / aba duplicada)
- * - limite de conexões por `conn` (mesma máquina/IP)
- *
- * Funções puras para poder testar sem haxball.js.
- */
+const DUPLICATE_REASON = "Você já está na sala (uma conexão por vez)";
 
 /** @returns {object[]} jogadores antigos com a mesma auth */
 function duplicateAuthPlayers(players, player) {
@@ -15,62 +8,42 @@ function duplicateAuthPlayers(players, player) {
   return players.filter((p) => p.id !== player.id && p.id !== 0 && p.auth === player.auth);
 }
 
-/** @returns {object[]} jogadores antigos com a mesma conn (inclui o novo) */
+/** @returns {object[]} jogadores antigos com a mesma conn */
+function duplicateConnPlayers(players, player) {
+  if (!player?.conn) return [];
+  return players.filter((p) => p.id !== player.id && p.id !== 0 && p.conn === player.conn);
+}
+
+/** @returns {object[]} jogadores com a mesma conn (inclui o novo) */
 function sameConnPlayers(players, player) {
   if (!player?.conn) return [];
   return players.filter((p) => p.id !== 0 && p.conn === player.conn);
 }
 
-/**
- * @returns {{ action: "ghost-kick"|"conn-limit"|"ok", ghosts: object[], reason?: string }}
- */
-function evaluateJoin(players, player, { maxPerConn = config.maxPerConn, ghostKick = config.ghostKick } = {}) {
-  const ghosts = duplicateAuthPlayers(players, player);
-  if (ghostKick && ghosts.length) {
-    return { action: "ghost-kick", ghosts, reason: "Ghost kick (reconexão)" };
+/** @returns {{ action: "duplicate"|"ok", reason?: string }} */
+function evaluateJoin(players, player) {
+  if (duplicateAuthPlayers(players, player).length) {
+    return { action: "duplicate", reason: DUPLICATE_REASON };
   }
-
-  const sameConn = sameConnPlayers(players, player);
-  if (maxPerConn > 0 && sameConn.length > maxPerConn) {
-    return {
-      action: "conn-limit",
-      ghosts: [],
-      reason: `Limite de ${maxPerConn} jogadores por conexão`,
-    };
+  if (duplicateConnPlayers(players, player).length) {
+    return { action: "duplicate", reason: DUPLICATE_REASON };
   }
-
-  return { action: "ok", ghosts: [] };
+  return { action: "ok" };
 }
 
-/**
- * Aplica as proteções na sala. O novo jogador herda o time do ghost
- * para não quebrar times no meio da partida.
- * @returns {"ghost-kick"|"conn-limit"|"ok"}
- */
-function applyJoinGuards(room, player, opts = {}) {
-  const players = room.getPlayerList();
-  const result = evaluateJoin(players, player, opts);
-
-  if (result.action === "ghost-kick") {
-    for (const ghost of result.ghosts) {
-      room.kickPlayer(ghost.id, kickReason(result.reason), false);
-      if (ghost.team && ghost.team !== 0) {
-        room.setPlayerTeam(player.id, ghost.team);
-      }
-    }
-    return "ghost-kick";
-  }
-
-  if (result.action === "conn-limit") {
+/** @returns {"duplicate"|"ok"} */
+function applyJoinGuards(room, player) {
+  const result = evaluateJoin(room.getPlayerList(), player);
+  if (result.action === "duplicate") {
     room.kickPlayer(player.id, kickReason(result.reason), false);
-    return "conn-limit";
+    return "duplicate";
   }
-
   return "ok";
 }
 
 module.exports = {
   duplicateAuthPlayers,
+  duplicateConnPlayers,
   sameConnPlayers,
   evaluateJoin,
   applyJoinGuards,
