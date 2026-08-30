@@ -984,7 +984,7 @@ function createRoom(HBInit) {
       const bound = await bindIdentity(player);
       const title = ctx.titles.get(player.id) || { emblem: "🌱", color: 0xbdc3c7 };
       room.sendAnnouncement(
-        `Bem-vindo, ${title.emblem} ${player.name}! !ajuda · !cargos`,
+        `Bem-vindo, ${player.name}! Crie sua conta no Haxbook — rankings, stats, sorteios e mais. !ajuda · !site`,
         player.id,
         title.color,
         "normal",
