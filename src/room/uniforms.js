@@ -111,6 +111,13 @@ const KITS = [
     text: 0xffffff,
     colors: [0x006fff, 0x2e9dff, 0x70b3ff],
   },
+  {
+    id: "artemis",
+    name: "Artemis FC",
+    angle: 90,
+    text: 0x1f1f1f,
+    colors: [0x00764b, 0xffffff, 0x00764b],
+  },
 ];
 
 function defaultKit(team) {

@@ -343,6 +343,10 @@ describe("uniformes: emoji do kit", () => {
       "zebrafamily",
     ]);
     assert.equal(findKit("baleio").emoji, "🐋");
+    assert.equal(findKit("artemis").name, "Artemis FC");
+    assert.equal(findKit("artemis").angle, 90);
+    assert.equal(findKit("artemis").text, 0x1f1f1f);
+    assert.deepEqual(findKit("artemis").colors, [0x00764b, 0xffffff, 0x00764b]);
     assert.equal(findKit("rato").emoji, "🐀");
     assert.equal(findKit("gordo").emoji, "🍔");
     assert.equal(findKit("copas").emoji, "❤️");
