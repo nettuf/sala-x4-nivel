@@ -51,7 +51,7 @@ function afkRemainSec() {
 function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number, lastPos: {x:number,y:number}|null }>} */
   const state = new Map();
-  /** @type {Map<number, number>} id → AFK desde quando (para kickar o mais antigo) */
+  /** @type {Map<number, { since: number, fieldTeam: number }>} */
   const afks = new Map();
   let paused = false;
   /** Início da pausa atual (relógio de parede). */
@@ -134,8 +134,14 @@ function createAfkTracker(room, opts = {}) {
     return afks.has(playerId);
   }
 
-  function markAfk(playerId, at = Date.now()) {
-    if (!afks.has(playerId)) afks.set(playerId, at);
+  function markAfk(playerId, at = Date.now(), fieldTeam = 0) {
+    if (!afks.has(playerId)) {
+      afks.set(playerId, { since: at, fieldTeam: fieldTeam || 0 });
+    }
+  }
+
+  function fieldTeam(playerId) {
+    return afks.get(playerId)?.fieldTeam || 0;
   }
 
   /**
@@ -158,8 +164,9 @@ function createAfkTracker(room, opts = {}) {
     let best = null;
     let bestSince = Infinity;
     for (const p of humans()) {
-      const since = afks.get(p.id);
-      if (since == null) continue;
+      const entry = afks.get(p.id);
+      if (!entry) continue;
+      const since = entry.since;
       if (wallNow - since < grace) continue;
       if (since >= bestSince) continue;
       best = p;
@@ -190,7 +197,7 @@ function createAfkTracker(room, opts = {}) {
   function setAfk(player, on, at = Date.now()) {
     const previousTeam = player.team;
     if (on) {
-      markAfk(player.id, at);
+      markAfk(player.id, at, previousTeam);
       if (player.team !== 0) sendToSpec(player.id);
       room.sendAnnouncement(`${player.name} está AFK (!afk)`, null, 0xbdc3c7, "normal", 1);
     } else {
@@ -223,7 +230,7 @@ function createAfkTracker(room, opts = {}) {
 
     if (p.team !== 0) {
       const previousTeam = p.team;
-      markAfk(p.id);
+      markAfk(p.id, undefined, previousTeam);
       sendToSpec(p.id);
       room.sendAnnouncement(
         `${p.name} parado — está AFK no spec (!afk para voltar).`,
@@ -421,6 +428,7 @@ function createAfkTracker(room, opts = {}) {
     touch,
     remove,
     isAfk,
+    fieldTeam,
     noteAfk(playerId) {
       markAfk(playerId);
     },

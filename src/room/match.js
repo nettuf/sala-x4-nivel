@@ -638,13 +638,13 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
    * Vale no 4v4 oficial e no warmup: 2x0 e sair tem que encerrar.
    * Se o 4v4 virou 3v3 no meio (competitive off), ainda conta.
    */
-  function rageQuitReason(player, scores) {
+  function rageQuitReason(player, scores, { fieldTeam = 0 } = {}) {
     if (!match || !player) return null;
     const resolved = scores || snapshotScores();
     if (!resolved) return null;
 
-    const team = playerTeamInMatch(player);
-    if (!team) return null;
+    let team = playerTeamInMatch(player);
+    if (!team && (fieldTeam === 1 || fieldTeam === 2)) team = fieldTeam;
 
     const losingTeam =
       resolved.red < resolved.blue ? 1 : resolved.blue < resolved.red ? 2 : 0;

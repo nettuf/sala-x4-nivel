@@ -296,6 +296,21 @@ function createChooseController(room, {
     else if (typeof onAborted === "function") afterTeamChange(onAborted);
   }
 
+  /** Spec sem elegíveis: encerra choose/reposição em vez de pausa ou timer presos. */
+  function abortIfNoEligibleSpec() {
+    if (!active) return false;
+    const { specReady, spec } = list();
+    if (specReady.length > 0) return false;
+    abortChoose(
+      isLiveReplacement()
+        ? "Sem jogadores elegíveis no spec — equilibrando times."
+        : spec.length
+          ? "Ninguém elegível no spec (todos AFK) — voltando ao lobby."
+          : "Sem jogadores no spec — voltando ao lobby."
+    );
+    return true;
+  }
+
   function promptCaptain({ allowExactFill = true } = {}) {
     clearCapTimeout();
     if (!active) return;
@@ -324,15 +339,7 @@ function createChooseController(room, {
       }
     }
     if (!list().specReady.length) {
-      ({ specReady, spec } = list());
-      // AFK ainda no time (setPlayerTeam async): não cancela a reposição pausada.
-      if (isLiveReplacement()) return;
-      abortChoose(
-        spec.length
-          ? "Ninguém elegível no spec (todos AFK) — voltando ao lobby."
-          : "Sem jogadores no spec — voltando ao lobby."
-      );
-      return;
+      if (abortIfNoEligibleSpec()) return;
     }
 
     const cap = ensureCaptain();
@@ -796,6 +803,7 @@ function createChooseController(room, {
     startReplacement,
     continueFromField,
     deactivate,
+    abortIfNoEligibleSpec,
     handleCaptainChat,
     onPlayerLeave,
     onPlayerJoin,

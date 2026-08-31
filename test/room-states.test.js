@@ -555,6 +555,46 @@ describe("ações de admin", () => {
     host.cleanup();
   });
 
+  it("4v4 2x0 faltando 4s: perdedor AFK no spec sai → ragequit", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch({ competitive: true });
+    Object.assign(host.live(), { red: 2, blue: 0, time: 236, timeLimit: 240 });
+    host.handles.match.onTick();
+    const blue = all.find((p) => p.team === TEAM.BLUE);
+    host.handles.afk.setAfk(blue, true);
+    await new Promise((r) => setTimeout(r, 120));
+    host.quit(blue);
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(
+      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
+      `AFK no spec saindo devia ragequit, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.equal(host.live(), null);
+    host.cleanup();
+  });
+
+  it("4v4 2x0 faltando 4s: perdedor parado vira AFK → ragequit", async () => {
+    const host = bootRoom();
+    const config = require("../src/config");
+    const all = fill4v4(host);
+    host.startMatch({ competitive: true });
+    for (const p of all) host.activity(p);
+    Object.assign(host.live(), { red: 2, blue: 0, time: 236, timeLimit: 240 });
+    host.handles.match.onTick();
+    const blue = all.find((p) => p.team === TEAM.BLUE);
+    const movers = all.filter((p) => p.id !== blue.id);
+    host.idle(all, { moving: movers, idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await new Promise((r) => setTimeout(r, 200));
+    assert.ok(
+      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
+      `auto-AFK perdendo devia ragequit, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.equal(host.live(), null);
+    host.cleanup();
+  });
+
   it("4v4 2x0: perdedor sair no meio da reposição encerra", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
@@ -596,7 +636,7 @@ describe("ações de admin", () => {
 });
 
 describe("mute no chat", () => {
-  it("mutado só usa comando com ! — fala e pick sem ! são bloqueados", async () => {
+  it("mutado: chat bloqueado, pick sem ! só na vez de capitão", async () => {
     const host = bootRoom();
     startChoose(host);
     const cap = host.handles.choose.currentCaptain();
@@ -609,8 +649,8 @@ describe("mute no chat", () => {
 
     host.announcements.length = 0;
     await host.room.onPlayerChat(host.find(cap.id), "1");
-    assert.ok(host.announcements.some((a) => a.to === cap.id && /mutado/i.test(a.msg)));
-    assert.equal(host.handles.choose.list().blue.length, 1);
+    assert.equal(host.announcements.some((a) => a.to === cap.id && /mutado/i.test(a.msg)), false);
+    assert.equal(host.handles.choose.list().blue.length, 2);
 
     host.announcements.length = 0;
     await host.room.onPlayerChat(host.find(cap.id), "!ids");
@@ -619,7 +659,7 @@ describe("mute no chat", () => {
 
     host.announcements.length = 0;
     await host.room.onPlayerChat(host.find(cap.id), "!1");
-    assert.equal(host.handles.choose.list().blue.length, 2);
+    assert.equal(host.handles.choose.list().blue.length, 3);
     host.cleanup();
   });
 

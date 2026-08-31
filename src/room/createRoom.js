@@ -188,7 +188,10 @@ function createRoom(HBInit) {
       afk.noteAfk(player.id);
     },
     onAborted() {
-      // Choose sem candidatos: volta ao lobby em vez de ficar ativo para sempre.
+      if (match.isCompetitive() && room.getScores()) {
+        recoverCompetitiveLineup();
+        return;
+      }
       if (!match.isCompetitive()) refreshLobby();
     },
     onReadyToStart() {
@@ -317,7 +320,7 @@ function createRoom(HBInit) {
     if (adminPauseOverride) return false;
     if (!room.getScores()) return false;
     if (!holdUntilPick && !replacementPauseActive) return false;
-    if (choose.isReplacement()) return true;
+    if (choose.isReplacement()) return specReadyCount() > 0;
     const { red, blue } = eligibleTeamCounts();
     if (red !== blue) return true;
     return Math.min(red, blue) < config.teamSize && specReadyCount() > 0;
@@ -486,8 +489,13 @@ function createRoom(HBInit) {
     // 4v4 oficial incompleto (x4 competitivo): reposição é recover/health, não o lobby.
     // Flag competitive preso no treino 1v0 não entra aqui (mapa ≠ x4).
     if (live && match.isCompetitive() && stadiumKind === "x4") {
-      if (choose.isActive()) choose.onPlayerJoin();
-      else recoverCompetitiveLineup();
+      if (choose.isActive()) {
+        if (choose.isReplacement() && specReadyCount() === 0) {
+          choose.abortIfNoEligibleSpec();
+        } else {
+          choose.onPlayerJoin();
+        }
+      } else recoverCompetitiveLineup();
       return;
     }
 
@@ -679,11 +687,14 @@ function createRoom(HBInit) {
     // Reposição aqui pausa e pede pick no meio da comemoração.
     if (postMatchBusy || match.isDecided()) return;
 
-    // Reposição em andamento: nada de puxar gente por fora, só atualizar a
-    // lista do capitão (alguém entrou, saiu ou ficou AFK enquanto ele escolhia).
+    // Reposição em andamento: atualiza pick ou encerra se não há spec elegível.
     if (choose.isActive() && choose.isReplacement()) {
-      choose.onPlayerJoin();
-      return;
+      if (specReadyCount() > 0) {
+        choose.onPlayerJoin();
+      } else {
+        choose.abortIfNoEligibleSpec();
+      }
+      if (choose.isReplacement()) return;
     }
 
     const players = room
@@ -912,6 +923,16 @@ function createRoom(HBInit) {
       return;
     }
 
+    if (
+      leftField &&
+      player &&
+      (type === "auto-afk" || type === "voluntary-afk") &&
+      room.getScores()
+    ) {
+      const scores = match.snapshotScores() || room.getScores();
+      if (tryEndAsRageQuit(player, scores, { fieldTeam: previousTeam })) return;
+    }
+
     if (match.isCompetitive()) {
       // Spec / fora do jogo: não pausa nem abre reposição. Só atualiza o pick se já está aberto.
       if (!leftField) {
@@ -1026,12 +1047,35 @@ function createRoom(HBInit) {
     }
   }
 
+  function fieldTeamForRageQuit(player) {
+    const stored = afk.fieldTeam(player.id);
+    if (stored === TEAM.RED || stored === TEAM.BLUE) return stored;
+    if (player.team === TEAM.RED || player.team === TEAM.BLUE) return player.team;
+    return 0;
+  }
+
+  function tryEndAsRageQuit(player, scores, { fieldTeam = 0 } = {}) {
+    if (!match.isRunning()) return false;
+    const team = fieldTeam || fieldTeamForRageQuit(player);
+    const rageReason = match.rageQuitReason(player, scores, { fieldTeam: team });
+    if (!rageReason) return false;
+    if (choose.isActive()) choose.deactivate();
+    announceRageQuit(player, rageReason);
+    match.markVictory();
+    setTimeout(() => room.stopGame(), 100);
+    return true;
+  }
+
   function processDeparture(
     player,
     { kicked = false, adminKick = false, scoresAtLeave = null, chooseNotified = false } = {}
   ) {
     if (match.isRunning()) {
-      const rageReason = adminKick ? null : match.rageQuitReason(player, scoresAtLeave);
+      const rageReason = adminKick
+        ? null
+        : match.rageQuitReason(player, scoresAtLeave, {
+            fieldTeam: fieldTeamForRageQuit(player),
+          });
       if (rageReason) {
         if (choose.isActive()) choose.deactivate();
         announceRageQuit(player, rageReason);
@@ -1067,10 +1111,7 @@ function createRoom(HBInit) {
           .getPlayerList()
           .filter((p) => p.id !== 0 && !afk.isAfk(p.id));
         const scores = scoresAtLeave || match.snapshotScores() || room.getScores();
-        const leavingTeam =
-          player.team === TEAM.RED || player.team === TEAM.BLUE
-            ? player.team
-            : 0;
+        const leavingTeam = fieldTeamForRageQuit(player);
         const losingTeam =
           scores && scores.red < scores.blue
             ? TEAM.RED
@@ -1084,7 +1125,11 @@ function createRoom(HBInit) {
             blueCount: remaining.filter((p) => p.team === TEAM.BLUE).length,
             scores,
           });
-          if (classic && remaining.length >= config.teamSize * 2) {
+          if (classic) {
+            const onField = remaining.filter(
+              (p) => p.team === TEAM.RED || p.team === TEAM.BLUE
+            ).length;
+            if (onField >= 6) {
             room.sendAnnouncement(
               "🤖 Abandono detectado no fim do jogo. Partida encerrada.",
               null,
@@ -1095,6 +1140,7 @@ function createRoom(HBInit) {
             match.markVictory();
             setTimeout(() => room.stopGame(), 100);
             return;
+            }
           }
         }
       }
@@ -1337,7 +1383,7 @@ function createRoom(HBInit) {
     const who = identified(player);
     const text = String(message || "").trim();
 
-    // Mutado só usa o que começa com ! (!stats, !1, !afk…). Chat e pick sem ! bloqueados.
+    // Mutado: chat bloqueado; comandos com !; pick (número/top/random) só na vez de capitão.
     if (text.startsWith("!")) {
       if (choose.handleCaptainChat(who, message)) return false;
       commands.handle(who, message).catch((err) => {
@@ -1348,8 +1394,9 @@ function createRoom(HBInit) {
 
     const muted = commands.peekMute(who);
     if (muted) {
+      if (choose.handleCaptainChat(who, message)) return false;
       room.sendAnnouncement(
-        `Você está mutado por mais ${formatDuration(muted.endsAt - Date.now())}. Só comandos com ! estão liberados.`,
+        `Você está mutado por mais ${formatDuration(muted.endsAt - Date.now())}. Só comandos com ! e pick na sua vez de capitão.`,
         player.id,
         0xe67e22,
         "bold",
