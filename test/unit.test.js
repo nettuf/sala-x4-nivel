@@ -660,7 +660,7 @@ describe("maps", () => {
     assert.equal(parseStadium(raw).vertexes[0].x, 1);
   });
 
-  it("carrega maptraining, mapx3 e mapx4", () => {
+  it("carrega maptraining, haxbook-x3 e haxbook-x4", () => {
     reloadMaps();
     const training = stadiumForPlayerCount(1);
     const x3 = stadiumForPlayerCount(2);
