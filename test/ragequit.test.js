@@ -385,7 +385,7 @@ describe("stats da partida x4", () => {
     };
     const match = createMatchController(room);
     match.start({ competitive: true });
-    match.onTick();
+    for (let i = 0; i < 3; i++) match.onTick();
     match.onBallKick(players[0]);
     scores = { ...scores, red: 1 };
     match.onTeamGoal(TEAM.RED);

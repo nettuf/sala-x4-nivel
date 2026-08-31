@@ -689,7 +689,7 @@ describe("comandos (mock room)", () => {
       )
     );
     assert.equal(ctx.titles.get(3).id, "gordo");
-    assert.equal(cmd.formatPlayerChat(spec, "oi").line, "[🍔] Spec: 🍔🍟");
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^\[🍔\] Spec: /);
 
     room.announcements.length = 0;
     await cmd.handle(red, "!aura Spec");

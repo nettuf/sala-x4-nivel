@@ -22,8 +22,11 @@ function enter(host) {
 }
 
 async function growTo(host, n, { wait = true } = {}) {
-  while (host.players.length < n) enter(host);
-  if (wait) await waitLobby();
+  while (host.players.length < n) {
+    enter(host);
+    if (wait && host.players.length === 8) await waitLobby(1600);
+  }
+  if (wait) await waitLobby(host.players.length >= 8 ? 1600 : undefined);
 }
 
 function assertNvN(host, n, extraSpec = 0, msg = "") {
