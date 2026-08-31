@@ -1,26 +1,10 @@
 const config = require("../config");
 
-async function lookupGeo(ip) {
-  if (!ip || ip === "127.0.0.1" || ip.startsWith("192.168.")) {
-    return { city: null, region: null, country: null, isp: null };
-  }
-  try {
-    const url = `http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,message,country,regionName,city,isp,query`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
-    const json = await res.json();
-    if (json.status !== "success") {
-      return { city: null, region: null, country: null, isp: null };
-    }
-    return {
-      city: json.city || null,
-      region: json.regionName || null,
-      country: json.country || null,
-      isp: json.isp || null,
-    };
-  } catch (err) {
-    console.warn("[geo]", err.message);
-    return { city: null, region: null, country: null, isp: null };
-  }
+const emptyGeo = { city: null, region: null, country: null, isp: null };
+
+/** Geo desligado — Local/ISP ficam "—"; IP e auth vêm direto do Haxball. */
+async function lookupGeo(_ip) {
+  return { ...emptyGeo };
 }
 
 function formatLocal(geo) {

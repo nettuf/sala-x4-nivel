@@ -107,7 +107,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
     if (match && s) {
       tickN += 1;
-      sampleField();
+      if (tickN % 3 === 0) sampleField();
     }
 
     if (!match || !s) return;

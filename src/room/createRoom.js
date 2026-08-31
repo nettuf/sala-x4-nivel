@@ -433,13 +433,10 @@ function createRoom(HBInit) {
     if (typeof timer.unref === "function") timer.unref();
   }
 
-  /** Jogo já parou: inicia na hora. Ao vivo: espera o stopGame aplicar. */
+  /** Jogo já parou: inicia no próximo tick (evita refreshLobby ↔ start recursivo). */
   function scheduleLobbyStart(callback) {
-    if (!room.getScores() && !match.isRunning()) {
-      callback();
-      return;
-    }
-    laterForCurrentLobby(callback);
+    const delay = room.getScores() || match.isRunning() ? 250 : 0;
+    laterForCurrentLobby(callback, delay);
   }
 
   function startWarmupIfPossible() {
@@ -661,7 +658,7 @@ function createRoom(HBInit) {
     const blue = eligible.filter((p) => p.team === TEAM.BLUE);
     // Times desiguais nunca iniciam: era assim que saía um 4v1 rodando.
     if (red.length !== blue.length || red.length < size || blue.length < size) {
-      refreshLobby();
+      laterForCurrentLobby(refreshLobby);
       return;
     }
     if (size >= config.teamSize) {
