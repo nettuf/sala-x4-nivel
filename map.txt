@@ -1,0 +1,3901 @@
+/* SALA - AMK FUTZERA 4x4 */
+const roomName = "♥️ AMK | FUTSAL 4X4 | AMK ♣️  ";
+const botName = "🤖 Ladrão";
+const maxPlayers = 20;
+const roomPublic = true;
+const geo = [{ "lat": -25.32472, "lon": -49.31, "code": "br" }, { "code": "FR", "lat": 46.2, "lon": 2.2 }, { "code": "PL", "lat": 51.9, "lon": 19.1 }, { "code": "GB", "lat": 55.3, "lon": -3.4 }, { "code": "PT", "lat": 39.3, "lon": -8.2 }];
+const room = HBInit({
+    roomName: roomName,
+    maxPlayers: maxPlayers,
+    public: roomPublic,
+    playerName: botName,
+    geo: geo[0]
+});
+
+// ================= CONFIGURAÇÕES GERAIS =================
+const scoreLimitPractice = 3;
+const timeLimitPractice = 4;
+
+// ================= TEMPORADAS =================
+const TEMPORADA_DURACAO_DIAS = 30;
+const TEMPORADA_RECOMPENSA_TOP1 = 10000;
+const TEMPORADA_RECOMPENSA_TOP2 = 6000;
+const TEMPORADA_RECOMPENSA_TOP3 = 3500;
+
+var temporadaAtual = 1;
+var temporadaInicio = Date.now();
+var historicoTemporadas = [];
+var temporadaStats = {};
+
+function chaveTemporada(auth) {
+    return "season_" + temporadaAtual + "_" + auth;
+}
+
+function getSeasonStats(auth) {
+    if (!temporadaStats[auth]) {
+        temporadaStats[auth] = {
+            wins: 0,
+            losses: 0,
+            draws: 0,
+            goals: 0,
+            assists: 0,
+            games: 0,
+            mvp: 0,
+            points: 0
+        };
+    }
+    return temporadaStats[auth];
+}
+
+function registrarStatTemporada(player, tipo, quantidade) {
+    if (!player) return;
+    var auth = getAuth(player);
+    var s = getSeasonStats(auth);
+    quantidade = Number(quantidade) || 0;
+
+    if (tipo === "win") s.wins += quantidade;
+    if (tipo === "loss") s.losses += quantidade;
+    if (tipo === "draw") s.draws += quantidade;
+    if (tipo === "goal") s.goals += quantidade;
+    if (tipo === "assist") s.assists += quantidade;
+    if (tipo === "game") s.games += quantidade;
+    if (tipo === "mvp") s.mvp += quantidade;
+
+    // Pontos da temporada:
+    // vitória = 3, empate = 1, gol = 1, assistência = 1, MVP = 3.
+    if (tipo === "win") s.points += 3 * quantidade;
+    if (tipo === "draw") s.points += 1 * quantidade;
+    if (tipo === "goal") s.points += 1 * quantidade;
+    if (tipo === "assist") s.points += 1 * quantidade;
+    if (tipo === "mvp") s.points += 3 * quantidade;
+}
+
+function rankingTemporadaAtual() {
+    return Object.keys(temporadaStats).map(function(auth) {
+        var s = temporadaStats[auth];
+        var profile = getProfile(auth);
+        return {
+            auth: auth,
+            stats: s,
+            name: profile.name || "Jogador",
+            points: s.points || 0
+        };
+    }).sort(function(a, b) {
+        if (b.points !== a.points) return b.points - a.points;
+        if (b.stats.wins !== a.stats.wins) return b.stats.wins - a.stats.wins;
+        if (b.stats.goals !== a.stats.goals) return b.stats.goals - a.stats.goals;
+        return b.stats.assists - a.stats.assists;
+    });
+}
+
+function resetarContaParaNovaTemporada(auth) {
+    var profile = getProfile(auth);
+
+    // Tudo que pertence à temporada é zerado/removido.
+    profile.coins = 0;
+    profile.purchases = [];
+    profile.title = "";
+    profile.booster = false;
+    profile.streak = 0;
+    profile.bestStreak = 0;
+
+    // Campos estatísticos persistentes conhecidos do sistema.
+    profile.wins = 0;
+    profile.losses = 0;
+    profile.draws = 0;
+    profile.games = 0;
+    profile.goals = 0;
+    profile.assists = 0;
+    profile.mvp = 0;
+    profile.rankPoints = 0;
+
+    saveProfile(auth, profile);
+}
+
+function fecharTemporada() {
+    var ranking = rankingTemporadaAtual();
+    var campeao = ranking[0] || null;
+
+    historicoTemporadas.push({
+        temporada: temporadaAtual,
+        inicio: temporadaInicio,
+        fim: Date.now(),
+        campeao: campeao ? campeao.name : "Sem campeão",
+        campeaoAuth: campeao ? campeao.auth : null,
+        ranking: ranking.map(function(x) {
+            return {
+                name: x.name,
+                auth: x.auth,
+                wins: x.stats.wins,
+                losses: x.stats.losses,
+                draws: x.stats.draws,
+                goals: x.stats.goals,
+                assists: x.stats.assists,
+                games: x.stats.games,
+                mvp: x.stats.mvp,
+                points: x.points
+            };
+        })
+    });
+
+    if (campeao) {
+        room.sendAnnouncement("🏆 TEMPORADA " + temporadaAtual + " ENCERRADA! Campeão: " + campeao.name, null, Cor.Ouro, "bold", 2);
+    }
+
+    // Zera contas de TODOS que participaram da temporada.
+    Object.keys(temporadaStats).forEach(function(auth) {
+        resetarContaParaNovaTemporada(auth);
+    });
+
+    temporadaStats = {};
+    temporadaAtual++;
+    temporadaInicio = Date.now();
+
+    room.sendAnnouncement("🔥 TEMPORADA " + temporadaAtual + " COMEÇOU! Boa sorte!", null, Cor.Verde, "bold", 2);
+}
+
+function verificarFimTemporada() {
+    if (Date.now() - temporadaInicio >= TEMPORADA_DURACAO_DIAS * 24 * 60 * 60 * 1000) {
+        fecharTemporada();
+        return true;
+    }
+    return false;
+}
+
+function temporadaAnterior() {
+    return historicoTemporadas.length
+        ? historicoTemporadas[historicoTemporadas.length - 1]
+        : null;
+}
+
+function textoTemporadaAnterior() {
+    var antiga = temporadaAnterior();
+    if (!antiga) return "📜 Ainda não existe uma temporada anterior registrada.";
+
+    var txt = "📜 TEMPORADA " + antiga.temporada + " — RESULTADO\n";
+    txt += "🏆 Campeão: " + antiga.campeao + "\n\n";
+
+    antiga.ranking.slice(0, 10).forEach(function(x, i) {
+        txt += (i + 1) + "º " + x.name +
+            " — " + x.points + " pts | " +
+            "🏆 " + x.wins +
+            " | ⚽ " + x.goals +
+            " | 👟 " + x.assists +
+            " | 👑 MVP " + x.mvp + "\n";
+    });
+
+    return txt;
+}
+
+function textoMeuHistoricoTemporadaAnterior(player) {
+    var antiga = temporadaAnterior();
+    if (!antiga) return "📜 Ainda não existe uma temporada anterior registrada.";
+
+    var auth = getAuth(player);
+    var s = antiga.ranking.find(function(x) { return x.auth === auth; });
+
+    if (!s) return "📜 Você não participou da temporada " + antiga.temporada + ".";
+
+    var pos = antiga.ranking.findIndex(function(x) { return x.auth === auth; }) + 1;
+
+    return "📜 SUA TEMPORADA " + antiga.temporada + "\n" +
+        "🏅 Posição: " + pos + "º\n" +
+        "⭐ Pontos: " + s.points + "\n" +
+        "🏆 Vitórias: " + s.wins + "\n" +
+        "❌ Derrotas: " + s.losses + "\n" +
+        "🤝 Empates: " + s.draws + "\n" +
+        "⚽ Gols: " + s.goals + "\n" +
+        "👟 Assistências: " + s.assists + "\n" +
+        "👑 MVPs: " + s.mvp;
+}
+
+// ================= ECONOMIA / ANTI-ABUSO DE COINS =================
+const COINS_VITORIA = 100;
+const COINS_GOL = 50;
+const COINS_ASSISTENCIA = 30;
+const COINS_MVP = 100;
+
+// Proteções contra farm/abuso:
+// - partida precisa ter 8 jogadores e 4x4 válidos;
+// - mínimo de 60s, exceto se o limite de 3 gols for atingido;
+// - limite diário de coins por jogador;
+// - cada partida só pode pagar uma vez.
+const COINS_MIN_GAME_SECONDS = 60;
+const COINS_DAILY_CAP = 1000;
+
+let Cor = {
+    Vermelho: 0xFA5646, Laranja: 0xFFC12F, Verde: 0x7DFA89, Azul: 0x05C5FF,
+    Amarelo: 0xFFFF17, Cinza: 0xCCCCCC, Branco: 0xFFFFFF, Azulclaro: 0x6ECAFF,
+    Powderblue: 0xB0E0E6, Roxo: 0x800080, Platina: 0xE5E4E2, Ouro: 0xffd700,
+    Prata: 0xd5d5d5, Bronze: 0x896728, Thistle: 0xD8BFD8, Khaki: 0xF0E68C,
+    AliceBlue: 0xF0F8FF, GhostWhite: 0xF8F8FF, Snow: 0xFFFAFA, Seashell: 0xFFF5EE,
+    FloralWhite: 0xFFFAF0, WhiteSmoke: 0xF5F5F5, Beige: 0xF5F5DC, OldLace: 0xFDF5E6,
+    Ivory: 0xFFFFF0, Linen: 0xFAF0E6, Cornsilk: 0xFFF8DC, AntiqueWhite: 0xFAEBD7,
+    BlanchedAlmond: 0xFFEBCD, Bisque: 0xFFE4C4, LightYellow: 0xFFFFE0,
+    LemonChiffon: 0xFFFACD, LightGoldenrodYellow: 0xFAFAD2, PapayaWhip: 0xFFEFD5,
+    PeachPuff: 0xFFDAB9, Moccasin: 0xFFE4B5, PaleGoldenrod: 0xEEE8AA,
+    Azulescuro: 0x426AD6, Warn: 0xff9966
+};
+
+// Frases de Gol e Assistência
+const frasesGols = [
+    "QUE GOL É ESSE, SENHORAS E SENHORES! Você é uma lenda, ",
+    "GOOOOOOOOOOL! O MUNDO PRECISA DE MAIS COMO VOCÊ, ",
+    "Olha esse gol do(a) ", "É GOOOOOL do(a) ", "Que golaço do(a) ",
+    "GOOOOOOOOOOL! APARECENDO QUANDO MAIS PRECISAMOS, GRAÇAS AO ",
+    "MINHA NOSSA SENHORA!!!! O IMPOSSÍVEL ACONTECEU MEU DEUS DO CÉU, É GOL DO(A) ",
+    "QUE GOLAÇO DO(A) ", "Impresionante a finalização do(a) ",
+    "Desculpe o xingamento, MAS PUTA QUE PARIUUU, QUE GOL É ESSE, ",
+    "É CAIXA, É CAIXA, É CAIXA, É GOOOOOOOOOL DO(A) "
+];
+const frasesasis = [
+    "com o lindo passe de ", "acompanhado do belíssimo passe de ",
+    "com o bolão na boca do gol de ", "com a assistência fenomenal de ",
+    "OHHH, KEVIN DE BRUYNEE, OHH KEVIN DE BRUYNEE"
+];
+const frasesautogol = [
+    "Tenho certeza que foi sem querer né, ", "TÁ JOGANDO NO TIME ERRADO, ",
+    "PARABÉNS!! O TIME ADVERSÁRIO AGRADECE, ", "É GOOOOOOOOOL... contra do ",
+    "Volta pro mar oferenda, "
+];
+
+// ================= VARIAVEIS DE CONTROLE =================
+var registro = new Map();
+const css = "border:2px solid;padding:8px;background:";
+room.setTeamsLock(true);
+var message;
+var Botdivulga;
+var msg1;
+var msg1Time = 1500000; // Tempo da mensagem de regras
+var Deus = [];
+var BotdivulgaTime = 900000;
+var adminPassword = 4002;
+var vip1 = [];
+var vip2 = [];
+var vip3 = [];
+
+// ================= CARGOS POR AUTH — CONFIGURAÇÃO SEPARADA =================
+//
+// IMPORTANTE:
+// Cada cargo tem sua própria seção para você não se perder.
+// Coloque o AUTH do jogador dentro de "auths".
+// A cor deve ser escrita em HEX, por exemplo: "#44daf3".
+// O emoji pode ser qualquer emoji que você quiser.
+//
+// Exemplo:
+// auths: ["abc123", "def456"]
+// cor: "#44daf3"
+// emoji: "🛡️"
+
+// ================= 👑 SUPERADMIN =================
+var SUPERADMIN_CONFIG = {
+    auths: [
+        "", // SUPERADMIN 1
+        "", // SUPERADMIN 2
+        "", // SUPERADMIN 3
+        "", // SUPERADMIN 4
+        ""  // SUPERADMIN 5
+    ],
+
+    // Cada posição corresponde ao AUTH da mesma posição.
+    // Você pode escolher COR e EMOJI individualmente.
+    personalizacao: [
+        { cor: "#EE6AA7", emoji: "🏛️" }, // SUPERADMIN 1
+        { cor: "#00FA9A", emoji: "🥊" }, // SUPERADMIN 2
+        { cor: "#000000", emoji: "👑" }, // SUPERADMIN 3
+        { cor: "#000000", emoji: "👑" }, // SUPERADMIN 4
+        { cor: "#000000", emoji: "👑" }  // SUPERADMIN 5
+    ]
+};
+
+// ================= 🛡️ ADMIN =================
+var ADMIN_CONFIG = {
+    auths: [
+        "", // ADMIN 1
+        "", // ADMIN 2
+        "", // ADMIN 3
+        "", // ADMIN 4
+        "", // ADMIN 5
+        "", // ADMIN 6
+        "", // ADMIN 7
+        "", // ADMIN 8
+        "", // ADMIN 9
+        ""  // ADMIN 10
+    ],
+
+    // Cada posição corresponde ao AUTH da mesma posição.
+    personalizacao: [
+        { cor: "#44daf3", emoji: "🛡️" }, // ADMIN 1
+        { cor: "#44daf3", emoji: "🛡️" }, // ADMIN 2
+        { cor: "#44daf3", emoji: "🛡️" }, // ADMIN 3
+        { cor: "#44daf3", emoji: "🛡️" }, // ADMIN 4
+        { cor: "#44daf3", emoji: "🛡️" }, // ADMIN 5
+        { cor: "#44daf3", emoji: "🛡️" }, // ADMIN 6
+        { cor: "#44daf3", emoji: "🛡️" }, // ADMIN 7
+        { cor: "#44daf3", emoji: "🛡️" }, // ADMIN 8
+        { cor: "#44daf3", emoji: "🛡️" }, // ADMIN 9
+        { cor: "#44daf3", emoji: "🛡️" }  // ADMIN 10
+    ]
+};
+
+// ================= 💎 BOOSTER =================
+var BOOSTER_CONFIG = {
+    auths: [
+        "", // BOOSTER 1
+        "", // BOOSTER 2
+        "", // BOOSTER 3
+        "", // BOOSTER 4
+        "", // BOOSTER 5
+        "", // BOOSTER 6
+        "", // BOOSTER 7
+        "", // BOOSTER 8
+        "", // BOOSTER 9
+        ""  // BOOSTER 10
+    ],
+
+    // Cada posição corresponde ao AUTH da mesma posição.
+    personalizacao: [
+        { cor: "#b84dff", emoji: "💎" }, // BOOSTER 1
+        { cor: "#b84dff", emoji: "💎" }, // BOOSTER 2
+        { cor: "#b84dff", emoji: "💎" }, // BOOSTER 3
+        { cor: "#b84dff", emoji: "💎" }, // BOOSTER 4
+        { cor: "#b84dff", emoji: "💎" }, // BOOSTER 5
+        { cor: "#b84dff", emoji: "💎" }, // BOOSTER 6
+        { cor: "#b84dff", emoji: "💎" }, // BOOSTER 7
+        { cor: "#b84dff", emoji: "💎" }, // BOOSTER 8
+        { cor: "#b84dff", emoji: "💎" }, // BOOSTER 9
+        { cor: "#b84dff", emoji: "💎" }  // BOOSTER 10
+    ]
+};
+
+// ================= SISTEMA INTERNO =================
+var superAdminCode = "";
+var allowPublicAdmin = false;
+var superAdmins = [];
+var boosterPlayers = [];
+var senhaAdminDiariaWebhookURL = "";
+var senhaAdminDiaria = "";
+var senhaBoosterDiariaWebhookURL = "";
+var senhaBoosterDiaria = "";
+// Webhooks adicionais: configure na seção acima (CHAT / EVENTOS / LOG / SÚMULA / MODERAÇÃO / REPLAY).
+var ultimaDataSenha = "";
+
+function authEstaNoCargo(player, config) {
+    if (!player || !config || !Array.isArray(config.auths)) return false;
+    var auth = (typeof getAuth === "function" ? getAuth(player) : null) || player.auth;
+    return !!auth && config.auths.indexOf(auth) !== -1;
+}
+
+function hexParaCor(hex, fallback) {
+    // Aceita: "#FF0000", "FF0000", "0xFF0000" ou 0xFF0000.
+    if (typeof hex === "number" && isFinite(hex)) {
+        return hex & 0xFFFFFF;
+    }
+    if (typeof hex !== "string") return fallback;
+
+    var valor = hex.trim()
+        .replace(/^#/, "")
+        .replace(/^0x/i, "");
+
+    if (!/^[0-9a-fA-F]{6}$/.test(valor)) return fallback;
+    return parseInt(valor, 16);
+}
+
+function configCargo(player) {
+    if (!player) return null;
+
+    // O AUTH original do HaxBall é a fonte principal do cargo.
+    // O fallback pelo extendedP existe apenas para casos em que player.auth não estiver disponível.
+    var authCargo = player.auth || ((typeof getAuth === "function" ? getAuth(player) : null));
+    if (!authCargo) return null;
+
+    function achar(config, nome, fallback) {
+        if (!config || !Array.isArray(config.auths)) return null;
+        var i = config.auths.indexOf(authCargo);
+        if (i === -1) return null;
+
+        var p = (Array.isArray(config.personalizacao) && config.personalizacao[i])
+            ? config.personalizacao[i]
+            : fallback;
+
+        return {
+            cargo: nome,
+            index: i,
+            cor: p.cor,
+            emoji: p.emoji
+        };
+    }
+
+    var cargoConfigurado = achar(SUPERADMIN_CONFIG, "SuperAdmin", {cor:"#000000", emoji:"👑"}) ||
+           achar(ADMIN_CONFIG, "Admin", {cor:"#44daf3", emoji:"🛡️"}) ||
+           achar(BOOSTER_CONFIG, "Booster", {cor:"#b84dff", emoji:"💎"});
+
+    if (cargoConfigurado) return cargoConfigurado;
+
+    // Booster comprado na loja fica salvo no perfil e continua válido após reconectar.
+    var perfilCargo = getProfile(authCargo);
+    if (perfilCargo && perfilCargo.booster === true) {
+        return { cargo: "Booster", index: -1, cor: "#b84dff", emoji: "💎" };
+    }
+
+    return null;
+}
+
+function discordPostJSON(webhookURL, payload) {
+    try {
+        if (!webhookURL) return;
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", webhookURL, true);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.send(JSON.stringify(payload));
+    } catch (e) {
+        console.log("[WEBHOOK] Erro ao enviar JSON:", e);
+    }
+}
+
+var sendRecWebhookURL = "";              // REPLAY / GRAVAÇÃO HBR2
+var sumulaWebhookURL = "";                // SÚMULA COMPLETA DA PARTIDA
+var moderationLogWebhookURL = "";         // LOG DE MODERAÇÃO
+var chatLogWebhookURL = "";                // CHAT
+var eventLogWebhookURL = "";               // EVENTOS
+var generalLogWebhookURL = "";             // LOG GERAL
+var recordingActive = true;
+
+function sendChatLog(playerName, message, isAdmin, isBooster) {
+    if (!chatLogWebhookURL) return;
+    var tags = [];
+    if (isAdmin) tags.push("ADMIN");
+    if (isBooster) tags.push("BOOSTER");
+    var tag = tags.length ? " [" + tags.join(" • ") + "]" : "";
+
+    // Mensagens do chat no Discord agora aparecem em roxo.
+    discordPostJSON(chatLogWebhookURL, {
+        username: "CHAT LOG",
+        embeds: [{
+            title: "💬 Chat AMK",
+            description: "**" + String(playerName) + "**" + tag + "\n" + String(message),
+            color: 0x9B59B6,
+            timestamp: new Date().toISOString()
+        }]
+    });
+}
+
+function sendEventLog(playerName, eventType, extraInfo) {
+    if (!eventLogWebhookURL) return;
+    discordPostJSON(eventLogWebhookURL, {
+        username: "EVENT LOG",
+        content: "[EVENT] " + eventType + ": " + playerName + (extraInfo ? " - " + extraInfo : "")
+    });
+}
+
+function sendModerationLog(action, target, moderator, details) {
+    if (!moderationLogWebhookURL) return;
+    discordPostJSON(moderationLogWebhookURL, {
+        username: "MODERAÇÃO LOG",
+        embeds: [{
+            title: "🛡️ Ação de moderação",
+            color: 0xE74C3C,
+            fields: [
+                { name: "Ação", value: String(action || "N/A"), inline: true },
+                { name: "Alvo", value: String(target || "N/A"), inline: true },
+                { name: "Moderador", value: String(moderator || "Sistema"), inline: true },
+                { name: "Detalhes", value: String(details || "Sem detalhes"), inline: false }
+            ],
+            timestamp: new Date().toISOString()
+        }]
+    });
+}
+
+function sendGeneralLog(title, content) {
+    if (!generalLogWebhookURL) return;
+    discordPostJSON(generalLogWebhookURL, {
+        username: "LOG GERAL",
+        content: "📋 " + title + "\n" + content
+    });
+}
+
+function enviarSumulaDiscord(sumula) {
+    if (!sumulaWebhookURL || !sumula) return;
+    discordPostJSON(sumulaWebhookURL, {
+        username: "SÚMULA AMK",
+        embeds: [{
+            title: "📝 Súmula da partida",
+            color: 0x9B59B6,
+            description: sumula,
+            timestamp: new Date().toISOString()
+        }]
+    });
+}
+
+function cargoInfo(player) {
+    if (!player) return { nome: "Jogador", emoji: "📄", cor: 0xFFFFFF };
+
+    var config = configCargo(player);
+
+    if (config && config.cargo === "SuperAdmin") {
+        return {
+            nome: "SuperAdmin",
+            emoji: config.emoji || "👑",
+            cor: hexParaCor(config.cor, 0xFFFFFF)
+        };
+    }
+
+    if (config && config.cargo === "Admin") {
+        return {
+            nome: "Admin",
+            emoji: config.emoji || "🛡️",
+            cor: hexParaCor(config.cor, 0x44DAF3)
+        };
+    }
+
+    if (config && config.cargo === "Booster") {
+        return {
+            nome: "Booster",
+            emoji: config.emoji || "💎",
+            cor: hexParaCor(config.cor, 0xB84DFF)
+        };
+    }
+
+    if (jogadorEhCapitao(player))
+        return { nome: "Capitão", emoji: "🎖️", cor: 0xFDC43A };
+
+    return { nome: "Jogador", emoji: "📄", cor: 0xFFFFFF };
+}
+
+function getProfile(auth) {
+    var key = "amk_profile_" + auth;
+    var raw = localStorage.getItem(key);
+    var profile = raw ? JSON.parse(raw) : null;
+    if (!profile) profile = { coins: 100, streak: 0, bestStreak: 0, purchases: [], title: "", booster: false, coinsDay: dataCoinsAtual(), coinsToday: 0, lastCoinGame: "" };
+    if (!Array.isArray(profile.purchases)) profile.purchases = [];
+    if (typeof profile.title !== "string") profile.title = "";
+    if (typeof profile.booster !== "boolean") profile.booster = false;
+    if (typeof profile.coins !== "number") profile.coins = 100;
+    if (typeof profile.streak !== "number") profile.streak = 0;
+    if (typeof profile.bestStreak !== "number") profile.bestStreak = 0;
+    if (typeof profile.coinsDay !== "string") profile.coinsDay = dataCoinsAtual();
+    if (typeof profile.coinsToday !== "number") profile.coinsToday = 0;
+    if (typeof profile.lastCoinGame !== "string") profile.lastCoinGame = "";
+    if (profile.coinsDay !== dataCoinsAtual()) {
+        profile.coinsDay = dataCoinsAtual();
+        profile.coinsToday = 0;
+    }
+    return profile;
+}
+
+function saveProfile(auth, profile) {
+    localStorage.setItem("amk_profile_" + auth, JSON.stringify(profile));
+}
+
+function addCoins(player, amount) {
+    if (!player) return;
+    var profile = getProfile(getAuth(player));
+    profile.coins += Math.max(0, Number(amount) || 0);
+    saveProfile(getAuth(player), profile);
+}
+
+function encontrarJogadorPorNome(nome) {
+    if (nome === undefined || nome === null) return null;
+
+    var alvo = String(nome).trim();
+    if (!alvo) return null;
+
+    var lista = room.getPlayerList().filter(function(p) { return p.id !== 0; });
+
+    // Aceita !addcoins #1 75000 ou !addcoins 1 75000
+    var idTexto = alvo.replace(/^#/, "");
+    if (/^\d+$/.test(idTexto)) {
+        var id = Number(idTexto);
+        var porId = lista.find(function(p) { return p.id === id; });
+        if (porId) return porId;
+    }
+
+    var alvoLower = alvo.toLowerCase();
+
+    // Nome exato primeiro.
+    var exato = lista.find(function(p) {
+        return String(p.name).toLowerCase() === alvoLower;
+    });
+    if (exato) return exato;
+
+    // Depois aceita começo do nick.
+    return lista.find(function(p) {
+        return String(p.name).toLowerCase().indexOf(alvoLower) === 0;
+    }) || null;
+}
+
+// RECOMPENSAS DE COINS — PAGAS SOMENTE AO FINAL DA PARTIDA
+var coinsAwardedForGame = false;
+
+function dataCoinsAtual() {
+    var d = new Date();
+    return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+}
+
+function prepararProfileCoins(profile) {
+    var hoje = dataCoinsAtual();
+    if (profile.coinsDay !== hoje) {
+        profile.coinsDay = hoje;
+        profile.coinsToday = 0;
+    }
+    if (typeof profile.coinsToday !== "number") profile.coinsToday = 0;
+    if (typeof profile.lastCoinGame !== "string") profile.lastCoinGame = "";
+    return profile;
+}
+
+function addCoinsSeguro(player, amount, gameId) {
+    if (!player || amount <= 0) return 0;
+
+    var auth = getAuth(player);
+    var profile = prepararProfileCoins(getProfile(auth));
+
+    // Uma mesma partida nunca pode pagar duas vezes para o mesmo jogador.
+    if (gameId && profile.lastCoinGame === gameId) return 0;
+
+    var disponivel = Math.max(0, COINS_DAILY_CAP - profile.coinsToday);
+    var creditado = Math.min(Number(amount) || 0, disponivel);
+
+    if (creditado > 0) {
+        profile.coins += creditado;
+        profile.coinsToday += creditado;
+        if (gameId) profile.lastCoinGame = gameId;
+        saveProfile(auth, profile);
+    }
+    return creditado;
+}
+
+function premiarCoinsDaPartida(mvp) {
+    if (coinsAwardedForGame || !game || !game.scores) return;
+    if (!allReds.length || !allBlues.length) return;
+
+    // Só remunera partidas 4x4 válidas.
+    if (allReds.length !== maxTeamSize || allBlues.length !== maxTeamSize) return;
+
+    var duracao = Number(game.scores.time) || 0;
+    var terminouPorGols = game.scores.red >= game.scores.scoreLimit || game.scores.blue >= game.scores.scoreLimit;
+    if (duracao < COINS_MIN_GAME_SECONDS && !terminouPorGols) {
+        sendGeneralLog("COINS BLOQUEADOS", "Partida muito curta (" + duracao + "s). Proteção anti-farm ativada.");
+        coinsAwardedForGame = true;
+        return;
+    }
+
+    var jogadores = allReds.concat(allBlues);
+    var ids = {};
+    jogadores.forEach(function(p) { if (p) ids[p.id] = true; });
+
+    // ID único desta partida.
+    var gameId = String(game.date || Date.now()) + ":" + String(game.scores.time || 0);
+
+    // Vitória.
+    if (lastWinner === Team.RED) {
+        allReds.forEach(function(p) { addCoinsSeguro(p, COINS_VITORIA, gameId); });
+    } else if (lastWinner === Team.BLUE) {
+        allBlues.forEach(function(p) { addCoinsSeguro(p, COINS_VITORIA, gameId); });
+    }
+
+    // Gols e assistências, limitados aos jogadores da partida.
+    var golsPagos = {};
+    var assistsPagas = {};
+    (game.goals || []).forEach(function(g) {
+        if (g.striker && ids[g.striker.id]) {
+            golsPagos[g.striker.id] = (golsPagos[g.striker.id] || 0) + 1;
+        }
+        if (g.assist && ids[g.assist.id]) {
+            assistsPagas[g.assist.id] = (assistsPagas[g.assist.id] || 0) + 1;
+        }
+    });
+
+    Object.keys(golsPagos).forEach(function(id) {
+        var p = jogadores.find(function(x) { return x.id == id; });
+        if (p) {
+            // Cada jogador recebe no máximo 3 recompensas de gol por partida.
+            var qtd = Math.min(golsPagos[id], 3);
+            for (var i = 0; i < qtd; i++) addCoinsSeguro(p, COINS_GOL, gameId + ":G:" + i);
+        }
+    });
+
+    Object.keys(assistsPagas).forEach(function(id) {
+        var p = jogadores.find(function(x) { return x.id == id; });
+        if (p) {
+            var qtd = Math.min(assistsPagas[id], 3);
+            for (var i = 0; i < qtd; i++) addCoinsSeguro(p, COINS_ASSISTENCIA, gameId + ":A:" + i);
+        }
+    });
+
+    // Bônus de MVP, também protegido pelo limite diário.
+    if (mvp && mvp.player) {
+        addCoinsSeguro(mvp.player, COINS_MVP, gameId + ":MVP");
+    }
+
+    coinsAwardedForGame = true;
+}
+
+function atualizarSequenciasJogadores(winner) {
+    var todos = [];
+    if (allReds) todos = todos.concat(allReds);
+    if (allBlues) todos = todos.concat(allBlues);
+    var seen = {};
+    todos.forEach(function(p) {
+        if (!p || seen[p.id]) return;
+        seen[p.id] = true;
+        var profile = getProfile(getAuth(p));
+        if (winner === Team.RED && p.team === Team.RED || winner === Team.BLUE && p.team === Team.BLUE) {
+            profile.streak++;
+            if (profile.streak > profile.bestStreak) profile.bestStreak = profile.streak;
+        } else if (winner === Team.RED || winner === Team.BLUE) {
+            profile.streak = 0;
+        } else {
+            profile.streak = 0;
+        }
+        saveProfile(getAuth(p), profile);
+    });
+}
+
+function formatGoalList() {
+    if (!game || !game.goals || !game.goals.length) return "Nenhum gol registrado.";
+    return game.goals.map(function(g, i) {
+        var striker = g.striker ? g.striker.name : "Gol contra";
+        var assist = g.assist ? " | 👟 " + g.assist.name : "";
+        var min = g.time != null ? Math.floor(g.time / 60) : 0;
+        var sec = g.time != null ? Math.floor(g.time % 60) : 0;
+        return (i + 1) + ". " + striker + assist + " — " + ("0" + min).slice(-2) + ":" + ("0" + sec).slice(-2);
+    }).join("\n");
+}
+
+
+function calcularMVPPartida() {
+    if (!game || !game.goals) return null;
+
+    var jogadores = [];
+    var porId = {};
+
+    allReds.concat(allBlues).forEach(function(p) {
+        if (!p || porId[p.id]) return;
+        porId[p.id] = {
+            player: p,
+            goals: 0,
+            assists: 0,
+            team: p.team,
+            cleanSheet: false,
+            score: 0
+        };
+        jogadores.push(porId[p.id]);
+    });
+
+    game.goals.forEach(function(g) {
+        if (g.striker && porId[g.striker.id]) porId[g.striker.id].goals++;
+        if (g.assist && porId[g.assist.id]) porId[g.assist.id].assists++;
+    });
+
+    jogadores.forEach(function(s) {
+        s.score = s.goals * 3 + s.assists * 2;
+        if ((lastWinner === Team.RED && s.team === Team.RED) ||
+            (lastWinner === Team.BLUE && s.team === Team.BLUE)) {
+            s.score += 2;
+        }
+        if (s.team === Team.RED && game.scores.blue === 0) s.score += 2;
+        if (s.team === Team.BLUE && game.scores.red === 0) s.score += 2;
+    });
+
+    jogadores.sort(function(a, b) {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.goals !== a.goals) return b.goals - a.goals;
+        return b.assists - a.assists;
+    });
+
+    return jogadores.length && jogadores[0].score > 0 ? jogadores[0] : null;
+}
+
+function formatPlayerMatchStats() {
+    var jogadores = [];
+    var seen = {};
+
+    allReds.concat(allBlues).forEach(function(p) {
+        if (!p || seen[p.id]) return;
+        seen[p.id] = true;
+        var goals = 0, assists = 0;
+
+        (game.goals || []).forEach(function(g) {
+            if (g.striker && g.striker.id === p.id) goals++;
+            if (g.assist && g.assist.id === p.id) assists++;
+        });
+
+        var gk = (GKList[0] && GKList[0].id === p.id) || (GKList[1] && GKList[1].id === p.id);
+        jogadores.push({
+            player: p,
+            goals: goals,
+            assists: assists,
+            gk: gk
+        });
+    });
+
+    jogadores.sort(function(a,b) {
+        return (b.goals * 3 + b.assists * 2) - (a.goals * 3 + a.assists * 2);
+    });
+
+    return jogadores.map(function(s) {
+        return (s.player.team === Team.RED ? "🔴 " : "🔵 ") +
+            s.player.name + " — ⚽ " + s.goals + " | 👟 " + s.assists + (s.gk ? " | 🧤 GK" : "");
+    }).join("\n");
+}
+
+function gerarSumulaPartida() {
+    if (!game || !game.scores) return "";
+    var s = game.scores;
+    var redPoss = isFinite(Rposs) ? (Rposs * 100).toFixed(1) : "0.0";
+    var bluePoss = isFinite(Bposs) ? (Bposs * 100).toFixed(1) : "0.0";
+    var vencedor = lastWinner === Team.RED ? "🔴 Red" : lastWinner === Team.BLUE ? "🔵 Blue" : "🤝 Empate";
+    var mvp = calcularMVPPartida();
+    var mvpTexto = mvp
+        ? "👑 **MVP:** " + mvp.player.name + " — " + mvp.score + " pts (⚽ " + mvp.goals + " | 👟 " + mvp.assists + ")"
+        : "👑 **MVP:** Sem destaque estatístico suficiente";
+
+    return "🏟️ **" + roomName + "**\n" +
+        "**Placar:** 🔴 " + s.red + " x " + s.blue + " 🔵\n" +
+        "**Vencedor:** " + vencedor + "\n" +
+        "**Posse:** 🔴 " + redPoss + "% | 🔵 " + bluePoss + "%\n" +
+        "**Duração:** " + Math.floor((s.time || 0) / 60) + ":" + ("0" + Math.floor((s.time || 0) % 60)).slice(-2) + "\n" +
+        mvpTexto + "\n\n" +
+        "⚽ **GOLS E ASSISTÊNCIAS**\n" + formatGoalList() + "\n\n" +
+        "📊 **ESTATÍSTICAS DOS JOGADORES**\n" + (formatPlayerMatchStats() || "Sem estatísticas.") + "\n\n" +
+        "👥 **Times:** 🔴 " + allReds.map(function(p){return p.name;}).join(", ") +
+        " | 🔵 " + allBlues.map(function(p){return p.name;}).join(", ");
+}
+
+function lojaItens() {
+    return {
+        // AVATARES NORMAIS
+        "avatar_star": { nome: "⭐ Avatar Star", preco: 2500, desc: "Avatar cosmético clássico.", categoria: "AVATARES", avatar: "⭐" },
+        "avatar_fire": { nome: "🔥 Avatar Fire", preco: 4000, desc: "Avatar de fogo.", categoria: "AVATARES", avatar: "🔥" },
+        "avatar_heart": { nome: "💜 Avatar Heart", preco: 5000, desc: "Avatar especial.", categoria: "AVATARES", avatar: "💜" },
+        "avatar_crown": { nome: "👑 Avatar Crown", preco: 6500, desc: "Mostre quem manda.", categoria: "AVATARES", avatar: "👑" },
+        "avatar_skull": { nome: "💀 Avatar Skull", preco: 7000, desc: "Visual sombrio.", categoria: "AVATARES", avatar: "💀" },
+        "avatar_lightning": { nome: "⚡ Avatar Lightning", preco: 7500, desc: "Avatar elétrico.", categoria: "AVATARES", avatar: "⚡" },
+        "avatar_diamond": { nome: "💎 Avatar Diamond", preco: 9000, desc: "Avatar raro de diamante.", categoria: "AVATARES", avatar: "💎" },
+        "avatar_rocket": { nome: "🚀 Avatar Rocket", preco: 6000, desc: "Para quem joga nas alturas.", categoria: "AVATARES", avatar: "🚀" },
+        "avatar_ghost": { nome: "👻 Avatar Ghost", preco: 8000, desc: "Avatar fantasma.", categoria: "AVATARES", avatar: "👻" },
+        "avatar_dragon": { nome: "🐉 Avatar Dragon", preco: 12000, desc: "Avatar lendário.", categoria: "AVATARES", avatar: "🐉" },
+        "avatar_money": { nome: "🤑 Avatar Money", preco: 10000, desc: "Avatar para os ricos da sala.", categoria: "AVATARES", avatar: "🤑" },
+        "avatar_football": { nome: "⚽ Avatar Football", preco: 3500, desc: "Para quem vive de HaxBall.", categoria: "AVATARES", avatar: "⚽" },
+
+        // TITULOS
+        "titulo_lenda": { nome: "👑 Título Lenda", preco: 15000, desc: "Título cosmético permanente.", categoria: "TÍTULOS", title: "Lenda" },
+        "titulo_mvp": { nome: "🏆 Título MVP", preco: 18000, desc: "Título para os craques.", categoria: "TÍTULOS", title: "MVP" },
+        "titulo_fenomeno": { nome: "🔥 Título Fenômeno", preco: 22000, desc: "Título de destaque.", categoria: "TÍTULOS", title: "Fenômeno" },
+        "titulo_imortal": { nome: "⚡ Título Imortal", preco: 30000, desc: "Título lendário.", categoria: "TÍTULOS", title: "Imortal" },
+
+        // PREMIUM — SÓ BOOSTER/PREMIUM OU ADMIN
+        "premium_avatar_gem": { nome: "💠 Premium Gem", preco: 18000, desc: "Avatar exclusivo para Premium.", categoria: "PREMIUM", avatar: "💠", premium: true },
+        "premium_avatar_king": { nome: "🤴 Premium King", preco: 25000, desc: "Avatar exclusivo para Premium.", categoria: "PREMIUM", avatar: "🤴", premium: true },
+        "premium_avatar_fire": { nome: "🔥 Premium Flame", preco: 28000, desc: "Avatar exclusivo para Premium.", categoria: "PREMIUM", avatar: "🔥", premium: true },
+
+        // CARGOS
+        "booster_75k": { nome: "💎 Booster", preco: 75000, desc: "Cargo Booster permanente até o fim da temporada.", categoria: "CARGOS", role: "booster" },
+
+        // PACOTES DE COINS
+    };
+}
+
+function jogadorPremium(player) {
+    if (!player) return false;
+    if (player.admin) return true;
+    if (boosterPlayers.indexOf(player.id) !== -1) return true;
+    var auth = getAuth(player);
+    return !!auth && getProfile(auth).booster === true;
+}
+
+function mostrarLoja(player) {
+    var profile = getProfile(getAuth(player));
+
+    room.sendAnnouncement("╔══════════════ 🛒 LOJA AMK ══════════════╗", player.id, Cor.Roxo, "bold");
+    room.sendAnnouncement("💰 Saldo: " + profile.coins + " coins", player.id, Cor.Ouro, "bold");
+    room.sendAnnouncement("Escolha uma categoria:", player.id, Cor.Branco, "normal");
+    room.sendAnnouncement("👤 !avatares  — Avatares e cosméticos", player.id, Cor.Roxo, "bold");
+    room.sendAnnouncement("🎽 !uniformes — Catálogo de uniformes", player.id, Cor.Roxo, "bold");
+    room.sendAnnouncement("🏷️ !titulos   — Títulos disponíveis", player.id, Cor.Roxo, "bold");
+    room.sendAnnouncement("💎 !compra booster — Booster por 75.000 coins", player.id, Cor.Roxo, "bold");
+    room.sendAnnouncement("🛍️ Para comprar outros itens: !comprar <item>", player.id, Cor.Branco, "normal");
+    room.sendAnnouncement("╚══════════════════════════════════════╝", player.id, Cor.Roxo, "bold");
+}
+
+function mostrarLojaAvatares(player) {
+    var itens = lojaItens();
+    var premium = jogadorPremium(player);
+
+    room.sendAnnouncement("╔════════════ 👤 AVATARES ════════════╗", player.id, Cor.Roxo, "bold");
+
+    Object.keys(itens).forEach(function(k) {
+        var i = itens[k];
+        if (i.categoria === "AVATARES" || (i.categoria === "PREMIUM" && i.avatar && premium)) {
+            var marca = i.premium ? " 💎 PREMIUM" : "";
+            room.sendAnnouncement(i.nome + marca + " • " + i.preco + " coins • !comprar " + k, player.id, i.premium ? Cor.Roxo : Cor.Branco, i.premium ? "bold" : "normal");
+        }
+    });
+
+    room.sendAnnouncement("💎 Premium: itens premium só aparecem para Premium/Booster/Admin.", player.id, Cor.Roxo, "normal");
+    room.sendAnnouncement("↩️ !loja para voltar ao menu.", player.id, Cor.Roxo, "bold");
+}
+
+function mostrarLojaUniformes(player) {
+    room.sendAnnouncement("╔════════════ 🎽 UNIFORMES ════════════╗", player.id, Cor.Roxo, "bold");
+    room.sendAnnouncement("📋 Uniformes normais: !uni list", player.id, Cor.Branco, "bold");
+    room.sendAnnouncement("💎 Uniformes Premium: !uni premium", player.id, Cor.Roxo, "bold");
+    room.sendAnnouncement("Exemplos Premium — use o comando direto:", player.id, Cor.Branco, "normal");
+    room.sendAnnouncement("• !real — Real Madrid 2016/17", player.id, Cor.Roxo, "normal");
+    room.sendAnnouncement("• !liverpool — Liverpool (vermelho listrado)", player.id, Cor.Roxo, "normal");
+    room.sendAnnouncement("• !man08 — Manchester United 2007/08", player.id, Cor.Roxo, "normal");
+    room.sendAnnouncement("• !bar09 — Barcelona 2008/09", player.id, Cor.Roxo, "normal");
+    room.sendAnnouncement("• !bar11 — Barcelona 2010/11", player.id, Cor.Roxo, "normal");
+    room.sendAnnouncement("• !bra02 — Brasil 2002", player.id, Cor.Roxo, "normal");
+    room.sendAnnouncement("↩️ !loja para voltar ao menu.", player.id, Cor.Roxo, "bold");
+}
+
+function mostrarLojaCategoria(player, categoria) {
+    if (categoria === "avatares") {
+        mostrarLojaAvatares(player);
+        return;
+    }
+    if (categoria === "uniformes" || categoria === "uniforme") {
+        mostrarLojaUniformes(player);
+        return;
+    }
+    if (categoria === "cargos" || categoria === "cargo") {
+        var itensCargos = lojaItens();
+        room.sendAnnouncement("╔════════════ 💎 CARGOS ════════════╗", player.id, Cor.Roxo, "bold");
+        Object.keys(itensCargos).forEach(function(k) {
+            var i = itensCargos[k];
+            if (i.categoria === "CARGOS") {
+                room.sendAnnouncement(i.nome + " • " + i.preco + " coins • !comprar " + k, player.id, Cor.Roxo, "bold");
+            }
+        });
+        room.sendAnnouncement("↩️ !loja para voltar ao menu.", player.id, Cor.Roxo, "bold");
+        return;
+    }
+    if (categoria === "titulos" || categoria === "títulos") {
+        var itens = lojaItens();
+        room.sendAnnouncement("╔════════════ 🏷️ TÍTULOS ════════════╗", player.id, Cor.Roxo, "bold");
+        Object.keys(itens).forEach(function(k) {
+            var i = itens[k];
+            if (i.categoria === "TÍTULOS") {
+                room.sendAnnouncement(i.nome + " • " + i.preco + " coins • !comprar " + k, player.id, Cor.Branco, "normal");
+            }
+        });
+        room.sendAnnouncement("↩️ !loja para voltar ao menu.", player.id, Cor.Roxo, "bold");
+        return;
+    }
+    mostrarLoja(player);
+}
+
+function comprarLoja(player, itemKey) {
+    var itens = lojaItens();
+    var item = itens[itemKey];
+    if (!item) { room.sendAnnouncement("❌ Item não encontrado. Use !loja", player.id, 0xFF6B6B, "bold"); return false; }
+    if (item.premium && !jogadorPremium(player)) {
+        room.sendAnnouncement("💎 Esse item é exclusivo para Premium/Booster e Admins!", player.id, 0x9B59B6, "bold");
+        return false;
+    }
+    var profile = getProfile(getAuth(player));
+    if (profile.coins < item.preco) { room.sendAnnouncement("❌ Você precisa de " + item.preco + " coins. Saldo: " + profile.coins, player.id, 0xFF6B6B, "bold"); return false; }
+    if (profile.purchases.indexOf(itemKey) !== -1 && !item.bonus) { room.sendAnnouncement("❌ Você já possui esse item!", player.id, 0xFF6B6B, "bold"); return false; }
+
+    if (item.role === "booster" && profile.booster === true) {
+        room.sendAnnouncement("❌ Você já possui o Booster!", player.id, 0xFF6B6B, "bold");
+        return false;
+    }
+
+    profile.coins -= item.preco;
+    if (item.bonus) {
+        profile.coins += item.bonus;
+    } else {
+        profile.purchases.push(itemKey);
+        if (item.title) profile.title = item.title;
+        if (item.avatar) room.setPlayerAvatar(player.id, item.avatar);
+        if (item.role === "booster") {
+            profile.booster = true;
+            if (boosterPlayers.indexOf(player.id) === -1) boosterPlayers.push(player.id);
+            room.sendAnnouncement("💎 Você comprou o BOOSTER por 75.000 coins! O cargo já está ativo.", player.id, Cor.Roxo, "bold", 2);
+        }
+    }
+    saveProfile(getAuth(player), profile);
+    room.sendAnnouncement("✅ Compra realizada: " + item.nome + " | Saldo: " + profile.coins + " coins", player.id, 0x7DFA89, "bold");
+    sendGeneralLog("LOJA", player.name + " comprou " + item.nome + " por " + item.preco + " coins.");
+    return true;
+}
+
+function enviarPerfil(player) {
+    var st = localStorage.getItem(getAuth(player));
+    var stats = st ? JSON.parse(st) : [0,0,0,0,"0.00",0,0,0,0,"0.00","player",player.name];
+    var profile = getProfile(getAuth(player));
+    var cargo = cargoInfo(player);
+    var games = Number(stats[Ss.GA]) || 0;
+    var gols = Number(stats[Ss.GL]) || 0;
+    var assists = Number(stats[Ss.AS]) || 0;
+    var wr = Number(stats[Ss.WR]) || 0;
+    room.sendAnnouncement("━━━━━━━━━━ 👤 PERFIL ━━━━━━━━━━", player.id, cargo.cor, "bold");
+    room.sendAnnouncement(cargo.emoji + " " + player.name + " • " + cargo.nome + (profile.title ? " • 🏷️ " + profile.title : ""), player.id, cargo.cor, "bold");
+    var gkJogos = Number(stats[Ss.GK]) || 0;
+    room.sendAnnouncement("🎮 Partidas: " + games + " | ⚽ Gols: " + gols + " | 👟 Assistências: " + assists, player.id, 0xFFFFFF);
+    room.sendAnnouncement("🧤 Partidas como GK: " + gkJogos + " | 📈 WR: " + wr + "%", player.id, 0xFFFFFF);
+    room.sendAnnouncement("💰 Coins: " + profile.coins + " | 🛒 !loja", player.id, 0xFFD700, "bold");
+    room.sendAnnouncement("━━━━━━━━━━━━━━━━━━━━━━━━", player.id, cargo.cor, "bold");
+}
+
+function enviarGravacaoDiscord(recData, sumula) {
+    if (!recData || !sendRecWebhookURL) return;
+    try {
+        var form = new FormData();
+
+        var scores = (game && game.scores) ? game.scores : { red: 0, blue: 0, time: 0 };
+        var vencedor = lastWinner === Team.RED ? "🔴 RED" :
+                       lastWinner === Team.BLUE ? "🔵 BLUE" : "🤝 EMPATE";
+
+        var gols = formatGoalList ? formatGoalList() : "Nenhum gol registrado.";
+        var mvp = calcularMVPPartida ? calcularMVPPartida() : null;
+        var mvpTexto = mvp
+            ? "👑 " + mvp.player.name + " — " + mvp.score + " pts | ⚽ " + mvp.goals + " | 👟 " + mvp.assists
+            : "Nenhum MVP definido.";
+
+        // Nome do replay com placar.
+        var fileName = "AMK_" +
+            String(scores.red) + "x" + String(scores.blue) + "_" +
+            new Date().toISOString().replace(/[:.]/g, "-") + ".hbr2";
+
+        var descricao =
+            "🏟️ **" + roomName + "**\n" +
+            "🏆 **RESULTADO:** 🔴 " + scores.red + " x " + scores.blue + " 🔵\n" +
+            "**Vencedor:** " + vencedor + "\n" +
+            "**Duração:** " + Math.floor((scores.time || 0) / 60) + ":" +
+                ("0" + Math.floor((scores.time || 0) % 60)).slice(-2) + "\n" +
+            "\n⚽ **GOLS**\n" + gols + "\n" +
+            "\n" + mvpTexto +
+            "\n\n🎦 **Replay da partida anexado abaixo.**";
+
+        // Discord aceita o replay e a súmula/resultados na mesma mensagem.
+        form.append("file", new File([recData], fileName, { type: "application/octet-stream" }));
+        form.append("payload_json", JSON.stringify({
+            username: "AMK • SÚMULA & REPLAY",
+            embeds: [{
+                title: "📋 FIM DE PARTIDA • SÚMULA",
+                description: descricao,
+                color: 0x9B59B6,
+                timestamp: new Date().toISOString(),
+                footer: { text: "AMK FUTZERA • Replay HBR2" }
+            }]
+        }));
+
+        var request = new XMLHttpRequest();
+        request.open("POST", sendRecWebhookURL, true);
+        request.send(form);
+
+        console.log("[REC] Replay + súmula enviados: " + fileName);
+    } catch (e) {
+        console.log("[REC] Erro ao enviar replay/súmula:", e);
+    }
+}
+
+function gerarSenhaAleatoria(prefixo) {
+    const caracteres = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let senha = prefixo;
+    for (let i = 0; i < 4; i++) {
+        senha += caracteres.charAt(Math.floor(Math.random() * caracteres.length));
+    }
+    return senha;
+}
+
+function enviarSenhasDiscord(adminSenha, boosterSenha, origem, dataRef) {
+    try {
+        var dataTxt = dataRef ? (" (" + dataRef + ")") : "";
+        var origemTxt = origem ? (" | Origem: " + origem) : "";
+        if (senhaAdminDiariaWebhookURL) {
+            discordPostJSON(senhaAdminDiariaWebhookURL, {
+                username: "SENHA ADMIN",
+                embeds: [{
+                    title: "👑 Senha de Admin do dia" + dataTxt,
+                    color: 0x00E2FF,
+                    description: "Senha gerada" + origemTxt,
+                    fields: [{ name: "👑 Admin", value: "`" + adminSenha + "`", inline: true }],
+                    timestamp: new Date().toISOString()
+                }]
+            });
+        }
+        if (senhaBoosterDiariaWebhookURL) {
+            discordPostJSON(senhaBoosterDiariaWebhookURL, {
+                username: "SENHA BOOSTER",
+                embeds: [{
+                    title: "🐐 Senha de Booster do dia" + dataTxt,
+                    color: 0x9B59B6,
+                    description: "Senha gerada" + origemTxt,
+                    fields: [{ name: "🐐 Booster", value: "`" + boosterSenha + "`", inline: true }],
+                    timestamp: new Date().toISOString()
+                }]
+            });
+        }
+    } catch (e) {
+        console.log("[SENHAS] Erro ao enviar para o Discord:", e);
+    }
+}
+
+// ================= UNIFORMES =================
+var uniAlemanha = { nome: "Uniforme Alemanha", angle: 0, textcolor: 0xFFFAFA, colors: [0x000000, 0xFF0000, 0xFFA500] };
+var uniBrasil = { nome: "Uniforme Brasil", angle: 360, textcolor: 0x008B00, colors: [0xEEC900, 0xEEC900] };
+var uniBrasil2 = { nome: "Uniforme Brasil 2", angle: 180, textcolor: 0xFFFFFF, colors: [0xCCCC33, 0x006600, 0xCCCC33] };
+var uniBrasil3 = { nome: "Uniforme Brasil 3", angle: 180, textcolor: 0xF7FF00, colors: [0x1D3DBF] };
+var uniFlamengo = { nome: "Uniforme Flamengo", angle: 90, textcolor: 0xFFFAFA, colors: [0xFF0000, 0x000000, 0xFF0000] };
+var uniFlamengo2 = { nome: "Uniforme Flamengo 2", angle: 360, textcolor: 0xC70000, colors: [0xFFFFFF] };
+var uniFlamengo3 = { nome: "Uniforme Flamengo 3", angle: 0, textcolor: 0xD9B91A, colors: [0x949494] };
+var uniHolanda = { nome: "Uniforme Holanda", angle: 180, textcolor: 0x000000, colors: [0xFF7F00] };
+var uniArgentina = { nome: "Uniforme Argentina", angle: 90, textcolor: 0xFCBF49, colors: [0x75AADB, 0xFFFFFF, 0x75AADB] };
+var uniCorinthians1 = { nome: "Uniforme do Corinthians", angle: 90, textcolor: 0xFFBE4F, colors: [0x000000, 0xFFFFFF, 0x000000] };
+var uniCorinthians2 = { nome: "Uniforme do Corinthians 2", angle: 90, textcolor: 0xFFBE4F, colors: [0xFFFFFF, 0x000000, 0xFFFFFF] };
+var uniVasco = { nome: "Uniforme do Vasco", angle: 135, textcolor: 0xFF0000, colors: [0xFFFFFF, 0x000000, 0xFFFFFF] };
+var uniVasco2 = { nome: "Uniforme do Vasco 2", angle: 135, textcolor: 0xFF0000, colors: [0x000000, 0xFFFFFF, 0x000000] };
+var uniAtleticoMG = { nome: "Uniforme do Atletico MG", angle: 0, textcolor: 0xDAA520, colors: [0x000000, 0xFFFFFF, 0x000000] };
+var uniPalmeiras = { nome: "Uniforme do Palmeiras", angle: 90, textcolor: 0xB8860B, colors: [0x006400, 0xFFFAFA, 0x006400] };
+var uniSaoPaulo = { nome: "Uniforme do São Paulo", angle: 0, textcolor: 0x000000, colors: [0xFF0000, 0xFFFFFF, 0x000000] };
+var uniFluminense = { nome: "Uniforme do Fluminense", angle: 20, textcolor: 0xB8860B, colors: [0x215E21, 0xFFFAFA, 0xA62A2A] };
+var uniBotafogo = { nome: "Uniforme do Botafogo", angle: 225, textcolor: 0xDAA520, colors: [0x000000, 0x1C1C1C, 0x000000] };
+var uniInternacional = { nome: "Uniforme do Internacional", angle: 0, textcolor: 0xFFFFFF, colors: [0xFF0000] };
+var uniGoias = { nome: "Uniforme do Goias", angle: 180, textcolor: 0xFFFFFF, colors: [0x248F14, 0x04750B] };
+var uniBahia = { nome: "Uniforme do Bahia", angle: 120, textcolor: 0xE8E238, colors: [0x4336FF, 0xF5FDFF, 0xFF2121] };
+var uniFortaleza = { nome: "Uniforme do Fortaleza", angle: 0, textcolor: 0xB2B5B0, colors: [0x0022FF, 0xFFFFFF, 0xFF0000] };
+var uniRealMadrid = { nome: "Uniforme do Real Madrid", angle: 132, textcolor: 0xFFCD45, colors: [0xFFFFFF, 0x004077, 0xFFFFFF] };
+var uniRealMadrid2 = { nome: "Uniforme do Real Madrid 2", angle: 240, textcolor: 0x1E153B, colors: [0x9B61FF, 0x8553DB, 0x7147BA] };
+var uniBarcelona = { nome: "Uniforme do Barcelona", angle: 360, textcolor: 0xFFD700, colors: [0x00008B, 0x8B0000, 0x00008B] };
+var uniBarcelona2 = { nome: "Uniforme do Barcelona 2", angle: 60, textcolor: 0x6161FF, colors: [0xFFBE4F, 0xFFBE4F, 0xFFBE4F] };
+var uniBarcelona3 = { nome: "Uniforme do Barcelona 3", angle: 0, textcolor: 0xFFC44F, colors: [0x050047, 0xB30000, 0x050047] };
+var uniChelsea = { nome: "Uniforme do Chelsea", angle: 90, textcolor: 0xFFFFFF, colors: [0x0000CD, 0x00008B, 0x0000CD] };
+var uniMilan = { nome: "Uniforme do Milan", angle: 180, textcolor: 0xFFFFFF, colors: [0x000000, 0xFF0000, 0x000000] };
+var uniJuventus = { nome: "Uniforme da Juventus", angle: 180, textcolor: 0xDAA520, colors: [0x000000, 0xFFFFFF, 0x000000] };
+var uniBayernmunchen = { nome: "Uniforme do Bayern Munchen", angle: 30, textcolor: 0xFAF31E, colors: [0xFF0000, 0xF20000, 0xE00000] };
+var uniBorussia = { nome: "Uniforme do Borussia", angle: 90, textcolor: 0x000000, colors: [0xEEEE00, 0xFFFF00, 0xFFFF00] };
+var uniPSG = { nome: "Uniforme do PSG", angle: 180, textcolor: 0xFFFFFF, colors: [0x000080, 0xB22222, 0x000080] };
+var uniPSG2 = { nome: "Uniforme do PSG 2", angle: 180, textcolor: 0x000000, colors: [0xD4D5FF, 0x545454, 0xD4D5FF] };
+var uniPSG3 = { nome: "Uniforme do PSG 3", angle: 180, textcolor: 0xFF0000, colors: [0xFFFFFF, 0x0F2FFF, 0xFFFFFF] };
+var uniRiverPlate = { nome: "Uniforme do River Plate", angle: 45, textcolor: 0x000000, colors: [0xFFFAFA, 0xFF0000, 0xFFFAFA] };
+var uniBocaJuniors = { nome: "Uniforme do Boca Juniors", angle: 90, textcolor: 0xFFFAFA, colors: [0x0000FF, 0xFFFF00, 0x0000FF] };
+var uniBocaJuniors2 = { nome: "Uniforme do Boca Juniors 2", angle: 90, textcolor: 0x0000FF, colors: [0xFFFFFF, 0xFFFF00, 0xFFFFFF] };
+var uniRoma = { nome: "Uniforme da Roma", angle: 110, textcolor: 0xB56E1D, colors: [0x590000, 0x4A0000, 0x2E0000] };
+var uniNewcastle = { nome: "Uniforme do Newcastle", angle: 180, textcolor: 0x806113, colors: [0xFFFFFF, 0x1C1C1C, 0xFFFFFF] };
+var uniTottenham1 = { nome: "Uniforme do Tottenham", angle: 90, textcolor: 0x070045, colors: [0x070045, 0xFFFFFF, 0xFFFFFF] };
+var uniEspanha = { nome: "Uniforme da Espanha", angle: 90, textcolor: 0x000000, colors: [0xFF0000, 0xEEC900, 0xFF0000] };
+var uniPortugal = { nome: "Uniforme de Portugal", angle: 300, textcolor: 0xFFD700, colors: [0x006400, 0x8B0000, 0x8B0000] };
+var uniPortugal2 = { nome: "Uniforme de Portugal 2", angle: 300, textcolor: 0xFFD700, colors: [0x25701F, 0x990000, 0xFFFFFF] };
+var uniFrança1 = { nome: "Uniforme da França", angle: 0, textcolor: 0xBDA117, colors: [0x00008F] };
+var uniItalia = { nome: "Uniforme da Italia", angle: 0, textcolor: 0x0011FF, colors: [0x047000, 0xFFFFFF, 0xD40000] };
+var uniMarseille1 = { nome: "Olympique Marseille", angle: 90, textcolor: 0xF3F3F3, colors: [0x009ED6, 0xF3F3F3, 0xF3F3F3, 0xF3F3F3] };
+var uniManUtd1 = { nome: "Manchester United", angle: 90, textcolor: 0xAE142A, colors: [0xF7F7F5, 0xAE142A, 0xAE142A, 0xAE142A] };
+var uniColumbusCrew = { nome: "Uniforme do Columbus Crew", angle: 90, textcolor: 0xDEDE18, colors: [0x000000, 0x000000] };
+var uniHolanda2 = { nome: "Bandeira da Holanda", angle: 90, textcolor: 0x000000, colors: [0xFF0000, 0xFFFFFF, 0x0000CC] };
+var uniPortuguesa = { nome: "Uniforme da Portuguesa", angle: 90, textcolor: 0xFFFFFF, colors: [0xFF0000, 0x008000, 0xFF0000] };
+
+var uniformCommands = {
+    'fla': uniFlamengo, 'fla2': uniFlamengo2, 'fla3': uniFlamengo3,
+    'sccp': uniCorinthians1, 'sccp2': uniCorinthians2,
+    'vasco': uniVasco, 'vasco2': uniVasco2,
+    'cam': uniAtleticoMG, 'palmeiras': uniPalmeiras,
+    'spfc': uniSaoPaulo, 'flu': uniFluminense, 'bota': uniBotafogo,
+    'inter': uniInternacional, 'gremio': uniAtleticoMG, 'santos': uniBrasil,
+    'bahia': uniBahia, 'ceara': uniFortaleza, 'goias': uniGoias,
+    'br': uniBrasil, 'br2': uniBrasil2, 'br3': uniBrasil3,
+    'arg': uniArgentina, 'por': uniPortugal, 'esp': uniEspanha,
+    'psg': uniPSG, 'psg2': uniPSG2, 'psg3': uniPSG3,
+    'rm': uniRealMadrid, 'rm2': uniRealMadrid2,
+    'barcelona': uniBarcelona, 'barcelona2': uniBarcelona2, 'barcelona3': uniBarcelona3,
+    'city': uniColumbusCrew, 'che': uniChelsea, 'manutd': uniManUtd1,
+    'juve': uniJuventus, 'milan': uniMilan, 'bayern': uniBayernmunchen,
+    'bvb': uniBorussia, 'ajax': uniHolanda, 'river': uniRiverPlate,
+    'boca': uniBocaJuniors, 'boca2': uniBocaJuniors2, 'racing': uniArgentina,
+    'liverpool': uniNewcastle, 'arsenal': uniBrasil, 'tottenham': uniTottenham1,
+    'roma': uniRoma, 'naples': uniItalia, 'lyon': uniFrança1,
+    'marseille': uniMarseille1, 'benfica': uniPortugal2, 'porto': uniPortugal,
+    'sporting': uniPortuguesa, 'galo': uniAtleticoMG, 'porco': uniPalmeiras,
+    'mengao': uniFlamengo, 'curintia': uniCorinthians1
+};
+
+// ================= FUNÇÕES PREMIUM BOOSTER =================
+var uniVg = { nome: "Uniforme do Veigh", angle: 90, textcolor: 0x000000, colors: [0x792299, 0x7F00A6, 0x09000D] };
+var uniVg2 = { nome: "Uniforme do Veigh 2", angle: 90, textcolor: 0x2C3D33, colors: [0x00A616, 0x00FF5E, 0x000000] };
+var uniBay = { nome: "Uniforme do Bay", angle: 60, textcolor: 0x6F00FF, colors: [0x0A0A0A, 0x0F0F0F, 0x141414] };
+var uniBay2 = { nome: "Uniforme do Bay 2", angle: 60, textcolor: 0x4E00B3, colors: [0xF0F0F0, 0xEBEBEB, 0xE3E3E3] };
+var uniShadow = { nome: "Uniforme Shadow", angle: 90, textcolor: 0x191919, colors: [0x000000] };
+var uniTurq = { nome: "Uniforme Turquesa fofo", angle: 60, textcolor: 0xf3008e, colors: [0x47FFCE, 0x44F5C6, 0x3FE3B7] };
+var uniDiamond = { nome: "Uniforme Shiny Diamond", angle: 230, textcolor: 0xFFFFFF, colors: [0x70FFFF, 0x40FFFF, 0x05FFFF] };
+var uniNevoa = { nome: "Uniforme Nevoa Violeta", angle: 28, textcolor: 0x7755E8, colors: [0x454545, 0x474747, 0x4A4A4A] };
+var uniCrimson = { nome: "Uniforme Crimson", angle: 120, textcolor: 0xFFFFFF, colors: [0x3D0000, 0x270000, 0x1A0000] };
+var uniAbyss = { nome: "Uniforme Abyss", angle: 45, textcolor: 0x00FFFF, colors: [0x000B29, 0x00051A, 0x00020D] };
+var uniCarbon = { nome: "Uniforme Carbon", angle: 90, textcolor: 0x00FF00, colors: [0x2E2E2E, 0x1C1C1C, 0x0A0A0A] };
+var uniAmethyst = { nome: "Uniforme Amethyst", angle: 230, textcolor: 0xFFFFFF, colors: [0x8A2BE2, 0x9932CC, 0xBA55D3] };
+var uniIgnite = { nome: "Uniforme Ignite", angle: 0, textcolor: 0x000000, colors: [0xFF4500, 0xFFA500, 0xFFD700] };
+var uniGhost = { nome: "Uniforme Ghost", angle: 180, textcolor: 0x000000, colors: [0xEAEAEA, 0xF5F5F5, 0xFFFFFF] };
+var uniCyber = { nome: "Uniforme Cyber", angle: 45, textcolor: 0xFF00FF, colors: [0x1A001A, 0x0D000D, 0x000000] };
+var uniJade = { nome: "Uniforme Jade", angle: 180, textcolor: 0xFFFFFF, colors: [0x00A693, 0x00877A, 0x006B62] };
+var uniSolar = { nome: "Uniforme Solar", angle: 180, textcolor: 0x000000, colors: [0xFFFFFF, 0xFFE075, 0xFFC700] };
+var uniArctic = { nome: "Uniforme Arctic", angle: 200, textcolor: 0x002D62, colors: [0xD1E9FF, 0xE6F3FF, 0xFFFFFF] };
+var uniRoyal = { nome: "Uniforme Royal", angle: 90, textcolor: 0xFFD700, colors: [0x4B0082, 0x3A0063, 0x2C004C] };
+var uniOnyx = { nome: "Uniforme Onyx", angle: 0, textcolor: 0x8B0000, colors: [0x050505, 0x010101, 0x000000] };
+
+var UniformesPremium = {
+    // Uniformes históricos — cores/contrastes ajustados para lembrar o kit da época.
+    // O HaxBall trabalha com 3 cores + ângulo, então detalhes pequenos da camisa original
+    // são representados por essas combinações.
+    "rm17":  { nome: "Real Madrid 2016/17 — Azul da foto", angle: 240, textcolor: 0xFFFFFF, colors: [0x2A678C, 0x15304B, 0x2A678C] },
+    "man08": { nome: "Manchester United 2007/08", angle: 90,  textcolor: 0xFFFFFF, colors: [0xC8102E, 0xA50000, 0xFFFFFF] },
+    "bar09": { nome: "Barcelona 2008/09", angle: 0,   textcolor: 0xFFFF00, colors: [0x0000FF, 0xFF0000] },
+    "bar11": { nome: "Barcelona 2010/11", angle: 0,   textcolor: 0xFFD700, colors: [0x004D98, 0xA50044, 0x004D98] },
+    "mil07": { nome: "Milan 2006/07", angle: 180,  textcolor: 0xFF0000, colors: [0xF8F8FF, 0x900507, 0xF8F8FF] },
+    "liv19": { nome: "Liverpool — Vermelho listrado", angle: 90, textcolor: 0xFFFFFF, colors: [0xD70B2F, 0xB40B2B, 0xD70B2F] },
+    "ars04": { nome: "Arsenal 2003/04", angle: 180, textcolor: 0xD71920, colors: [0x701015, 0xCDE0E7, 0x701015] },
+    "bvb13": { nome: "Borussia Dortmund 2012/13", angle: 0, textcolor: 0x000000, colors: [0xFDE100, 0x1A1A1A, 0xFDE100] },
+    "bay13": { nome: "Bayern Futuro 2026/27", angle: 90, textcolor: 0xFFFFFF, colors: [0xDC052D, 0xFFFFFF, 0xDC052D] },
+    "psg17": { nome: "PSG 2016/17", angle: 90, textcolor: 0xFFFFFF, colors: [0x004170, 0xED1C24, 0x004170] },
+    "juv15": { nome: "Juventus 2014/15", angle: 0, textcolor: 0xFFFFFF, colors: [0x000000, 0xFFFFFF, 0x000000] },
+    "bra02": { nome: "Brasil 2002", angle: 90, textcolor: 0x0038A8, colors: [0xFFDF00, 0x009C3B, 0xFFDF00] },
+    "arg86": { nome: "Argentina 1986", angle: 0, textcolor: 0x000000, colors: [0x00BFFF, 0xFFFFFF, 0x00BFFF] },
+    'bay': uniBay, 'bay2': uniBay2, 'shd': uniShadow, 'diamond': uniDiamond,
+    'vg': uniVg, 'vg2': uniVg2, 'turq': uniTurq, 'nevoa': uniNevoa,
+    'crimson': uniCrimson, 'abyss': uniAbyss, 'carbon': uniCarbon,
+    'amethyst': uniAmethyst, 'ignite': uniIgnite, 'ghost': uniGhost,
+    'cyber': uniCyber, 'jade': uniJade, 'solar': uniSolar, 'arctic': uniArctic,
+    'royal': uniRoyal, 'onyx': uniOnyx
+};
+
+;
+/* Rivals removidos conforme configuração da AMK. */
+
+const animatedAvatars = {
+    'star': { frames: ["⭐", "🌟", "✨", "💫"], interval: 600 },
+    'dead': { frames: ["🙂", "😐", "☠️", "💀"], interval: 600 },
+    'moon': { frames: ["🌑", "🌒", "🌓", "🌔", "🌕", "🌖", "🌗", "🌘"], interval: 600 },
+    'heart': { frames: ["💓", "💖", "💗", "💓"], interval: 600 },
+    'ice': { frames: ["🧊", "💧", "🫗", "💧"], interval: 600 },
+    'cloud': { frames: ["☁️", "🌥️", "🌤️", "🌞", "🌤️", "🌥️"], interval: 600 },
+    'chick': { frames: ["🥚", "🐣", "🐥", "🐤"], interval: 600 },
+    'explosion': { frames: ["🧨", "💣", "💥", "🔥"], interval: 600 },
+    'dragon': { frames: ["🐉", "🔥", "🐲", "🔥"], interval: 600 },
+    'diamond': { frames: ["💎", "✨", "💠", "✨"], interval: 600 },
+    'crown': { frames: ["👑", "✨", "👑", "💫"], interval: 600 },
+    'rocket': { frames: ["🚀", "💨", "🚀", "🌟"], interval: 600 },
+    'money': { frames: ["🤑", "💰", "💵", "🤑"], interval: 600 },
+    'ghost': { frames: ["👻", "🌫️", "👻", "💀"], interval: 600 },
+    'lightning': { frames: ["⚡", "🌩️", "⚡", "💥"], interval: 600 },
+};
+
+const provocationsPublic = {
+    'quentin': "TÁ QUENTINHO AÍ? MEU BOLSO É DE VELUDO!",
+    'logica': "DEU A LÓGICA...",
+    'ez': "TEM COMO AUMENTAR O NÍVEL? TÁ MUITO EASY!",
+    'ifood': "OLHA O IFOOD! FOI AQUI QUE PEDIRAM A ENTREGA?",
+    'chora': "CHORA NÃO BEBÊ, SE QUISER CHORAR VAI PRA MATERNIDADE! 👶🍼",
+    'red': "ESSE ERA O RED?",
+    'blue': "ESSE ERA O BLUE?",
+    'paired': "EU = PAI DO RED 🤣😂",
+    'paiblue': "EU = PAI DO BLUE 🤣😂",
+    'pegala': "PEGA LÁ MIDZÃO! 👟🏐",
+    'perdoa': "ELE NÃO PERDOA, CARALHO!",
+    'perdoa2': "NÓS NÃO PERDOA NÃO, VIU? 😁",
+    'receba': "RECEBA, CARALHO! 😤",
+    'meto': "EU METO MESMO!!!",
+    'pega': "QUERO VER PEGAR ESSA PORRA!!!",
+    'oe': "OEEE! VIROU SPACE BOUNCE! 😅",
+    'gk': "ALGUÉM MID?",
+    'gk2': "ACORDA MID!!!",
+    'gk3': "UI, PEGA LÁ GK",
+    'gk4': "O GK AQUI SOU EU! ⛹️‍♂️",
+    'gk5': "BOA GK! ⛹️‍♂️",
+    'x': "TÁ SEM X? KKKKK",
+    'pika': "HAHAHAHA, ELE É PIK@",
+    'papai': "AI PAPAI!",
+    'seupai': "CHORA NÃO! JÁ PODE ME REGISTRAR COMO SEU PAI.",
+    'peganunca': "PEGA NUNCA!",
+    'pip': "OLHA A PIPOCA! 🍿",
+    'trm': "TIRA A MÃO DO SACO, GK!",
+    'trm2': "TIRA A MÃO DO SACO, PONTA!",
+    'viciado': "ELE ESTÁ MUITO VICIADO... EM PERDER! KKKKK",
+    'gostei': "EU GOSTEI DE JOGAR, MAS... COMO TIRA DO TUTORIAL?",
+    'perdeu': "PERDEU FEIO, AINDA CLIPEI! KKKKK",
+};
+
+// ================= FUNÇÕES PREMIUM BOOSTER =================
+var animacoesAtivas = {};
+
+function iniciarAvatarAnimado(player, animKey) {
+    const anim = animatedAvatars[animKey];
+    if (!anim || !player) return false;
+
+    // Cancela qualquer animação anterior do mesmo jogador.
+    if (animacoesAtivas[player.id]) {
+        clearInterval(animacoesAtivas[player.id].interval);
+        delete animacoesAtivas[player.id];
+    }
+
+    let frameIndex = 0;
+
+    // Mostra o primeiro frame imediatamente.
+    room.setPlayerAvatar(player.id, anim.frames[frameIndex]);
+    frameIndex = (frameIndex + 1) % anim.frames.length;
+
+    const intervalId = setInterval(function() {
+        const p = room.getPlayer(player.id);
+
+        if (!p) {
+            clearInterval(intervalId);
+            delete animacoesAtivas[player.id];
+            return;
+        }
+
+        // Se outra animação substituiu esta, encerra este timer.
+        if (!animacoesAtivas[player.id] ||
+            animacoesAtivas[player.id].interval !== intervalId) {
+            clearInterval(intervalId);
+            return;
+        }
+
+        room.setPlayerAvatar(player.id, anim.frames[frameIndex]);
+        frameIndex = (frameIndex + 1) % anim.frames.length;
+    }, anim.interval);
+
+    animacoesAtivas[player.id] = {
+        interval: intervalId,
+        animacao: animKey,
+        frames: anim.frames
+    };
+
+    return true;
+}
+
+function pararAvatarAnimado(player) {
+    if (!player) return false;
+
+    if (animacoesAtivas[player.id]) {
+        clearInterval(animacoesAtivas[player.id].interval);
+        delete animacoesAtivas[player.id];
+        room.setPlayerAvatar(player.id, null);
+        return true;
+    }
+
+    return false;
+}
+
+function listarUniformesPremium(player) {
+    if (!jogadorPremium(player)) {
+        room.sendAnnouncement("💎 Apenas Premium/Booster e Admins podem usar uniformes premium!", player.id, 0x9B59B6, "bold");
+        return false;
+    }
+
+    room.sendAnnouncement("💎 UNIFORMES HISTÓRICOS/PREMIUM — use !nome do uniforme:", player.id, 0x9B59B6, "bold");
+
+    var lista = Object.keys(UniformesPremium).map(function(k) {
+        // Os uniformes Premium agora podem ser ativados diretamente.
+        // Ex.: !solar, !arctic, !royal e !real.
+        var comando = (k === "rm17") ? "real" : (k === "liv19" ? "liverpool" : k);
+        return "!" + comando;
+    });
+
+    var partes = [];
+    var atual = "";
+    lista.forEach(function(item) {
+        if ((atual + item + " • ").length > 170) {
+            partes.push(atual);
+            atual = "";
+        }
+        atual += item + " • ";
+    });
+    if (atual) partes.push(atual);
+
+    partes.forEach(function(parte) {
+        room.sendAnnouncement(parte, player.id, 0xFFFFFF, "normal");
+    });
+    return true;
+}
+
+function aplicarUniformePremium(player, uniformeKey) {
+    if (!jogadorPremium(player)) {
+        room.sendAnnouncement("💎 Apenas Premium/Booster e Admins podem usar uniformes premium!", player.id, 0x9B59B6, "bold");
+        return false;
+    }
+    var uniforme = UniformesPremium[uniformeKey];
+    if (!uniforme) {
+        room.sendAnnouncement("❌ Uniforme Premium não encontrado! Use !uni premium", player.id, 0xFF6B6B, "bold");
+        return false;
+    }
+    var teamId = player.team === 1 ? 1 : (player.team === 2 ? 2 : 1);
+    room.setTeamColors(teamId, uniforme.angle, uniforme.textcolor, uniforme.colors);
+    room.sendAnnouncement("💎 Uniforme Premium " + uniforme.nome + " aplicado no time " + (teamId === 1 ? "vermelho" : "azul") + " por " + player.name + "!", null, 0x9B59B6, "bold", 1);
+    return true;
+}
+
+function aplicarUniformeAdminTime(player, uniformeKey, timeAlvo) {
+    if (!player || !player.admin) {
+        room.sendAnnouncement("❌ Apenas Admin/SuperAdmin pode escolher uniforme para RED ou BLUE.", player ? player.id : null, 0xFF6B6B, "bold");
+        return false;
+    }
+
+    var alvo = String(timeAlvo || "").toLowerCase();
+    var timeId = alvo === "red" ? Team.RED : (alvo === "blue" ? Team.BLUE : null);
+    if (timeId === null) {
+        room.sendAnnouncement("❌ Use: !bar11 red ou !bar11 blue", player.id, 0xFF6B6B, "bold");
+        return false;
+    }
+
+    var premiumKey = uniformeKey;
+    if (premiumKey === "real") premiumKey = "rm17";
+    if (premiumKey === "liverpool" || premiumKey === "liv") premiumKey = "liv19";
+
+    var uniforme = null;
+    if (typeof UniformesPremium !== "undefined" && UniformesPremium[premiumKey]) {
+        uniforme = UniformesPremium[premiumKey];
+    } else if (typeof uniformCommands !== "undefined" && uniformCommands[uniformeKey]) {
+        uniforme = uniformCommands[uniformeKey];
+    }
+
+    if (!uniforme) {
+        room.sendAnnouncement("❌ Uniforme '" + uniformeKey + "' não encontrado.", player.id, 0xFF6B6B, "bold");
+        return false;
+    }
+
+    room.setTeamColors(timeId, uniforme.angle, uniforme.textcolor, uniforme.colors);
+    room.sendAnnouncement(
+        "🎽 " + uniforme.nome + " aplicado no time " + (timeId === Team.RED ? "RED 🔴" : "BLUE 🔵") + " por " + player.name + "!",
+        null, 0x00E2FF, "bold", 1
+    );
+    sendGeneralLog("UNIFORME POR TIME", player.name + " aplicou " + uniformeKey + " no " + alvo.toUpperCase() + ".");
+    return false;
+}
+
+// ================= UNIFORMES POR COMANDO =================
+function aplicarUniformeDireto(player, uniformeKey) {
+    // Liberado para Admins e Capitães
+    if (!player.admin && !jogadorEhCapitao(player)) {
+        room.sendAnnouncement("❌ Apenas admins ou capitães podem usar uniformes!", player.id);
+        return false;
+    }
+    let uniforme = uniformCommands[uniformeKey];
+    if (!uniforme) {
+        room.sendAnnouncement("❌ Uniforme \"" + uniformeKey + "\" não encontrado! Use !uni para ver a lista.", player.id);
+        return false;
+    }
+    const teamId = player.team === 1 ? 1 : (player.team === 2 ? 2 : 1);
+    room.setTeamColors(teamId, uniforme.angle, uniforme.textcolor, uniforme.colors);
+    room.sendAnnouncement("🎽 Uniforme " + uniforme.nome + " aplicado no time " + (teamId === 1 ? "vermelho" : "azul") + " por " + player.name + "!", null, 0x00E2FF, "bold", 1);
+    return true;
+}
+
+function listarUniformes(player) {
+    var keys = Object.keys(uniformCommands);
+    room.sendAnnouncement("🎽 UNIFORMES NORMAIS — use !uni <código>", player.id, Cor.Azulclaro, "bold");
+
+    var partes = [];
+    var atual = "";
+    keys.forEach(function(key) {
+        var item = key;
+        if ((atual + item + " • ").length > 150) {
+            partes.push(atual);
+            atual = "";
+        }
+        atual += item + " • ";
+    });
+    if (atual) partes.push(atual);
+
+    partes.forEach(function(parte) {
+        room.sendAnnouncement(parte, player.id, Cor.Branco, "normal");
+    });
+
+    room.sendAnnouncement("💎 Quer os uniformes Premium? Use !uni premium", player.id, Cor.Roxo, "bold");
+}
+
+function jogadorEhCapitao(player) {
+    return (TeamR && TeamR.length > 0 && TeamR[0].id === player.id) ||
+           (TeamB && TeamB.length > 0 && TeamB[0].id === player.id);
+}
+
+function listarProvocacoes(player) {
+    if (!player.admin && !jogadorEhCapitao(player)) {
+        room.sendAnnouncement("❌ Apenas Admins ou Capitães podem ver a lista de provocações!", player.id, 0xFF6B6B, "bold");
+        return false;
+    }
+    const lista = Object.keys(provocationsPublic).map(key => "!" + key).join(", ");
+    room.sendAnnouncement("🗣️ Provocações disponíveis:", player.id, 0x00E2FF, "bold");
+    const partes = lista.match(/.{1,180}(?:, |$)/g) || [lista];
+    partes.forEach(parte => room.sendAnnouncement(parte.trim(), player.id, 0xFFFFFF, "normal"));
+    return false;
+}
+
+// ================= PROVOCAÇÕES =================
+var provocCooldown = {};
+
+function enviarProvocacao(player, comando) {
+    const args = comando.split(" ");
+    const provocKey = args[0];
+    let provocacao = provocationsPublic[provocKey];
+    if (!provocacao) return false;
+    const agora = Date.now();
+    if (!player.admin && provocCooldown[player.id]) {
+        if (agora - provocCooldown[player.id] < 30000) {
+            room.sendAnnouncement("⏳ Aguarde 30 segundos entre provocações!", player.id);
+            return false;
+        }
+    }
+    provocCooldown[player.id] = agora;
+    let prefix = "";
+    if (superAdmins.includes(player.id)) {
+        prefix = "👑 ";
+    } else if (boosterPlayers.includes(player.id)) {
+        prefix = "🐐 ";
+    }
+    let teamColor = 0xFFFFFF;
+    if (player.team === 1) {
+        teamColor = 0xff4640;
+    } else if (player.team === 2) {
+        teamColor = 0x089cff;
+    }
+    room.sendAnnouncement(prefix + player.name + " 🗣️:", null, teamColor, "bold", 0);
+    room.sendAnnouncement("\"" + provocacao + "\"", null, 0x00FF00, "bold", 2);
+    return false;
+}
+
+function verificarEGerarSenhas() {
+    const dataAtual = new Date();
+    const dataFormatada = dataAtual.getDate() + "/" + (dataAtual.getMonth() + 1) + "/" + dataAtual.getFullYear();
+    if (ultimaDataSenha !== dataFormatada || senhaAdminDiaria === "" || senhaBoosterDiaria === "") {
+        senhaAdminDiaria = gerarSenhaAleatoria("ADM");
+        senhaBoosterDiaria = gerarSenhaAleatoria("BOOSTER");
+        ultimaDataSenha = dataFormatada;
+        console.log("[SENHAS] Novas senhas geradas para " + dataFormatada);
+        enviarSenhasDiscord(senhaAdminDiaria, senhaBoosterDiaria, "AUTO", dataFormatada);
+    }
+}
+
+function verificarResetSenhas() {
+    const agora = new Date();
+    if (agora.getHours() === 23 && agora.getMinutes() === 0) {
+        const dataAtual = agora.getDate() + "/" + (agora.getMonth() + 1) + "/" + agora.getFullYear();
+        if (ultimaDataSenha === dataAtual) {
+            ultimaDataSenha = "";
+            boosterPlayers = [];
+            room.sendAnnouncement("🔐 As senhas diárias foram resetadas!", null, 0xFFAA00, "bold", 2);
+            verificarEGerarSenhas();
+        }
+    }
+}
+
+setInterval(verificarResetSenhas, 60000);
+verificarEGerarSenhas();
+
+/* ESTÁDIO - MAPA PRINCIPAL 4x4 */
+const playerRadius = 15;
+var ballRadius = 6.25;
+const triggerDistance = playerRadius + ballRadius + 0.01;
+
+// Mapa Futsal AMK fornecido
+var practiceMap = `{"name":"Futsal AMK","width":900,"height":404,"spawnDistance":310,"bg":{"type":"hockey","width":793,"height":346,"kickOffRadius":95,"cornerRadius":0},"vertexes":[{"x":-793,"y":346,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":-793,"y":95,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":-793,"y":-95,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":-793,"y":-346,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":793,"y":346,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":793,"y":95,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":793,"y":-95,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":793,"y":-346,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":0,"y":404,"trait":"kickOffBarrier"},{"x":0,"y":95,"trait":"kickOffBarrier"},{"x":0,"y":-95,"trait":"line"},{"x":0,"y":-404,"trait":"kickOffBarrier"},{"x":-821,"y":-95,"bCoef":0.1,"cMask":["ball"],"trait":"goalNet"},{"x":821,"y":-95,"bCoef":0.1,"cMask":["ball"],"trait":"goalNet"},{"x":-821,"y":95,"bCoef":0.1,"cMask":["ball"],"trait":"goalNet"},{"x":821,"y":95,"bCoef":0.1,"cMask":["ball"],"trait":"goalNet"},{"x":-793,"y":-271,"trait":"line"},{"x":-572,"y":-50,"trait":"line"},{"x":793,"y":-271,"trait":"line"},{"x":572,"y":-50,"trait":"line"},{"x":-793,"y":271,"trait":"line"},{"x":-572,"y":50,"trait":"line"},{"x":793,"y":271,"trait":"line"},{"x":572,"y":50,"trait":"line"},{"x":793,"y":346,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":793,"y":-346,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":0,"y":346,"bCoef":0,"trait":"line"},{"x":0,"y":-346,"bCoef":0,"trait":"line"},{"x":0,"y":95,"trait":"kickOffBarrier"},{"x":0,"y":-95,"trait":"kickOffBarrier"},{"x":802,"y":-98,"bCoef":1,"cMask":["ball"],"trait":"line"},{"x":802,"y":-346,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":-802,"y":-98,"bCoef":1,"cMask":["ball"],"trait":"line"},{"x":-802,"y":-346,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":-802,"y":98,"bCoef":1,"cMask":["ball"],"trait":"line"},{"x":-802,"y":346,"bCoef":1,"cMask":["ball"],"trait":"ballArea"},{"x":802,"y":98,"bCoef":1,"cMask":["ball"],"trait":"line"},{"x":802,"y":346,"bCoef":1,"cMask":["ball"],"trait":"ballArea"}],"segments":[{"v0":0,"v1":1,"trait":"ballArea"},{"v0":2,"v1":3,"trait":"ballArea"},{"v0":4,"v1":5,"trait":"ballArea"},{"v0":6,"v1":7,"trait":"ballArea"},{"v0":8,"v1":9,"trait":"kickOffBarrier"},{"v0":9,"v1":10,"curve":180,"cGroup":["blueKO"],"trait":"kickOffBarrier"},{"v0":9,"v1":10,"curve":-180,"cGroup":["redKO"],"trait":"kickOffBarrier"},{"v0":10,"v1":11,"trait":"kickOffBarrier"},{"v0":2,"v1":12,"curve":-35,"vis":true,"color":"FFFFFF","bCoef":0.1,"cMask":["ball"],"trait":"goalNet","y":-95},{"v0":6,"v1":13,"curve":35,"vis":true,"color":"FFFFFF","bCoef":0.1,"cMask":["ball"],"trait":"goalNet","y":-95},{"v0":1,"v1":14,"curve":35,"vis":true,"color":"FFFFFF","bCoef":0.1,"cMask":["ball"],"trait":"goalNet","y":95},{"v0":5,"v1":15,"curve":-35,"vis":true,"color":"FFFFFF","bCoef":0.1,"cMask":["ball"],"trait":"goalNet","y":95},{"v0":12,"v1":14,"curve":-35,"vis":true,"color":"FFFFFF","bCoef":0.1,"cMask":["ball"],"trait":"goalNet","x":-821},{"v0":13,"v1":15,"curve":35,"vis":true,"color":"FFFFFF","bCoef":0.1,"cMask":["ball"],"trait":"goalNet","x":585},{"v0":16,"v1":17,"curve":90,"color":"FFFFFF","trait":"line"},{"v0":18,"v1":19,"curve":-90,"color":"FFFFFF","trait":"line"},{"v0":20,"v1":21,"curve":-90,"color":"FFFFFF","trait":"line"},{"v0":22,"v1":23,"curve":90,"color":"FFFFFF","trait":"line"},{"v0":17,"v1":21,"curve":0,"vis":true,"color":"FFFFFF","bCoef":0,"trait":"line","x":-600},{"v0":19,"v1":23,"curve":0,"vis":true,"color":"FFFFFF","bCoef":0,"trait":"line","x":572},{"v0":1,"v1":0,"vis":true,"color":"FFFFFF","bCoef":1,"cMask":["ball"],"trait":"ballArea","x":-665},{"v0":5,"v1":4,"vis":true,"color":"FFFFFF","bCoef":1,"cMask":["ball"],"trait":"ballArea","x":665},{"v0":2,"v1":3,"vis":true,"color":"FFFFFF","bCoef":1,"cMask":["ball"],"trait":"ballArea","x":-665},{"v0":6,"v1":7,"vis":true,"color":"FFFFFF","bCoef":1,"cMask":["ball"],"trait":"ballArea","x":665},{"v0":0,"v1":24,"vis":true,"color":"FFFFFF","bCoef":1,"trait":"ballArea","y":290},{"v0":3,"v1":25,"vis":true,"color":"FFFFFF","bCoef":1,"trait":"ballArea","y":-290},{"v0":26,"v1":27,"curve":0,"vis":true,"color":"FFFFFF","bCoef":0,"trait":"line"},{"v0":10,"v1":9,"curve":-180,"vis":true,"color":"FFFFFF","bCoef":0,"trait":"line"},{"v0":29,"v1":28,"curve":180,"vis":true,"color":"FFFFFF","bCoef":0,"trait":"line"},{"v0":2,"v1":1,"curve":0,"vis":true,"color":"FFFFFF","bCoef":0,"trait":"line"},{"v0":6,"v1":5,"curve":0,"vis":true,"color":"FFFFFF","bCoef":0,"trait":"line"},{"v0":30,"v1":31,"vis":false,"color":"FFFFFF","bCoef":1,"cMask":["ball"],"trait":"ballArea","x":614},{"v0":32,"v1":33,"vis":false,"color":"FFFFFF","bCoef":1,"cMask":["ball"],"trait":"ballArea","x":-614},{"v0":34,"v1":35,"vis":false,"color":"FFFFFF","bCoef":1,"cMask":["ball"],"trait":"ballArea","x":-614},{"v0":36,"v1":37,"vis":false,"color":"FFFFFF","bCoef":1,"cMask":["ball"],"trait":"ballArea","x":614}],"goals":[{"p0":[-802,-95],"p1":[-802,95],"team":"red"},{"p0":[802,95],"p1":[802,-95],"team":"blue"}],"discs":[{"radius":5,"pos":[-793,95],"color":"FFFFFF","trait":"goalPost"},{"radius":5,"pos":[-793,-95],"color":"FFFFFF","trait":"goalPost"},{"radius":5,"pos":[793,95],"color":"FFFFFF","trait":"goalPost"},{"radius":5,"pos":[793,-95],"color":"FFFFFF","trait":"goalPost"}],"planes":[{"normal":[0,1],"dist":-346,"trait":"ballArea"},{"normal":[0,-1],"dist":-346,"trait":"ballArea"},{"normal":[0,1],"dist":-404,"bCoef":0.2,"cMask":["all"]},{"normal":[0,-1],"dist":-404,"bCoef":0.2,"cMask":["all"]},{"normal":[1,0],"dist":-900,"bCoef":0.2,"cMask":["all"]},{"normal":[-1,0],"dist":-900,"bCoef":0.2,"cMask":["all"]}],"traits":{"ballArea":{"vis":false,"bCoef":1,"cMask":["ball"]},"goalPost":{"radius":8,"invMass":0,"bCoef":1},"goalNet":{"vis":true,"bCoef":0.1,"cMask":["all"]},"kickOffBarrier":{"vis":false,"bCoef":0.1,"cGroup":["redKO","blueKO"],"cMask":["red","blue"]},"line":{"vis":true,"bCoef":0,"cMask":[]},"arco":{"radius":2,"cMask":["n/d"],"color":"cccccc"}},"playerPhysics":{"acceleration":0.11,"kickingAcceleration":0.1,"kickStrength":7},"ballPhysics":{"radius":6.4,"color":"EAFF00"}}`;
+
+/* OPÇÕES */
+var afkLimit = 15;
+var drawTimeLimit = 2;
+var maxTeamSize = 4; // 4x4 conforme solicitado
+var slowMode = 0;
+
+/* JOGADORES */
+const Team = {
+    SPECTATORS: 0,
+    RED: 1,
+    BLUE: 2
+};
+var extendedP = [];
+const eP = {
+    ID: 0,
+    AUTH: 1,
+    CONN: 2,
+    AFK: 3,
+    ACT: 4,
+    GK: 5,
+    MUTE: 6
+};
+const Ss = {
+    GA: 0, WI: 1, DR: 2, LS: 3, WR: 4, GL: 5, AS: 6,
+    GK: 7, CS: 8, CP: 9, RL: 10, NK: 11
+};
+var players;
+var TeamR;
+var TeamB;
+var teamS;
+var messageHistory = [0, 0, 0, 0, 0, 0];
+var messageCounter = 0;
+
+// Anti-flood robusto: conta mensagens por jogador dentro de uma janela de tempo.
+var floodControle = {};
+var FLOOD_JANELA_MS = 7000;      // janela de 7 segundos
+var FLOOD_AVISO_QTD = 4;         // aviso após 4 mensagens rápidas
+var FLOOD_MUTE_QTD = 5;          // mute após 5 mensagens rápidas
+var FLOOD_MUTE_MS = 5 * 60 * 1000; // 5 minutos de mute
+
+/* JOGO */
+let forbid = [];
+let link = ['https://www.haxball.com/play?c=_', 'https://www.haxball.com', 'haxball.com', '.com', 'https://', 'https:', 'https://www.'];
+// Palavrões comuns NÃO são bloqueados: os jogadores podem se xingar.\n// A moderação automática fica restrita a racismo e ofensas usando PCD.\nlet regex = [];
+let xingo = ["seu preto", "seu macaco", "seu negro", "pretinho", "seu mcc", "negrinho", "carvão", "nazista", "adolf hitler", "heil hitler", "nazismo"];
+let pcdTermos = ["pcd", "p.c.d"];
+
+function nameForbid(player) {
+    if (forbid.includes(player.name)) {
+        room.kickPlayer(player.id, 'nick proibido nessa sala', false);
+    }
+}
+
+var lastTeamTouched;
+var lastPlayersTouched;
+var countAFK = false;
+var afkWarnings = {}; // controla o aviso de 10s para não repetir
+var afkPositionState = {}; // posição anterior de cada jogador para detectar AFK real
+const AFK_AVISO_SEGUNDOS = 10;
+const AFK_KICK_SEGUNDOS = 15;
+const AFK_MOVIMENTO_MINIMO = 1.5;
+var activePlay = false;
+var goldenGoal = false;
+var SMSet = new Set();
+var banList = [];
+
+/* ESTATÍSTICAS */
+var game;
+var GKList = ["", ""];
+var Rposs = 0;
+var Bposs = 0;
+var point = [{ "x": 0, "y": 0 }, { "x": 0, "y": 0 }];
+var ballSpeed;
+var lastWinner = Team.SPECTATORS;
+var streak = 0;
+var allBlues = [];
+var allReds = [];
+var matchReds = [];
+var matchBlues = [];
+
+/* EQUILÍBRIO E RECRUTAMENTO */
+var inChooseMode = false;
+var redCaptainChoice = "";
+var blueCaptainChoice = "";
+var chooseTime = 18; // 18 segundos para escolher
+var timeOutCap;
+
+/* AUXILIAR */
+var checkTimeVariable = false;
+var announced = false;
+var statNumber = 0;
+var endGameVariable = false;
+var resettingTeams = false;
+var capLeft = false;
+var statInterval = 6;
+
+loadMap(practiceMap, scoreLimitPractice, timeLimitPractice);
+
+/* OBJETOS */
+function Goal(time, team, striker, assist) {
+    this.time = time;
+    this.team = team;
+    this.striker = striker;
+    this.assist = assist;
+}
+
+function Game(date, scores, goals) {
+    this.date = date;
+    this.scores = scores;
+    this.goals = goals;
+}
+
+/* FUNÇÕES */
+function centerText(string) {
+    var space = parseInt((80 - string.length) * 0.8, 10);
+    if (space <= 0) return '';
+    return ' '.repeat(space) + string + ' '.repeat(space);
+}
+
+/* ZOEIRAS */
+function golcontra(goaler) {
+    var messages = [
+        "Tenho certeza que foi sem querer né, " + goaler.name + "?",
+        "TÁ JOGANDO NO TIME ERRADO, " + goaler.name,
+        "PARABÉNS, " + goaler.name + " O TIME ADVERSÁRIO AGRADECE!",
+        "Dica pro " + goaler.name + ": Na próxima... NÃO MIRA NO SEU GOL!!",
+        goaler.name + " tentou, quem sou eu pra julgar?"
+    ];
+    var randomIndex = Math.floor(Math.random() * messages.length);
+    var announcement = messages[randomIndex];
+    setTimeout(function() {
+        room.sendAnnouncement(centerText(announcement), null, Cor.Branco, "bold");
+    }, 3000);
+}
+
+/* FUNÇÕES AUXILIARES */
+function getRandomInt(max) {
+    return Math.floor(Math.random() * Math.floor(max));
+}
+
+function getTime(scores) {
+    return "[" + Math.floor(Math.floor(scores.time / 60) / 10).toString() + Math.floor(Math.floor(scores.time / 60) % 10).toString() + ":" + Math.floor(Math.floor(scores.time - (Math.floor(scores.time / 60) * 60)) / 10).toString() + Math.floor(Math.floor(scores.time - (Math.floor(scores.time / 60) * 60)) % 10).toString() + "]";
+}
+
+function pointDistance(p1, p2) {
+    var d1 = p1.x - p2.x;
+    var d2 = p1.y - p2.y;
+    return Math.sqrt(d1 * d1 + d2 * d2);
+}
+
+/* BOTÕES */
+function topBtn() {
+    if (teamS.length == 0) return;
+    if (TeamR.length == TeamB.length) {
+        if (teamS.length > 1) {
+            room.setPlayerTeam(teamS[0].id, Team.RED);
+            room.setPlayerTeam(teamS[1].id, Team.BLUE);
+        }
+        return;
+    } else if (TeamR.length < TeamB.length) {
+        room.setPlayerTeam(teamS[0].id, Team.RED);
+    } else {
+        room.setPlayerTeam(teamS[0].id, Team.BLUE);
+    }
+}
+
+function randomBtn() {
+    if (teamS.length == 0) return;
+    if (TeamR.length == TeamB.length) {
+        if (teamS.length > 1) {
+            var r = getRandomInt(teamS.length);
+            room.setPlayerTeam(teamS[r].id, Team.RED);
+            teamS = teamS.filter((spec) => spec.id != teamS[r].id);
+            room.setPlayerTeam(teamS[getRandomInt(teamS.length)].id, Team.BLUE);
+        }
+        return;
+    } else if (TeamR.length < TeamB.length) {
+        room.setPlayerTeam(teamS[getRandomInt(teamS.length)].id, Team.RED);
+    } else {
+        room.setPlayerTeam(teamS[getRandomInt(teamS.length)].id, Team.BLUE);
+    }
+}
+
+function blueToSpecBtn() {
+    resettingTeams = true;
+    setTimeout(() => { resettingTeams = false; }, 100);
+    for (var i = 0; i < TeamB.length; i++) {
+        room.setPlayerTeam(TeamB[TeamB.length - 1 - i].id, Team.SPECTATORS);
+    }
+}
+
+function redToSpecBtn() {
+    resettingTeams = true;
+    setTimeout(() => { resettingTeams = false; }, 100);
+    for (var i = 0; i < TeamR.length; i++) {
+        room.setPlayerTeam(TeamR[TeamR.length - 1 - i].id, Team.SPECTATORS);
+    }
+}
+
+function resetBtn() {
+    resettingTeams = true;
+    setTimeout(() => { resettingTeams = false; }, 100);
+    if (TeamR.length <= TeamB.length) {
+        for (var i = 0; i < TeamR.length; i++) {
+            room.setPlayerTeam(TeamB[TeamB.length - 1 - i].id, Team.SPECTATORS);
+            room.setPlayerTeam(TeamR[TeamR.length - 1 - i].id, Team.SPECTATORS);
+        }
+        for (var i = TeamR.length; i < TeamB.length; i++) {
+            room.setPlayerTeam(TeamB[TeamB.length - 1 - i].id, Team.SPECTATORS);
+        }
+    } else {
+        for (var i = 0; i < TeamB.length; i++) {
+            room.setPlayerTeam(TeamB[TeamB.length - 1 - i].id, Team.SPECTATORS);
+            room.setPlayerTeam(TeamR[TeamR.length - 1 - i].id, Team.SPECTATORS);
+        }
+        for (var i = TeamB.length; i < TeamR.length; i++) {
+            room.setPlayerTeam(TeamR[TeamR.length - 1 - i].id, Team.SPECTATORS);
+        }
+    }
+}
+
+function blueToRedBtn() {
+    resettingTeams = true;
+    setTimeout(() => { resettingTeams = false; }, 100);
+    for (var i = 0; i < TeamB.length; i++) {
+        room.setPlayerTeam(TeamB[i].id, Team.RED);
+    }
+}
+/* FUNÇÕES DO JOGO */
+function checkTime() {
+    const scores = room.getScores();
+    game.scores = scores;
+    if (Math.abs(scores.time - scores.timeLimit) <= 0.01 && scores.timeLimit != 0) {
+        if (scores.red != scores.blue) {
+            if (checkTimeVariable == false) {
+                checkTimeVariable = true;
+                setTimeout(() => { checkTimeVariable = false; }, 3000);
+                scores.red > scores.blue ? endGame(Team.RED) : endGame(Team.BLUE);
+                setTimeout(() => { room.stopGame(); }, 2000);
+            }
+            return;
+        }
+        goldenGoal = true;
+        room.sendAnnouncement(centerText("PRORROGAÇÃO"), null, Cor.Amarelo, "bold");
+        room.sendAnnouncement(centerText("Vou dar " + drawTimeLimit * 60 + " segundos!"), null, Cor.Branco, "normal");
+        room.sendAnnouncement(centerText("⚽ Primeiro gol vence! ⚽"), null, Cor.Branco, "normal");
+    }
+    if (scores.time > scores.timeLimit + drawTimeLimit * 60 - 15 && scores.time <= scores.timeLimit + drawTimeLimit * 60) {
+        if (checkTimeVariable == false && announced == false) {
+            checkTimeVariable = true;
+            announced = true;
+            setTimeout(() => { checkTimeVariable = false; }, 10);
+            room.sendAnnouncement(centerText("⌛ 15 segundos para o empate!"), null, Cor.Amarelo, "bold");
+        }
+    }
+    if (scores.time > (scores.timeLimit + drawTimeLimit * 60)) {
+        if (checkTimeVariable == false) {
+            checkTimeVariable = true;
+            setTimeout(() => { checkTimeVariable = false; }, 10);
+            room.sendAnnouncement(centerText("🤝 EMPATE! 2 MINUTOS DE PRORROGAÇÃO SEM GOL."), null, Cor.Amarelo, "bold");
+            room.sendAnnouncement(centerText("🔴 Os dois times serão enviados para os espectadores."), null, Cor.Branco, "normal");
+            room.setPlayerTeam(-1, Team.SPECTATORS);
+            endGame(Team.SPECTATORS);
+            room.stopGame();
+            goldenGoal = false;
+        }
+    }
+}
+
+function endGame(winner) {
+    // Evita contar a mesma partida duas vezes nas estatísticas.
+    if (endGameVariable) return;
+    endGameVariable = true;
+    players.length >= 2 * maxTeamSize ? activateChooseMode() : null;
+    const scores = room.getScores();
+    game.scores = scores;
+    Rposs = Rposs / (Rposs + Bposs);
+    Bposs = 1 - Rposs;
+    lastWinner = winner;
+    if (winner == Team.RED) {
+        streak++;
+        room.sendAnnouncement(centerText("🏆 Time vermelho venceu! | Sequência de Vitória(s): ") + streak + " 🏆", null, 0xFDC43A);
+    } else if (winner == Team.BLUE) {
+        streak = 1;
+        room.sendAnnouncement(centerText("🏆 Time azul venceu! | Sequência de Vitória(s): ") + streak + " 🏆", null, 0xFDC43A);
+    } else {
+        streak = 0;
+        room.sendAnnouncement("💤 Tempo limite alcançado");
+    }
+    room.sendAnnouncement(centerText("🏆 FIM DE PARTIDA 🏆"), null, Cor.Branco, "bold");
+    room.sendAnnouncement(centerText("" + scores.red + " - " + scores.blue), null, Cor.Branco, "normal");
+    room.sendAnnouncement(centerText((Rposs * 100).toPrecision(3).toString() + "% | Posse de bola | " + (Bposs * 100).toPrecision(3).toString() + "%"), null, Cor.Branco, "normal");
+    scores.red == 0 ? (scores.blue == 0 ? room.sendAnnouncement("🥅 " + GKList[0].name + " é um homem? não, é uma barreira! " + GKList[1].name + " não tomou gol.", null, 0xFDC43A) : room.sendAnnouncement("🥅 é um homem? não, é uma barreira! " + GKList[1].name + " não tomou nenhum gol", null, 0xFDC43A)) : scores.blue == 0 ? room.sendAnnouncement("🥅 é um homem? não, é uma barreira! " + GKList[0].name + " não tomou nenhum gol", null, 0xFDC43A) : null;
+    atualizarSequenciasJogadores(winner);
+
+    // Atualiza estatísticas da temporada antes do reset/recompensa.
+    var jogadoresTemporada = allReds.concat(allBlues);
+    jogadoresTemporada.forEach(function(p) {
+        if (!p) return;
+        registrarStatTemporada(p, "game", 1);
+
+        if (winner === Team.RED && p.team === Team.RED) registrarStatTemporada(p, "win", 1);
+        else if (winner === Team.BLUE && p.team === Team.BLUE) registrarStatTemporada(p, "win", 1);
+        else if (winner === Team.RED || winner === Team.BLUE) registrarStatTemporada(p, "loss", 1);
+        else registrarStatTemporada(p, "draw", 1);
+    });
+
+    (game.goals || []).forEach(function(g) {
+        if (g.striker) registrarStatTemporada(g.striker, "goal", 1);
+        if (g.assist) registrarStatTemporada(g.assist, "assist", 1);
+    });
+
+    var mvp = calcularMVPPartida();
+    if (mvp) {
+        registrarStatTemporada(mvp.player, "mvp", 1);
+        room.sendAnnouncement(centerText("👑 MVP DA PARTIDA: " + mvp.player.name + " | " + mvp.score + " pontos"), null, Cor.Ouro, "bold", 2);
+    }
+    var sumula = gerarSumulaPartida();
+    enviarSumulaDiscord(sumula);
+    sendGeneralLog("PARTIDA ENCERRADA", sumula.replace(/\*\*/g, ""));
+    updateStats();
+    premiarCoinsDaPartida(mvp);
+
+    // Todo uniforme Premium/Rivals usado na partida é descartado.
+    // A próxima partida sempre começa com uniformes normais.
+    room.setTeamColors(Team.RED, 0, 0xFFFFFF, [0xFF0000]);
+    room.setTeamColors(Team.BLUE, 0, 0xFFFFFF, [0x0000FF]);
+
+    verificarFimTemporada();
+}
+
+function quickRestart() {
+    room.stopGame();
+    setTimeout(() => { room.startGame(); }, 2000);
+}
+
+function resumeGame() {
+    setTimeout(() => { room.startGame(); }, 2000);
+    setTimeout(() => { room.pauseGame(false); }, 1000);
+}
+
+function activateChooseMode() {
+    inChooseMode = true;
+    slowMode = 2;
+    room.sendAnnouncement(" Os capitães escolhem digitando apenas o número do jogador.", null, 0x55bae2, "bold");
+}
+
+function deactivateChooseMode() {
+    inChooseMode = false;
+    clearTimeout(timeOutCap);
+    if (slowMode != 0) {
+        slowMode = 0;
+        room.sendAnnouncement("Modo de escolha encerrado.", null, 0xf2a000, "normal");
+    }
+    redCaptainChoice = "";
+    blueCaptainChoice = "";
+}
+
+function loadMap(map, scoreLim, timeLim) {
+    if (map != '') {
+        room.setCustomStadium(map);
+    } else {
+        console.log("deu um erro carregando o estádio");
+        room.setDefaultStadium("Classic");
+    }
+    room.setScoreLimit(scoreLim);
+    room.setTimeLimit(timeLim);
+}
+
+/* FUNÇÕES DO JOGADOR */
+function updateTeams() {
+    players = room.getPlayerList().filter((player) => player.id != 0 && !getAFK(player));
+    TeamR = players.filter(p => p.team === Team.RED);
+    TeamB = players.filter(p => p.team === Team.BLUE);
+    teamS = players.filter(p => p.team === Team.SPECTATORS);
+}
+
+function handleInactivity() {
+    // AFK é baseado na POSIÇÃO real do jogador.
+    // Assim funciona para jogador normal, Admin, SuperAdmin e Booster,
+    // e também conta desde o início da partida, antes do primeiro toque na bola.
+    if (!countAFK) return;
+
+    var jogadoresEmCampo = TeamR.concat(TeamB);
+
+    for (var i = 0; i < jogadoresEmCampo.length; i++) {
+        var jogador = jogadoresEmCampo[i];
+        if (!jogador || !jogador.position) continue;
+
+        var playerId = jogador.id;
+        var pos = jogador.position;
+        var anterior = afkPositionState[playerId];
+
+        if (!anterior) {
+            afkPositionState[playerId] = { x: pos.x, y: pos.y };
+            setActivity(jogador, 0);
+            continue;
+        }
+
+        var dx = pos.x - anterior.x;
+        var dy = pos.y - anterior.y;
+        var distancia = Math.sqrt(dx * dx + dy * dy);
+
+        if (distancia >= AFK_MOVIMENTO_MINIMO) {
+            // Voltou a se mexer.
+            setActivity(jogador, 0);
+            delete afkWarnings[playerId];
+            afkPositionState[playerId] = { x: pos.x, y: pos.y };
+        } else {
+            // Ficou praticamente no mesmo lugar: +1 tick (60 ticks = ~1 segundo).
+            setActivity(jogador, (getActivity(jogador) || 0) + 1);
+        }
+    }
+
+    var avisoTicks = 60 * AFK_AVISO_SEGUNDOS;
+    var kickTicks = 60 * AFK_KICK_SEGUNDOS;
+
+    for (var j = 0; j < extendedP.length; j++) {
+        var registroAFK = extendedP[j];
+        var playerId2 = registroAFK[eP.ID];
+        var jogador2 = room.getPlayer(playerId2);
+
+        if (!jogador2 || jogador2.team === Team.SPECTATORS) {
+            delete afkWarnings[playerId2];
+            delete afkPositionState[playerId2];
+            continue;
+        }
+
+        var atividade = Number(registroAFK[eP.ACT]) || 0;
+
+        if (atividade >= avisoTicks && !afkWarnings[playerId2]) {
+            afkWarnings[playerId2] = true;
+            room.sendAnnouncement(
+                "⚠️ @" + jogador2.name +
+                ", você está AFK! Se não se mexer nos próximos 5 segundos, será kickado!",
+                playerId2,
+                0xF4A404,
+                "bold",
+                2
+            );
+        }
+
+        if (atividade >= kickTicks) {
+            registroAFK[eP.ACT] = 0;
+            delete afkWarnings[playerId2];
+            delete afkPositionState[playerId2];
+
+            room.kickPlayer(playerId2, "AFK por " + AFK_KICK_SEGUNDOS + " segundos", false);
+        }
+    }
+}
+
+function getAuth(player) {
+    return extendedP.filter((a) => a[0] == player.id) != null ? extendedP.filter((a) => a[0] == player.id)[0][eP.AUTH] : null;
+}
+
+function getAFK(player) {
+    return extendedP.filter((a) => a[0] == player.id) != null ? extendedP.filter((a) => a[0] == player.id)[0][eP.AFK] : null;
+}
+
+function setAFK(player, value) {
+    extendedP.filter((a) => a[0] == player.id).forEach((player) => player[eP.AFK] = value);
+}
+
+function getActivity(player) {
+    return extendedP.filter((a) => a[0] == player.id) != null ? extendedP.filter((a) => a[0] == player.id)[0][eP.ACT] : null;
+}
+
+function setActivity(player, value) {
+    extendedP.filter((a) => a[0] == player.id).forEach((player) => player[eP.ACT] = value);
+}
+
+function getGK(player) {
+    return extendedP.filter((a) => a[0] == player.id) != null ? extendedP.filter((a) => a[0] == player.id)[0][eP.GK] : null;
+}
+
+function setGK(player, value) {
+    extendedP.filter((a) => a[0] == player.id).forEach((player) => player[eP.GK] = value);
+}
+
+function getMute(player) {
+    return extendedP.filter((a) => a[0] == player.id) != null ? extendedP.filter((a) => a[0] == player.id)[0][eP.MUTE] : null;
+}
+
+function setMute(player, value) {
+    extendedP.filter((a) => a[0] == player.id).forEach((p) => p[eP.MUTE] = value);
+}
+
+/* BALANÇO E FUNÇÕES DE RECRUTAMENTO */
+function updateRoleOnPlayerIn() {
+    updateTeams();
+    if (inChooseMode) {
+        if (players.length == 2 * maxTeamSize) {
+            loadMap(practiceMap, scoreLimitPractice, timeLimitPractice);
+        }
+        getSpecList(TeamR.length <= TeamB.length ? TeamR[0] : TeamB[0]);
+    }
+    balanceTeams();
+}
+
+function updateRoleOnPlayerOut() {
+    updateTeams();
+    if (room.getScores() != null) {
+        var scores = room.getScores();
+        if (players.length >= 2 * maxTeamSize && scores.time >= (5 / 6) * game.scores.timeLimit && TeamR.length != TeamB.length) {
+            if (TeamR.length < TeamB.length) {
+                if (scores.blue - scores.red == 2) {
+                    endGame(Team.BLUE);
+                    room.sendAnnouncement("[Juiz] Ragequit por parte do time vermelho detectado, partida terminada!", null, 0xbfff00, "normal");
+                    setTimeout(() => { room.stopGame(); }, 100);
+                    return;
+                }
+            } else {
+                if (scores.red - scores.blue == 2) {
+                    endGame(Team.RED);
+                    room.sendAnnouncement("[Juiz] Ragequit por parte do time azul detectado, partida terminada!", null, 0xbfff00, "normal");
+                    setTimeout(() => { room.stopGame(); }, 100);
+                    return;
+                }
+            }
+        }
+    }
+    if (inChooseMode) {
+        if (players.length < 2 * maxTeamSize) {
+            loadMap(practiceMap, scoreLimitPractice, timeLimitPractice);
+        }
+        if (TeamR.length == 0 || TeamB.length == 0) {
+            TeamR.length == 0 ? room.setPlayerTeam(teamS[0].id, Team.RED) : room.setPlayerTeam(teamS[0].id, Team.BLUE);
+            return;
+        }
+        if (Math.abs(TeamR.length - TeamB.length) == teamS.length) {
+            room.sendAnnouncement("Sem jogadores suficientes, escolha automaticaticamente!!", null, 0xFF0000, "normal");
+            deactivateChooseMode();
+            resumeGame();
+            var b = teamS.length;
+            if (TeamR.length > TeamB.length) {
+                for (var i = 0; i < b; i++) {
+                    setTimeout(() => { room.setPlayerTeam(teamS[0].id, Team.BLUE); }, 5 * i);
+                }
+            } else {
+                for (var i = 0; i < b; i++) {
+                    setTimeout(() => { room.setPlayerTeam(teamS[0].id, Team.RED); }, 5 * i);
+                }
+            }
+            return;
+        }
+        if (streak == 0 && room.getScores() == null) {
+            if (Math.abs(TeamR.length - TeamB.length) == 2) {
+                room.sendAnnouncement("Equilibrando times...", null, 0xc0bdb1, "normal");
+                TeamR.length > TeamB.length ? room.setPlayerTeam(TeamR[TeamR.length - 1].id, Team.SPECTATORS) : room.setPlayerTeam(TeamB[TeamB.length - 1].id, Team.SPECTATORS);
+            }
+        }
+        if (TeamR.length == TeamB.length && teamS.length < 2) {
+            deactivateChooseMode();
+            resumeGame();
+            return;
+        }
+        capLeft ? choosePlayer() : getSpecList(TeamR.length <= TeamB.length ? TeamR[0] : TeamB[0]);
+    }
+    balanceTeams();
+}
+
+function balanceTeams() {
+    if (!inChooseMode) {
+        if (players.length == 1 && TeamR.length == 0) {
+            quickRestart();
+            loadMap(practiceMap, scoreLimitPractice, timeLimitPractice);
+            room.setPlayerTeam(players[0].id, Team.RED);
+        } else if (Math.abs(TeamR.length - TeamB.length) == teamS.length && teamS.length > 0) {
+            const n = Math.abs(TeamR.length - TeamB.length);
+            if (TeamR.length > TeamB.length) {
+                for (var i = 0; i < n; i++) {
+                    room.setPlayerTeam(teamS[i].id, Team.BLUE);
+                }
+            } else {
+                for (var i = 0; i < n; i++) {
+                    room.setPlayerTeam(teamS[i].id, Team.RED);
+                }
+            }
+        } else if (Math.abs(TeamR.length - TeamB.length) > teamS.length) {
+            const n = Math.abs(TeamR.length - TeamB.length);
+            if (players.length == 1) {
+                quickRestart();
+                loadMap(practiceMap, scoreLimitPractice, timeLimitPractice);
+                room.setPlayerTeam(players[0].id, Team.RED);
+                return;
+            } else if (players.length == 2 * maxTeamSize) {
+                quickRestart();
+                loadMap(practiceMap, scoreLimitPractice, timeLimitPractice);
+            }
+            if (players.length == maxTeamSize * 2 - 1) {
+                allReds = [];
+                allBlues = [];
+            }
+            if (TeamR.length > TeamB.length) {
+                for (var i = 0; i < n; i++) {
+                    room.setPlayerTeam(TeamR[TeamR.length - 1 - i].id, Team.SPECTATORS);
+                }
+            } else {
+                for (var i = 0; i < n; i++) {
+                    room.setPlayerTeam(TeamB[TeamB.length - 1 - i].id, Team.SPECTATORS);
+                }
+            }
+        } else if (Math.abs(TeamR.length - TeamB.length) < teamS.length && TeamR.length != TeamB.length) {
+            room.pauseGame(true);
+            activateChooseMode();
+            choosePlayer();
+        } else if (teamS.length >= 2 && TeamR.length == TeamB.length && TeamR.length < maxTeamSize) {
+            if (TeamR.length == 2) {
+                quickRestart();
+                if (!teamS.length == 2) {
+                    loadMap(practiceMap, scoreLimitPractice, timeLimitPractice);
+                }
+            }
+            topBtn();
+        }
+    }
+}
+
+function choosePlayer() {
+    clearTimeout(timeOutCap);
+    
+    // Determina quem é o capitão que vai escolher
+    var captain = null;
+    var isRedTurn = TeamR.length <= TeamB.length && TeamR.length != 0;
+    
+    if (isRedTurn) {
+        captain = TeamR[0];
+    } else if (TeamB.length < TeamR.length && TeamB.length != 0) {
+        captain = TeamB[0];
+    }
+
+    if (captain) {
+        // Mostra a lista numerada no chat para o capitão
+        getSpecList(captain);
+        
+        // Aviso inicial
+        room.sendAnnouncement("🎯 " + captain.name + ", digite apenas o NÚMERO do jogador que deseja escolher.", captain.id, 0x00FF00, "bold");
+
+        // Timer de 8 segundos para aviso
+        timeOutCap = setTimeout(function(player) {
+            if (!inChooseMode) return;
+            // Verifica se o jogador ainda é capitão e se ninguém foi escolhido ainda (lógica simplificada)
+            room.sendAnnouncement("⚠️ Seja rápido, @" + player.name + "! Se não escolher em 10s, você será kickado!", player.id, 0xFF0000, "bold");
+            
+            // Timer final de kick (10s após o aviso)
+            timeOutCap = setTimeout(function(p) {
+                if (inChooseMode && ((isRedTurn && TeamR[0] && TeamR[0].id === p.id) || (!isRedTurn && TeamB[0] && TeamB[0].id === p.id))) {
+                     room.kickPlayer(p.id, "Demorou demais para escolher", false);
+                }
+            }, 10000, player);
+        }, 8000, captain);
+    }
+}
+
+function getSpecList(player) {
+    var cstm = "👥 Jogadores disponíveis: ";
+    for (var i = 0; i < teamS.length; i++) {
+        if (140 - cstm.length < (teamS[i].name + "[" + (i + 1) + "], ").length) {
+            room.sendChat(cstm, player.id);
+            cstm = "... ";
+        }
+        cstm += (i + 1) + "️⃣ " + teamS[i].name + ", ";
+    }
+    cstm = cstm.substring(0, cstm.length - 2);
+    cstm += ".";
+    room.sendAnnouncement(cstm, player.id, 0x00FF00, "bold"); // Verde quando é a vez dele
+}
+
+/* FUNÇÕES DE ESTATÍSTICAS */
+function getLastTouchOfTheBall() {
+    const ballPosition = room.getBallPosition();
+    updateTeams();
+    for (var i = 0; i < players.length; i++) {
+        if (players[i].position != null) {
+            var distanceToBall = pointDistance(players[i].position, ballPosition);
+            if (distanceToBall < triggerDistance) {
+                !activePlay ? activePlay = true : null;
+                if (lastTeamTouched == players[i].team && lastPlayersTouched[0] != null && lastPlayersTouched[0].id != players[i].id) {
+                    lastPlayersTouched[1] = lastPlayersTouched[0];
+                    lastPlayersTouched[0] = players[i];
+                }
+                lastTeamTouched = players[i].team;
+            }
+        }
+    }
+}
+
+function getStats() {
+    if (activePlay) {
+        updateTeams();
+        lastTeamTouched == Team.RED ? Rposs++ : Bposs++;
+        var ballPosition = room.getBallPosition();
+        point[1] = point[0];
+        point[0] = ballPosition;
+        ballSpeed = (pointDistance(point[0], point[1]) * 60 * 60 * 60) / 15000;
+        var k = [-1, Infinity];
+        for (var i = 0; i < TeamR.length; i++) {
+            if (TeamR[i].position.x < k[1]) {
+                k[0] = TeamR[i];
+                k[1] = TeamR[i].position.x;
+            }
+        }
+        k[0] != -1 ? setGK(k[0], getGK(k[0]) + 1) : null;
+        k = [-1, -Infinity];
+        for (var i = 0; i < TeamB.length; i++) {
+            if (TeamB[i].position.x > k[1]) {
+                k[0] = TeamB[i];
+                k[1] = TeamB[i].position.x;
+            }
+        }
+        k[0] != -1 ? setGK(k[0], getGK(k[0]) + 1) : null;
+        findGK();
+    }
+}
+
+function updateStats() {
+    // ================= STATS 4x4 =================
+    // O fim da partida já é decidido por endGame(). Portanto não precisamos
+    // testar scoreLimit/timeLimit novamente aqui.
+    // Usamos o snapshot matchReds/matchBlues para nunca perder os participantes
+    // originais do 4x4 por causa de substituição, saída ou mudança de time.
+
+    if (!game) return;
+    if (maxTeamSize !== 4) return;
+
+    var reds = matchReds.length === maxTeamSize ? matchReds : allReds.slice(0, maxTeamSize);
+    var blues = matchBlues.length === maxTeamSize ? matchBlues : allBlues.slice(0, maxTeamSize);
+
+    if (reds.length !== maxTeamSize || blues.length !== maxTeamSize) {
+        console.log("[STATS 4x4] Partida ignorada: snapshot incompleto.",
+            "RED:", reds.length, "BLUE:", blues.length);
+        return;
+    }
+
+    var todos = reds.concat(blues);
+    var seen = {};
+
+    // Partida + resultado.
+    todos.forEach(function(p) {
+        if (!p || seen[p.id]) return;
+        seen[p.id] = true;
+
+        var auth = p.auth || getAuth(p);
+        if (!auth) {
+            console.log("[STATS 4x4] Jogador sem AUTH, ignorado:", p.name);
+            return;
+        }
+        var raw = localStorage.getItem(auth);
+        var stats = raw ? JSON.parse(raw) :
+            [0, 0, 0, 0, "0.00", 0, 0, 0, 0, "0.00", "player", p.name];
+
+        while (stats.length <= Ss.NK) stats.push(0);
+
+        stats[Ss.GA] = Number(stats[Ss.GA]) || 0;
+        stats[Ss.WI] = Number(stats[Ss.WI]) || 0;
+        stats[Ss.DR] = Number(stats[Ss.DR]) || 0;
+        stats[Ss.LS] = Number(stats[Ss.LS]) || 0;
+        stats[Ss.GL] = Number(stats[Ss.GL]) || 0;
+        stats[Ss.AS] = Number(stats[Ss.AS]) || 0;
+        stats[Ss.GK] = Number(stats[Ss.GK]) || 0;
+        stats[Ss.CS] = Number(stats[Ss.CS]) || 0;
+        stats[Ss.NK] = p.name;
+
+        stats[Ss.GA]++;
+
+        if (lastWinner === Team.RED) {
+            if (reds.some(function(x) { return x && x.id === p.id; })) stats[Ss.WI]++;
+            else stats[Ss.LS]++;
+        } else if (lastWinner === Team.BLUE) {
+            if (blues.some(function(x) { return x && x.id === p.id; })) stats[Ss.WI]++;
+            else stats[Ss.LS]++;
+        } else {
+            stats[Ss.DR]++;
+        }
+
+        var jogosDecisivos = stats[Ss.WI] + stats[Ss.LS] + stats[Ss.DR];
+        stats[Ss.WR] = jogosDecisivos > 0
+            ? (100 * stats[Ss.WI] / jogosDecisivos).toFixed(2)
+            : "0.00";
+
+        localStorage.setItem(auth, JSON.stringify(stats));
+    });
+
+    // Gols e assistências.
+    (game.goals || []).forEach(function(goal) {
+        if (goal.striker) {
+            var authGol = goal.striker.auth || getAuth(goal.striker);
+            if (!authGol) {
+                console.log("[STATS 4x4] Gol sem AUTH:", goal.striker.name);
+            } else {
+            var rawGol = localStorage.getItem(authGol);
+            if (!rawGol) {
+                localStorage.setItem(authGol, JSON.stringify(
+                    [0,0,0,0,"0.00",0,0,0,0,"0.00","player",goal.striker.name]
+                ));
+                rawGol = localStorage.getItem(authGol);
+            }
+            var stGol = JSON.parse(rawGol);
+                stGol[Ss.GL] = (Number(stGol[Ss.GL]) || 0) + 1;
+                localStorage.setItem(authGol, JSON.stringify(stGol));
+            }
+        }
+
+        if (goal.assist) {
+            var authAssist = goal.assist.auth || getAuth(goal.assist);
+            if (!authAssist) {
+                console.log("[STATS 4x4] Assistência sem AUTH:", goal.assist.name);
+            } else {
+            var rawAssist = localStorage.getItem(authAssist);
+            if (!rawAssist) {
+                localStorage.setItem(authAssist, JSON.stringify(
+                    [0,0,0,0,"0.00",0,0,0,0,"0.00","player",goal.assist.name]
+                ));
+                rawAssist = localStorage.getItem(authAssist);
+            }
+            var stAssist = JSON.parse(rawAssist);
+                stAssist[Ss.AS] = (Number(stAssist[Ss.AS]) || 0) + 1;
+                localStorage.setItem(authAssist, JSON.stringify(stAssist));
+            }
+        }
+    });
+
+    // GK / Clean Sheet.
+    if (GKList && GKList.length) {
+        GKList.forEach(function(gk) {
+            if (!gk || !gk.auth) return;
+
+            var pertence = todos.some(function(p) { return p && p.id === gk.id; });
+            if (!pertence) return;
+
+            var authGK = getAuth(gk);
+            var rawGK = localStorage.getItem(authGK);
+            if (!rawGK) {
+                localStorage.setItem(authGK, JSON.stringify(
+                    [0,0,0,0,"0.00",0,0,0,0,"0.00","player",gk.name]
+                ));
+                rawGK = localStorage.getItem(authGK);
+            }
+
+            var stGK = JSON.parse(rawGK);
+            stGK[Ss.GK] = (Number(stGK[Ss.GK]) || 0) + 1;
+
+            var sofreu = (gk.team === Team.RED)
+                ? Number(game.scores.blue) || 0
+                : Number(game.scores.red) || 0;
+
+            if (sofreu === 0) stGK[Ss.CS] = (Number(stGK[Ss.CS]) || 0) + 1;
+
+            stGK[Ss.CP] = stGK[Ss.GK] > 0
+                ? (100 * stGK[Ss.CS] / stGK[Ss.GK]).toFixed(2)
+                : "0.00";
+
+            localStorage.setItem(authGK, JSON.stringify(stGK));
+        });
+    }
+
+    console.log("[STATS 4x4] OK:",
+        todos.length + " jogadores",
+        "| gols:", (game.goals || []).length,
+        "| vencedor:", lastWinner,
+        "| stats salvos por AUTH.");
+
+    sendGeneralLog(
+        "STATS 4x4",
+        todos.length + " jogadores atualizados | " +
+        (game.goals || []).length + " gols/assistências processados."
+    );
+}
+
+function findGK() {
+    var tab = [[-1, ""], [-1, ""]];
+    for (var i = 0; i < extendedP.length; i++) {
+        if (room.getPlayer(extendedP[i][eP.ID]) != null && room.getPlayer(extendedP[i][eP.ID]).team == Team.RED) {
+            if (tab[0][0] < extendedP[i][eP.GK]) {
+                tab[0][0] = extendedP[i][eP.GK];
+                tab[0][1] = room.getPlayer(extendedP[i][eP.ID]);
+            }
+        } else if (room.getPlayer(extendedP[i][eP.ID]) != null && room.getPlayer(extendedP[i][eP.ID]).team == Team.BLUE) {
+            if (tab[1][0] < extendedP[i][eP.GK]) {
+                tab[1][0] = extendedP[i][eP.GK];
+                tab[1][1] = room.getPlayer(extendedP[i][eP.ID]);
+            }
+        }
+    }
+    GKList = [tab[0][1], tab[1][1]];
+}
+
+setInterval(() => {
+    var tableau = [];
+    if (statNumber % 5 == 0) {
+        Object.keys(localStorage).forEach(function(key) {
+            if (!["player_name", "view_mode", "geo", "avatar", "player_auth_key"].includes(key)) {
+                tableau.push([(JSON.parse(localStorage.getItem(key))[Ss.NK]), (JSON.parse(localStorage.getItem(key))[Ss.GA])]);
+            }
+        });
+        if (tableau.length < 5) return false;
+        tableau.sort(function(a, b) { return b[1] - a[1]; });
+        room.sendChat("Partidas Jogadas > #1 " + tableau[0][0] + ": " + tableau[0][1] + " #2 " + tableau[1][0] + ": " + tableau[1][1] + " #3 " + tableau[2][0] + ": " + tableau[2][1] + " #4 " + tableau[3][0] + ": " + tableau[3][1] + " #5 " + tableau[4][0] + ": " + tableau[4][1]);
+    }
+    if (statNumber % 5 == 1) {
+        Object.keys(localStorage).forEach(function(key) {
+            if (!["player_name", "view_mode", "geo", "avatar", "player_auth_key"].includes(key)) {
+                tableau.push([(JSON.parse(localStorage.getItem(key))[Ss.NK]), (JSON.parse(localStorage.getItem(key))[Ss.WI])]);
+            }
+        });
+        if (tableau.length < 5) return false;
+        tableau.sort(function(a, b) { return b[1] - a[1]; });
+        room.sendChat("Vitorias > #1 " + tableau[0][0] + ": " + tableau[0][1] + " #2 " + tableau[1][0] + ": " + tableau[1][1] + " #3 " + tableau[2][0] + ": " + tableau[2][1] + " #4 " + tableau[3][0] + ": " + tableau[3][1] + " #5 " + tableau[4][0] + ": " + tableau[4][1]);
+    }
+    if (statNumber % 5 == 2) {
+        Object.keys(localStorage).forEach(function(key) {
+            if (!["player_name", "view_mode", "geo", "avatar", "player_auth_key"].includes(key)) {
+                tableau.push([(JSON.parse(localStorage.getItem(key))[Ss.NK]), (JSON.parse(localStorage.getItem(key))[Ss.GL])]);
+            }
+        });
+        if (tableau.length < 5) return false;
+        tableau.sort(function(a, b) { return b[1] - a[1]; });
+        room.sendChat("Gols > #1 " + tableau[0][0] + ": " + tableau[0][1] + " #2 " + tableau[1][0] + ": " + tableau[1][1] + " #3 " + tableau[2][0] + ": " + tableau[2][1] + " #4 " + tableau[3][0] + ": " + tableau[3][1] + " #5 " + tableau[4][0] + ": " + tableau[4][1]);
+    }
+    if (statNumber % 5 == 3) {
+        Object.keys(localStorage).forEach(function(key) {
+            if (!["player_name", "view_mode", "geo", "avatar", "player_auth_key"].includes(key)) {
+                tableau.push([(JSON.parse(localStorage.getItem(key))[Ss.NK]), (JSON.parse(localStorage.getItem(key))[Ss.AS])]);
+            }
+        });
+        if (tableau.length < 5) return false;
+        tableau.sort(function(a, b) { return b[1] - a[1]; });
+        room.sendChat("Assistencias > #1 " + tableau[0][0] + ": " + tableau[0][1] + " #2 " + tableau[1][0] + ": " + tableau[1][1] + " #3 " + tableau[2][0] + ": " + tableau[2][1] + " #4 " + tableau[3][0] + ": " + tableau[3][1] + " #5 " + tableau[4][0] + ": " + tableau[4][1]);
+    }
+    if (statNumber % 5 == 4) {
+        Object.keys(localStorage).forEach(function(key) {
+            if (!["player_name", "view_mode", "geo", "avatar", "player_auth_key"].includes(key)) {
+                tableau.push([(JSON.parse(localStorage.getItem(key))[Ss.NK]), (JSON.parse(localStorage.getItem(key))[Ss.CS])]);
+            }
+        });
+        if (tableau.length < 5) return false;
+        tableau.sort(function(a, b) { return b[1] - a[1]; });
+        room.sendChat("CS > #1 " + tableau[0][0] + ": " + tableau[0][1] + " #2 " + tableau[1][0] + ": " + tableau[1][1] + " #3 " + tableau[2][0] + ": " + tableau[2][1] + " #4 " + tableau[3][0] + ": " + tableau[3][1] + " #5 " + tableau[4][0] + ": " + tableau[4][1]);
+    }
+    statNumber++;
+}, statInterval * 60 * 1000);
+
+/* EVENTOS */
+/* MOVIMENTO DO JOGADOR */
+room.onPlayerJoin = function(player) {
+    sendEventLog(player.name, "JOIN", "ID: " + player.id);
+    console.log("---------------------------------------------------");
+    console.log("[📢] Nick: " + player.name);
+    console.log("[📢] Conn: " + player.conn);
+    console.log("[📢] Auth: " + player.auth);
+    extendedP.push([player.id, player.auth, player.conn, false, 0, 0, false]);
+    updateRoleOnPlayerIn();
+    room.sendAnnouncement("👋🏼 Bem-vindo, " + player.name + "!", null, 0x5EE7FF, "bold");
+    
+    // ★★★ ADMISSÃO AUTOMÁTICA POR AUTH ★★★
+    // Nick não é usado para conceder cargo.
+    var cargoEntrada = configCargo(player);
+    if (cargoEntrada && cargoEntrada.cargo === "SuperAdmin") {
+        room.setPlayerAdmin(player.id, true);
+        if (superAdmins.indexOf(player.id) === -1) superAdmins.push(player.id);
+        room.sendAnnouncement("⸢" + cargoEntrada.emoji + "⸥ " + player.name + " entrou como SuperAdmin!", null, hexParaCor(cargoEntrada.cor, 0xFFFFFF), "bold");
+    } else if (cargoEntrada && cargoEntrada.cargo === "Admin") {
+        room.setPlayerAdmin(player.id, true);
+        room.sendAnnouncement("⸢" + cargoEntrada.emoji + "⸥ " + player.name + " entrou como Admin!", null, hexParaCor(cargoEntrada.cor, 0x44DAF3), "bold");
+    } else if (cargoEntrada && cargoEntrada.cargo === "Booster") {
+        if (boosterPlayers.indexOf(player.id) === -1) boosterPlayers.push(player.id);
+        room.sendAnnouncement("⸢" + cargoEntrada.emoji + "⸥ " + player.name + " entrou como Booster!", null, hexParaCor(cargoEntrada.cor, 0xB84DFF), "bold");
+    }
+
+    if (room.getPlayerList().length > 1 && room.getPlayerList().length < 5) {
+        room.sendAnnouncement("Carregando o estádio...", player.id, 0xEDC021, "bold");
+        setTimeout(() => {
+            room.sendAnnouncement("---------------------------------------------------", player.id, 0xEDC021, "bold");
+            room.sendAnnouncement("Seja bem-vindo(a) a AMK\nTenha uma ótima jogatina!", player.id, 0xEDC021, "bold");
+            room.sendAnnouncement("---------------------------------------------------", player.id, 0xEDC021, "bold");
+        }, 2000);
+    }
+    // O cargo de Admin/SuperAdmin/Booster é definido exclusivamente pelo AUTH acima.
+    // O antigo sistema de role do localStorage foi removido daqui para não sobrescrever
+    // a identificação, emoji ou cor configurados no SUPERADMIN_CONFIG/ADMIN_CONFIG/BOOSTER_CONFIG.
+    if (localStorage.getItem(getAuth(player)) == null) {
+        stats = [0, 0, 0, 0, "0.00", 0, 0, 0, 0, "0.00", "player", player.name];
+        localStorage.setItem(getAuth(player), JSON.stringify(stats));
+    }
+    var perfilEntrada = getProfile(getAuth(player));
+    if (perfilEntrada.booster === true && boosterPlayers.indexOf(player.id) === -1) {
+        boosterPlayers.push(player.id);
+    }
+    sendGeneralLog("JOIN", player.name + " entrou na sala.");
+}
+
+room.onPlayerTeamChange = function(changedPlayer, byPlayer) {
+    if (changedPlayer.id == 0) {
+        room.setPlayerTeam(0, Team.SPECTATORS);
+        return;
+    }
+    if (getAFK(changedPlayer) && changedPlayer.team != Team.SPECTATORS) {
+        room.setPlayerTeam(changedPlayer.id, Team.SPECTATORS);
+        room.sendChat(changedPlayer.name + " está AFK!");
+        return;
+    }
+    updateTeams();
+    if (room.getScores() != null) {
+        var scores = room.getScores();
+        if (changedPlayer.team != Team.SPECTATORS && scores.time <= (3 / 4) * scores.timeLimit && Math.abs(scores.blue - scores.red) < 2) {
+            if (changedPlayer.team == Team.RED) {
+                if (!allReds.some(function(p) { return p && p.id === changedPlayer.id; })) allReds.push(changedPlayer);
+            } else {
+                if (!allBlues.some(function(p) { return p && p.id === changedPlayer.id; })) allBlues.push(changedPlayer);
+            }
+        }
+    }
+    if (changedPlayer.team == Team.SPECTATORS) {
+        setActivity(changedPlayer, 0);
+        delete afkWarnings[changedPlayer.id];
+    }
+    if (inChooseMode && resettingTeams == false && byPlayer.id == 0) {
+        if (Math.abs(TeamR.length - TeamB.length) == teamS.length) {
+            deactivateChooseMode();
+            resumeGame();
+            var b = teamS.length;
+            if (TeamR.length > TeamB.length) {
+                for (var i = 0; i < b; i++) {
+                    setTimeout(() => { room.setPlayerTeam(teamS[0].id, Team.BLUE); }, 200 * i);
+                }
+            } else {
+                for (var i = 0; i < b; i++) {
+                    setTimeout(() => { room.setPlayerTeam(teamS[0].id, Team.RED); }, 200 * i);
+                }
+            }
+            return;
+        } else if ((TeamR.length == maxTeamSize && TeamB.length == maxTeamSize) || (TeamR.length == TeamB.length && teamS.length < 2)) {
+            deactivateChooseMode();
+            resumeGame();
+        } else if (TeamR.length <= TeamB.length && redCaptainChoice != "") {
+            redCaptainChoice == "top" ? room.setPlayerTeam(teamS[0].id, Team.RED) : redCaptainChoice == "random" ? room.setPlayerTeam(teamS[getRandomInt(teamS.length)].id, Team.RED) : room.setPlayerTeam(teamS[teamS.length - 1].id, Team.RED);
+            return;
+        } else if (TeamB.length < TeamR.length && blueCaptainChoice != "") {
+            blueCaptainChoice == "top" ? room.setPlayerTeam(teamS[0].id, Team.BLUE) : blueCaptainChoice == "random" ? room.setPlayerTeam(teamS[getRandomInt(teamS.length)].id, Team.BLUE) : room.setPlayerTeam(teamS[teamS.length - 1].id, Team.BLUE);
+            return;
+        } else {
+            choosePlayer();
+        }
+    }
+}
+
+room.onPlayerLeave = function(player) {
+    delete floodControle[player.id];
+
+    sendEventLog(player.name, "LEAVE", "ID: " + player.id);
+    sendGeneralLog("LEAVE", player.name + " saiu da sala.");
+    if (TeamR.findIndex((red) => red.id == player.id) == 0 && inChooseMode && TeamR.length <= TeamB.length) {
+        choosePlayer();
+        capLeft = true;
+        setTimeout(() => { capLeft = false; }, 10);
+    }
+    if (TeamB.findIndex((blue) => blue.id == player.id) == 0 && inChooseMode && TeamB.length < TeamR.length) {
+        choosePlayer();
+        capLeft = true;
+        setTimeout(() => { capLeft = false; }, 10);
+    }
+    let superIndex = superAdmins.indexOf(player.id);
+    if (superIndex > -1) superAdmins.splice(superIndex, 1);
+    let boosterIndex = boosterPlayers.indexOf(player.id);
+    if (boosterIndex > -1) boosterPlayers.splice(boosterIndex, 1);
+    setActivity(player, 0);
+    delete afkWarnings[player.id];
+    delete afkPositionState[player.id];
+    if (animacoesAtivas[player.id]) {
+        clearInterval(animacoesAtivas[player.id].interval);
+        delete animacoesAtivas[player.id];
+    }
+    updateRoleOnPlayerOut();
+}
+
+room.onPlayerKicked = function(kickedPlayer, reason, ban, byPlayer) {
+    if (ban == true) banList.push([kickedPlayer.name, kickedPlayer.id]);
+    sendEventLog(kickedPlayer.name, ban ? "BAN" : "KICK", reason || "Sem motivo");
+    sendModerationLog(ban ? "BAN" : "KICK", kickedPlayer.name, byPlayer ? byPlayer.name : "Sistema", reason || "Sem motivo");
+}
+
+/* ATIVIDADE DO JOGADOR - CHAT */
+room.onPlayerChat = function(player, message) {
+    sendChatLog(player.name, message, player.admin === true, boosterPlayers.indexOf(player.id) !== -1);
+
+    // TEAM CHAT
+    if (message.length > 1 && message[0].toLowerCase() == 't' && message[1] == ' ') {
+        if (player.team != 0) {
+            room.getPlayerList().forEach((element) => {
+                if (element.team == player.team) room.sendAnnouncement("[TEAM CHAT] " + player.name + ": " + message.substr(2), element.id, (player.team == 1 ? 16725591 : 3261685), "bold", 0);
+            });
+            return false;
+        } else {
+            room.sendAnnouncement("Você não está em um time.", player.id);
+        }
+    }
+
+    // =====================================================
+    // ★★★ ANTI-FLOOD INTELIGENTE ★★★
+    // Não pune uma única mensagem. Só atua quando o jogador
+    // envia várias mensagens em poucos segundos.
+    // =====================================================
+    var agoraFlood = Date.now();
+
+    if (!floodControle[player.id]) {
+        floodControle[player.id] = [];
+    }
+
+    // Mantém somente mensagens enviadas dentro da janela configurada.
+    floodControle[player.id] = floodControle[player.id].filter(function(t) {
+        return (agoraFlood - t) <= FLOOD_JANELA_MS;
+    });
+
+    floodControle[player.id].push(agoraFlood);
+
+    var qtdFlood = floodControle[player.id].length;
+
+    // Aviso na 4ª mensagem rápida.
+    if (qtdFlood === FLOOD_AVISO_QTD && !getMute(player)) {
+        room.sendAnnouncement(
+            "⚠️ " + player.name + ", diminua a velocidade do chat. Mais uma mensagem rápida poderá causar mute!",
+            player.id, 0xFFC12F, "bold", 1
+        );
+    }
+
+    // 5 mensagens dentro da janela = mute automático de 5 minutos.
+    // Admin também pode ser mutado pelo anti-flood; o Admin continua
+    // podendo usar !unmute para retirar o mute antes do tempo.
+    if (qtdFlood >= FLOOD_MUTE_QTD && !getMute(player)) {
+        setMute(player, true);
+
+        sendModerationLog(
+            "AUTO_MUTE",
+            player.name,
+            "Sistema",
+            "Flood: " + qtdFlood + " mensagens em " + (FLOOD_JANELA_MS / 1000) + "s. Mute de 5 minutos."
+        );
+
+        room.sendAnnouncement(
+            "🔇 " + player.name + " foi mutado automaticamente por flood durante 5 minutos!",
+            null, 0x9B59B6, "bold", 2
+        );
+
+        setTimeout(function(targetId) {
+            var p = room.getPlayer(targetId);
+
+            if (p && getMute(p)) {
+                setMute(p, false);
+
+                room.sendAnnouncement(
+                    "🔊 " + p.name + " foi desmutado automaticamente após 5 minutos.",
+                    null, 0x7DFA89, "bold", 1
+                );
+
+                sendModerationLog(
+                    "UNMUTE_AUTO",
+                    p.name,
+                    "Sistema",
+                    "Os 5 minutos do anti-flood terminaram."
+                );
+            }
+        }, FLOOD_MUTE_MS, player.id);
+
+        // Limpa o contador depois do mute.
+        floodControle[player.id] = [];
+    }
+    // =====================================================
+    // ★★★ FIM DO ANTI-FLOOD ★★★
+    // =====================================================
+
+    // SELEÇÕES / UNIFORMES DE CAPITÃO
+    if (message == "!bra") {
+        if (player.team == 1 && TeamR.length > 0 && player.id == TeamR[0].id) {
+            room.setTeamColors(Team.RED, 0, 0x3347B3, [0x018434, 0xf8de2e, 0xf8de2e]);
+            room.sendAnnouncement("O capitão do time vermelho, " + player.name + ", escolheu o uniforme do Brasil!", null, 0x30F55F, "bold");
+        }
+        if (player.team == 2 && TeamB.length > 0 && player.id == TeamB[0].id) {
+            room.setTeamColors(Team.BLUE, 0, 0x3347B3, [0x018434, 0xF8DE2E, 0xF8DE2E]);
+            room.sendAnnouncement("O capitão do time azul, " + player.name + ", escolheu o uniforme do Brasil!", null, 0x30F55F, "bold");
+        }
+    }
+    if (message == "!ale") {
+        if (player.team == 1 && TeamR.length > 0 && player.id == TeamR[0].id) {
+            room.setTeamColors(Team.RED, 90, 0xFFFFFF, [0x121003, 0xC70000, 0xF5C600]);
+            room.sendAnnouncement("O capitão do time vermelho, " + player.name + ", escolheu o uniforme da Alemanha!", null, 0x30F55F, "bold");
+        }
+        if (player.team == 2 && TeamB.length > 0 && player.id == TeamB[0].id) {
+            room.setTeamColors(Team.BLUE, 90, 0xFFFFFF, [0x121003, 0xC70000, 0xF5C600]);
+            room.sendAnnouncement("O capitão do time azul, " + player.name + ", escolheu o uniforme da Alemanha!", null, 0x30F55F, "bold");
+        }
+    }
+    if (message == "!arg") {
+        if (player.team == 1 && TeamR.length > 0 && player.id == TeamR[0].id) {
+            room.setTeamColors(Team.RED, 90, 0xE3AC42, [0x74ACDF, 0xFFFFFF, 0x74ACDF]);
+            room.sendAnnouncement("O capitão do time vermelho, " + player.name + ", escolheu o uniforme da Argentina!", null, 0x30F55F, "bold");
+        }
+        if (player.team == 2 && TeamB.length > 0 && player.id == TeamB[0].id) {
+            room.setTeamColors(Team.BLUE, 90, 0xE3AC42, [0x74ACDF, 0xFFFFFF, 0x74ACDF]);
+            room.sendAnnouncement("O capitão do time azul, " + player.name + ", escolheu o uniforme da Argentina!", null, 0x30F55F, "bold");
+        }
+    }
+    if (message == "!esp") {
+        if (player.team == 1 && TeamR.length > 0 && player.id == TeamR[0].id) {
+            room.setTeamColors(Team.RED, 0, 0xDBA640, [0x7B111A, 0x7B111A, 0x7B111A]);
+            room.sendAnnouncement("O capitão do time vermelho, " + player.name + ", escolheu o uniforme da Espanha!", null, 0x30F55F, "bold");
+        }
+        if (player.team == 2 && TeamB.length > 0 && player.id == TeamB[0].id) {
+            room.setTeamColors(Team.BLUE, 0, 0xDBA640, [0x7B111A, 0x7B111A, 0x7B111A]);
+            room.sendAnnouncement("O capitão do time azul, " + player.name + ", escolheu o uniforme da Espanha!", null, 0x30F55F, "bold");
+        }
+    }
+    if (message == "!por") {
+        if (player.team == 1 && TeamR.length > 0 && player.id == TeamR[0].id) {
+            room.setTeamColors(Team.RED, 120, 0xDBA640, [0x7B111A, 0x7B111A, 0x384F43]);
+            room.sendAnnouncement("O capitão do time vermelho, " + player.name + ", escolheu o uniforme de Portugal!", null, 0x30F55F, "bold");
+        }
+        if (player.team == 2 && TeamB.length > 0 && player.id == TeamB[0].id) {
+            room.setTeamColors(Team.BLUE, 120, 0xDBA640, [0x7B111A, 0x7B111A, 0x384F43]);
+            room.sendAnnouncement("O capitão do time azul, " + player.name + ", escolheu o uniforme de Portugal!", null, 0x30F55F, "bold");
+        }
+    }
+    if (message == "!ita") {
+        if (player.team == 1 && TeamR.length > 0 && player.id == TeamR[0].id) {
+            room.setTeamColors(Team.RED, 60, 0xFFFFFF, [0x0249a8, 0x0366EB, 0x0082d3]);
+            room.sendAnnouncement("O capitão do time vermelho, " + player.name + ", escolheu o uniforme da Itália!", null, 0x30F55F, "bold");
+        }
+        if (player.team == 2 && TeamB.length > 0 && player.id == TeamB[0].id) {
+            room.setTeamColors(Team.BLUE, 60, 0xFFFFFF, [0x0249a8, 0x0366EB, 0x0082d3]);
+            room.sendAnnouncement("O capitão do time azul, " + player.name + ", escolheu o uniforme da Itália!", null, 0x30F55F, "bold");
+        }
+    }
+    if (message == "!fra") {
+        if (player.team == 1 && TeamR.length > 0 && player.id == TeamR[0].id) {
+            room.setTeamColors(Team.RED, 0, 0xD19E1F, [0x202c46, 0x202c46, 0x202c46]);
+            room.sendAnnouncement("O capitão do time vermelho, " + player.name + ", escolheu o uniforme da França!", null, 0x30F55F, "bold");
+        }
+        if (player.team == 2 && TeamB.length > 0 && player.id == TeamB[0].id) {
+            room.setTeamColors(Team.BLUE, 0, 0xD19E1F, [0x202c46, 0x202c46, 0x202c46]);
+            room.sendAnnouncement("O capitão do time azul, " + player.name + ", escolheu o uniforme da França!", null, 0x30F55F, "bold");
+        }
+    }
+    if (message == "!ing") {
+        if (player.team == 1 && TeamR.length > 0 && player.id == TeamR[0].id) {
+            room.setTeamColors(Team.RED, 90, 0x0f2544, [0x408CFF, 0xA1C6FF, 0xe0e4e9]);
+            room.sendAnnouncement("O capitão do time vermelho, " + player.name + ", escolheu o uniforme da Inglaterra!", null, 0x30F55F, "bold");
+        }
+        if (player.team == 2 && TeamB.length > 0 && player.id == TeamB[0].id) {
+            room.setTeamColors(Team.BLUE, 90, 0x0f2544, [0x408CFF, 0xA1C6FF, 0xe0e4e9]);
+            room.sendAnnouncement("O capitão do time azul, " + player.name + ", escolheu o uniforme da Inglaterra!", null, 0x30F55F, "bold");
+        }
+    }
+    if (message == "!hol") {
+        if (player.team == 1 && TeamR.length > 0 && player.id == TeamR[0].id) {
+            room.setTeamColors(Team.RED, 90, 0x2B0E09, [0xdc6024, 0xdc6024, 0xdc6024]);
+            room.sendAnnouncement("O capitão do time vermelho, " + player.name + ", escolheu o uniforme da Holanda!", null, 0x30F55F, "bold");
+        }
+        if (player.team == 2 && TeamB.length > 0 && player.id == TeamB[0].id) {
+            room.setTeamColors(Team.BLUE, 90, 0x2B0E09, [0xdc6024, 0xdc6024, 0xdc6024]);
+            room.sendAnnouncement("O capitão do time azul, " + player.name + ", escolheu o uniforme da Holanda!", null, 0x30F55F, "bold");
+        }
+    }
+
+    // Limite de caracteres
+    if (message.length > 65) {
+        room.sendAnnouncement("", player.id);
+        return false;
+    }
+
+    msg = message;
+    originalMessage = message;
+    message = message.split(/ +/);
+
+    // ================= PV POR @NOME =================
+    // Formato: @Nome mensagem
+    // O @ é obrigatório no primeiro elemento e não aparece no texto.
+    if (message[0] && message[0].charAt(0) === "@" && message.length >= 2) {
+        var alvoNome = message[0].substring(1);
+        var textoPV = message.slice(1).join(" ");
+        var alvoPV = room.getPlayerList().find(function(p) {
+            return p.id !== player.id && p.name.toLowerCase() === alvoNome.toLowerCase();
+        });
+        if (!alvoPV) {
+            alvoPV = room.getPlayerList().find(function(p) {
+                return p.id !== player.id && p.name.toLowerCase().indexOf(alvoNome.toLowerCase()) === 0;
+            });
+        }
+        if (alvoPV) {
+            // Recebimento: verde.
+            room.sendAnnouncement("[💬] DM recebida de @" + player.name + " " + textoPV, alvoPV.id, 0x7DFA89, "bold");
+            // Envio: verde.
+            room.sendAnnouncement("[💬] DM enviada para @" + alvoPV.name + " " + textoPV, player.id, 0x7DFA89, "bold");
+        } else {
+            room.sendAnnouncement("❌ Jogador não encontrado: @" + alvoNome, player.id, 0xFF6B6B, "bold");
+        }
+        return false;
+    }
+
+    // =============== COMANDOS ADMIN / BOOSTER / UNIFORMES / PROVOCAÇÕES ===============
+    var args = message;
+    var commandName = (args[0] || "").toLowerCase();
+
+    // 💰 SALDO — disponível para todos
+    if (commandName === "!saldo") {
+        var meuPerfil = getProfile(getAuth(player));
+        room.sendAnnouncement("💰 " + player.name + ", seu saldo é de " + meuPerfil.coins + " coins.", player.id, 0xFFD700, "bold", 2);
+        return false;
+    }
+
+    // ================= DISCORD =================
+    if (commandName === "!discord") {
+        room.sendAnnouncement("💬 Discord oficial da AMK:", player.id, 0x5865F2, "bold", 2);
+        room.sendAnnouncement("🔗 https://discord.gg/c4DGgmZwF", player.id, 0x5865F2, "bold", 2);
+        return false;
+    }
+
+    // 👑 COMANDOS EXCLUSIVOS DO SUPERADMIN
+    if (["!sahelp", "!superhelp"].includes(commandName)) {
+        if (!superAdmins.includes(player.id)) {
+            room.sendAnnouncement("❌ Apenas SuperAdmins podem usar este comando!", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+        room.sendAnnouncement("👑 SUPERADMIN — comandos exclusivos", player.id, 0x000000, "bold");
+        room.sendAnnouncement("💰 !addcoins #ID quantidade — Ex.: !addcoins #1 75000", player.id, 0xFFFFFF);
+        room.sendAnnouncement("💸 !remcoins #ID quantidade — Ex.: !remcoins #1 500", player.id, 0xFFFFFF);
+        room.sendAnnouncement("🔄 !setcoins #ID quantidade — Ex.: !setcoins #1 75000", player.id, 0xFFFFFF);
+        room.sendAnnouncement("🧹 !resetsaldo #ID — Ex.: !resetsaldo #1", player.id, 0xFFFFFF);
+        room.sendAnnouncement("👤 Também aceita ID, nome exato ou começo do nome.", player.id, 0xFFFFFF);
+        return false;
+    }
+
+    if (["!addcoins", "!remcoins", "!setcoins", "!resetsaldo"].includes(commandName)) {
+        if (!superAdmins.includes(player.id)) {
+            room.sendAnnouncement("❌ Apenas SuperAdmins podem usar este comando!", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+        var nomeAlvo = args[1];
+        if (!nomeAlvo) {
+            room.sendAnnouncement("❌ Use: !" + commandName.substring(1) + " #ID quantidade  |  Ex.: !addcoins #1 75000", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+
+        var alvoCoins = encontrarJogadorPorNome(nomeAlvo);
+        if (!alvoCoins) {
+            room.sendAnnouncement("❌ Jogador não encontrado. Use #ID (ex.: #1), ID ou nome.", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+
+        var authAlvoCoins = getAuth(alvoCoins);
+        if (!authAlvoCoins) {
+            room.sendAnnouncement("❌ Não consegui identificar o AUTH desse jogador.", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+
+        var perfilAlvo = getProfile(authAlvoCoins);
+        var quantidade = Number(args[2]);
+        if (commandName === "!resetsaldo") {
+            perfilAlvo.coins = 0;
+        } else {
+            if (!Number.isFinite(quantidade) || quantidade < 0) {
+                room.sendAnnouncement("❌ Quantidade inválida.", player.id, 0xFF6B6B, "bold");
+                return false;
+            }
+            if (commandName === "!addcoins") perfilAlvo.coins += Math.floor(quantidade);
+            if (commandName === "!remcoins") perfilAlvo.coins = Math.max(0, perfilAlvo.coins - Math.floor(quantidade));
+            if (commandName === "!setcoins") perfilAlvo.coins = Math.floor(quantidade);
+        }
+        saveProfile(authAlvoCoins, perfilAlvo);
+        room.sendAnnouncement(
+            "👑 Saldo de " + alvoCoins.name + " atualizado para " + perfilAlvo.coins +
+            " coins por " + player.name + ".",
+            null, 0xFFD700, "bold", 2
+        );
+        sendGeneralLog(
+            "COINS ADMIN",
+            player.name + " executou " + commandName + " em " + alvoCoins.name +
+            " (" + alvoCoins.id + ") -> " + perfilAlvo.coins + " coins."
+        );
+        return false;
+    }
+
+    if (commandName == "!admin" && args.length == 2) {
+        if (args[1].toUpperCase() === senhaAdminDiaria && senhaAdminDiaria !== "") {
+            room.setPlayerAdmin(player.id, true);
+            if (superAdmins.indexOf(player.id) === -1) superAdmins.push(player.id);
+            var cargoAdmin = cargoInfo(player);
+            room.sendAnnouncement("⸢" + cargoAdmin.emoji + "⸥ " + player.name + " virou Admin!", null, cargoAdmin.cor, "bold", 2);
+            sendModerationLog("ADMIN", player.name, player.name, "Senha diária usada");
+        } else {
+            room.sendAnnouncement("❌ Senha incorreta ou expirada!", player.id, 0xFF6B6B, "bold");
+        }
+        return false;
+    }
+
+    if (commandName == "!superadmin" && args.length == 2) {
+        if (args[1].toUpperCase() == superAdminCode.toUpperCase()) {
+            room.setPlayerAdmin(player.id, true);
+            if (superAdmins.indexOf(player.id) === -1) superAdmins.push(player.id);
+            var cargoSuper = cargoInfo(player);
+            room.sendAnnouncement("⸢" + cargoSuper.emoji + "⸥ " + player.name + " pegou Super Admin!", null, cargoSuper.cor, "bold", 2);
+            sendModerationLog("SUPERADMIN", player.name, player.name, "Código de Super Admin usado");
+        } else {
+            room.sendAnnouncement("❌ Código de Super Admin incorreto!", player.id, 0xFF6B6B, "bold", 2);
+        }
+        return false;
+    }
+
+    if (commandName == "!booster" && args.length == 2) {
+        if (args[1].toUpperCase() === senhaBoosterDiaria && senhaBoosterDiaria !== "") {
+            if (boosterPlayers.indexOf(player.id) === -1) {
+                boosterPlayers.push(player.id);
+                var cargoBooster = cargoInfo(player);
+                room.sendAnnouncement("⸢" + cargoBooster.emoji + "⸥ " + player.name + " virou Booster!", null, cargoBooster.cor, "bold", 2);
+                sendModerationLog("BOOSTER", player.name, player.name, "Senha de Booster usada");
+            } else {
+                room.sendAnnouncement("✅ Você já é Booster!", player.id, 0x9B59B6, "bold");
+            }
+        } else {
+            room.sendAnnouncement("❌ Senha BOOSTER incorreta ou expirada!", player.id, 0xFF6B6B, "bold");
+        }
+        return false;
+    }
+
+    // ================= AVATARES PREMIUM =================
+    // !avatar ou !avatar list -> lista os avatares.
+    // !avatar stop -> para a animação.
+    // !<nome> -> equipa diretamente o avatar premium.
+    if (commandName === "!avatar" || commandName === "!avatars") {
+        if (!jogadorPremium(player)) {
+            room.sendAnnouncement("💎 Apenas Boosters e Admins podem usar avatares premium!", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+
+        var avatarCmd = (args[1] || "list").toLowerCase();
+
+        if (avatarCmd === "list" || avatarCmd === "lista") {
+            room.sendAnnouncement("💫 Avatares premium: " + Object.keys(animatedAvatars).map(function(k) { return "!" + k; }).join(" • "), player.id, 0x9B59B6, "bold");
+        } else if (avatarCmd === "stop" || avatarCmd === "parar") {
+            if (pararAvatarAnimado(player)) {
+                room.sendAnnouncement("✅ Avatar parado!", player.id, 0x9B59B6, "bold");
+            } else {
+                room.sendAnnouncement("❌ Nenhum avatar animado ativo!", player.id, 0xFF6B6B, "bold");
+            }
+        } else {
+            room.sendAnnouncement("❌ Avatar não encontrado. Use !avatar para ver a lista.", player.id, 0xFF6B6B, "bold");
+        }
+        return false;
+    }
+
+    if (["!provocacoes", "!provs", "!provocacoeslist"].includes(commandName)) {
+        return listarProvocacoes(player);
+    }
+
+    if (commandName == "!uni") {
+        var uniKey = (args[1] || "").toLowerCase();
+
+        // !uni / !uni list = lista dos uniformes normais para qualquer jogador.
+        if (!uniKey || uniKey === "list" || uniKey === "lista") {
+            listarUniformes(player);
+            return false;
+        }
+
+        // !uni premium = lista exclusiva Premium.
+        if (uniKey === "premium") {
+            listarUniformesPremium(player);
+            return false;
+        }
+
+        // Se for um uniforme Premium, aplica a proteção Premium.
+        if (typeof UniformesPremium !== "undefined" && UniformesPremium[uniKey]) {
+            if (args[1].toLowerCase() === "premium") {
+                listarUniformesPremium(player);
+                return false;
+            }
+            aplicarUniformePremium(player, uniKey);
+            return false;
+        }
+
+        // Se não for Premium, tenta como uniforme normal.
+        aplicarUniformeDireto(player, uniKey);
+        return false;
+    }
+
+    if (commandName == "!uniforme" && args.length >= 2) {
+        if (args[1].toLowerCase() === "lista") {
+            listarUniformes(player);
+        } else {
+            aplicarUniformeDireto(player, args[1].toLowerCase());
+        }
+        return false;
+    }
+
+    if (commandName == "!reenviar_senhas" && player.admin) {
+        if (superAdmins.indexOf(player.id) === -1) {
+            room.sendAnnouncement("❌ Apenas Super Admins podem usar este comando!", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+        senhaAdminDiaria = gerarSenhaAleatoria("ADM");
+        senhaBoosterDiaria = gerarSenhaAleatoria("BOOSTER");
+        boosterPlayers = [];
+        ultimaDataSenha = new Date().getDate() + "/" + (new Date().getMonth() + 1) + "/" + new Date().getFullYear();
+        room.sendAnnouncement("🔑 Novas senhas geradas e enviadas por " + player.name + "!", null, 0x9B59B6, "bold", 2);
+        enviarSenhasDiscord(senhaAdminDiaria, senhaBoosterDiaria, player.name, ultimaDataSenha);
+        room.sendAnnouncement("🔑 Admin: " + senhaAdminDiaria + " | BOOSTER: " + senhaBoosterDiaria, player.id, 0x9B59B6, "bold");
+        return false;
+    }
+
+    if (commandName.startsWith("!") && provocationsPublic[commandName.substr(1)]) {
+        return enviarProvocacao(player, commandName.substr(1));
+    }
+
+    // ================= UNIFORMES ADMIN POR TIME =================
+    // Ex.: !bar11 blue | !bar11 red | !arsenal blue | !br red
+    // Somente Admin/SuperAdmin.
+    if (commandName.startsWith("!") && args.length >= 2 &&
+        (args[1].toLowerCase() === "red" || args[1].toLowerCase() === "blue")) {
+        var uniformeAdminKey = commandName.substr(1).toLowerCase();
+        return aplicarUniformeAdminTime(player, uniformeAdminKey, args[1].toLowerCase());
+    }
+
+    // AVATARES PREMIUM DIRETOS — use !<nome>, por exemplo !star.
+    if (commandName.startsWith("!") && !args[1] && animatedAvatars[commandName.substr(1).toLowerCase()]) {
+        var avatarDirectKey = commandName.substr(1).toLowerCase();
+        if (!jogadorPremium(player)) {
+            room.sendAnnouncement("💎 Apenas Boosters e Admins podem usar avatares premium!", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+        if (iniciarAvatarAnimado(player, avatarDirectKey)) {
+            room.sendAnnouncement("✅ Avatar !" + avatarDirectKey + " equipado!", player.id, 0x9B59B6, "bold");
+        }
+        return false;
+    }
+
+    // UNIFORMES PREMIUM DIRETOS — agora basta usar !nome do uniforme.
+    // !uni premium continua existindo apenas para abrir a lista Premium.
+    if (commandName.startsWith("!")) {
+        var premiumDirectKey = commandName.substr(1).toLowerCase();
+
+        // Atalhos mantidos apenas para uniformes históricos.
+        if (premiumDirectKey === "real") premiumDirectKey = "rm17";
+        if (premiumDirectKey === "liverpool" || premiumDirectKey === "liv") premiumDirectKey = "liv19";
+
+        if (typeof UniformesPremium !== "undefined" && UniformesPremium[premiumDirectKey]) {
+            if (args[1] && (args[1].toLowerCase() === "red" || args[1].toLowerCase() === "blue")) {
+                return aplicarUniformeAdminTime(player, premiumDirectKey, args[1].toLowerCase());
+            }
+            return aplicarUniformePremium(player, premiumDirectKey);
+        }
+    }
+
+    if (commandName.startsWith("!") && uniformCommands[commandName.substr(1)]) {
+        return aplicarUniformeDireto(player, commandName.substr(1));
+    }
+
+
+    if (["!temporada", "!season"].includes(message[0].toLowerCase())) {
+        var rankingAtual = rankingTemporadaAtual();
+        var msgSeason = "🏆 TEMPORADA " + temporadaAtual + "\n";
+        msgSeason += "⏳ Duração: " + TEMPORADA_DURACAO_DIAS + " dias\n";
+        msgSeason += "📅 Início: " + new Date(temporadaInicio).toLocaleDateString() + "\n\n";
+        rankingAtual.slice(0, 10).forEach(function(x, i) {
+            msgSeason += (i + 1) + "º " + x.name + " — " + x.points + " pts\n";
+        });
+        if (!rankingAtual.length) msgSeason += "Ainda não há jogadores pontuados nesta temporada.";
+        room.sendAnnouncement(msgSeason, player.id, Cor.Branco, "bold", 1);
+        return false;
+    }
+
+    if (["!temporadaanterior", "!seasonprev", "!temporadas"].includes(message[0].toLowerCase())) {
+        room.sendAnnouncement(textoTemporadaAnterior(), player.id, Cor.Ouro, "bold", 1);
+        return false;
+    }
+
+    if (["!minhatemporadaanterior", "!seasonme"].includes(message[0].toLowerCase())) {
+        room.sendAnnouncement(textoMeuHistoricoTemporadaAnterior(player), player.id, Cor.Branco, "bold", 1);
+        return false;
+    }
+
+if (["!help", "!ajuda"].includes(message[0].toLowerCase())) {
+        room.sendAnnouncement("📖 PRINCIPAIS: !perfil • !stats • !saldo • !sequencia • !temporada", player.id, 0x309D2B, "bold");
+        room.sendAnnouncement("🛒 LOJA: !loja • !itens • !avatares • !uniformes • !titulos • !comprar <item>", player.id, 0x309D2B, "bold");
+        room.sendAnnouncement("💬 DISCORD: !discord", player.id, 0x309D2B, "bold");
+        room.sendAnnouncement("🎽 UNIFORMES: !uni • !uni premium • !bar11 • !bar11 red/blue", player.id, 0x309D2B, "bold");
+        room.sendAnnouncement("💬 PV: @nick mensagem • 📜 !minhatemporadaanterior • 💤 !afk • 📋 !afks", player.id, 0x309D2B, "bold");
+        room.sendAnnouncement("🗣️ !provocacoes • 💎 !avatar", player.id, 0x309D2B, "bold");
+        if (player.admin) { if (player.admin) room.sendAnnouncement("🛡️ ADMIN: !mute • !unmute • !clearbans • !slow • !endslow", player.id, 0x309D2B, "bold"); room.sendAnnouncement("🔇 MUTE: !mute #ID 5 • !unmute #ID • !unmute all", player.id, 0x309D2B, "bold"); }
+        if (superAdmins.includes(player.id)) room.sendAnnouncement("👑 SUPERADMIN: !sahelp", player.id, 0x309D2B, "bold");
+        
+        return false;
+    }
+
+    if (["!afk"].includes(message[0].toLowerCase())) {
+        if (players.length != 1 && player.team != Team.SPECTATORS) {
+            if (player.team == Team.RED && streak > 0 && room.getScores() == null) {
+                room.setPlayerTeam(player.id, Team.SPECTATORS);
+            } else {
+                room.sendAnnouncement("Você não pode ficar AFK enquanto está jogando!", player.id, 0xFF7B08);
+                return false;
+            }
+        } else if (players.length == 1 && !getAFK(player)) {
+            room.setPlayerTeam(player.id, Team.SPECTATORS);
+        }
+        setAFK(player, !getAFK(player));
+        room.sendAnnouncement(player.name + (getAFK(player) ? " está AFK!" : " não está mais AFK!"), null, (getAFK(player) ? 0xFF7B08 : 0x8FFF8F));
+        getAFK(player) ? updateRoleOnPlayerOut() : updateRoleOnPlayerIn();
+        var stats;
+        localStorage.getItem(getAuth(player)) ? stats = JSON.parse(localStorage.getItem(getAuth(player))) : stats = [0, 0, 0, 0, "0.00", 0, 0, 0, 0, "0.00", "player"];
+        setTimeout(() => {
+            if (getAFK(player) && stats[Ss.RL] != "vip") {
+                room.kickPlayer(player.id, "Tempo de afk excedido", false);
+            }
+        }, 30 * 60 * 1000);
+        return false;
+    }
+
+    if (["!afks", "!afklist"].includes(message[0].toLowerCase())) {
+        var cstm = " Lista de AFK: ";
+        for (var i = 0; i < extendedP.length; i++) {
+            if (room.getPlayer(extendedP[i][eP.ID]) != null && getAFK(room.getPlayer(extendedP[i][eP.ID]))) {
+                if (140 - cstm.length < (room.getPlayer(extendedP[i][eP.ID]).name + ", ").length) {
+                    room.sendChat(cstm, player.id);
+                    cstm = "... ";
+                }
+                cstm += room.getPlayer(extendedP[i][eP.ID]).name + ", ";
+            }
+        }
+        if (cstm == " Lista de AFK: ") {
+            room.sendChat(" Não há ninguém na lista de AFK!", player.id);
+            return false;
+        }
+        cstm = cstm.substring(0, cstm.length - 2);
+        cstm += ".";
+        room.sendChat(cstm, player.id);
+        return false;
+    }
+
+    if (["!perfil", "!profile"].includes(commandName)) {
+        enviarPerfil(player);
+        return false;
+    }
+
+        if (["!sequencia", "!streak"].includes(commandName)) {
+        var profSeq = getProfile(getAuth(player));
+        room.sendAnnouncement("🔥 " + player.name + " — sequência atual: " + profSeq.streak + " | recorde: " + profSeq.bestStreak, player.id, 0xFDC43A, "bold");
+        return false;
+    }
+
+    if (["!titulos", "!títulos", "!titles"].includes(commandName)) {
+        mostrarLojaCategoria(player, "titulos");
+        return false;
+    }
+
+    if (["!loja", "!shop"].includes(commandName)) {
+        var categoriaLoja = (args[1] || "").toLowerCase();
+        if (categoriaLoja) {
+            mostrarLojaCategoria(player, categoriaLoja);
+        } else {
+            mostrarLoja(player);
+        }
+        return false;
+    }
+
+    // ================= MEUS ITENS =================
+    // Mostra os itens já comprados/salvos no perfil.
+    if (["!itens", "!meusitens", "!inventory", "!inv"].includes(commandName)) {
+        var perfilItens = getProfile(getAuth(player));
+        var compras = Array.isArray(perfilItens.purchases) ? perfilItens.purchases : [];
+        var catalogoItens = lojaItens();
+
+        room.sendAnnouncement("╔════════════ 🎒 MEUS ITENS ════════════╗", player.id, Cor.Roxo, "bold");
+
+        if (compras.length === 0) {
+            room.sendAnnouncement("📦 Você ainda não possui itens comprados na loja.", player.id, Cor.Branco, "normal");
+        } else {
+            compras.forEach(function(itemKey) {
+                var itemPossuido = catalogoItens[itemKey];
+                if (itemPossuido) {
+                    room.sendAnnouncement(
+                        "• " + itemPossuido.nome + "  →  !" + itemKey,
+                        player.id,
+                        itemPossuido.premium ? Cor.Roxo : Cor.Branco,
+                        itemPossuido.premium ? "bold" : "normal"
+                    );
+                } else {
+                    room.sendAnnouncement("• " + itemKey, player.id, Cor.Branco, "normal");
+                }
+            });
+        }
+
+        if (perfilItens.title) {
+            room.sendAnnouncement("🏷️ Título equipado: " + perfilItens.title, player.id, Cor.Ouro, "bold");
+        }
+        if (perfilItens.booster === true) {
+            room.sendAnnouncement("💎 Booster: ATIVO", player.id, Cor.Roxo, "bold");
+        }
+
+        room.sendAnnouncement("╚══════════════════════════════════════╝", player.id, Cor.Roxo, "bold");
+        return false;
+    }
+
+    if (["!avatares", "!avatars"].includes(commandName)) {
+        mostrarLojaAvatares(player);
+        return false;
+    }
+
+    if (["!uniformes", "!uniformesloja"].includes(commandName)) {
+        mostrarLojaUniformes(player);
+        return false;
+    }
+
+    // ================= COMPRA DIRETA DO BOOSTER =================
+    // Comando: !compra booster
+    if (commandName === "!compra" && (args[1] || "").toLowerCase() === "booster") {
+        comprarLoja(player, "booster_75k");
+        return false;
+    }
+
+    if (["!comprar", "!buy"].includes(commandName)) {
+        if (!args[1]) { mostrarLoja(player); return false; }
+        comprarLoja(player, args[1].toLowerCase());
+        return false;
+    }
+
+    if (["!stats"].includes(message[0].toLowerCase())) {
+        var stats;
+        localStorage.getItem(getAuth(player)) ? stats = JSON.parse(localStorage.getItem(getAuth(player))) : stats = [0, 0, 0, 0, "0.00", 0, 0, 0, 0, "0.00"];
+
+        // Stats oficiais: somente partidas 4x4, gols, assistências, jogos como GK e WR.
+        room.sendAnnouncement("⸢📄⸥ Stats de " + player.name + ":", player.id, 0x73EC59, "bold");
+        room.sendAnnouncement("🎮 Partidas: " + (Number(stats[Ss.GA]) || 0), player.id, 0xFFFFFF, "normal");
+        room.sendAnnouncement("⚽ Gols: " + (Number(stats[Ss.GL]) || 0) + " | 👟 Assistências: " + (Number(stats[Ss.AS]) || 0), player.id, 0xFFFFFF, "normal");
+        room.sendAnnouncement("🧤 Partidas como GK: " + (Number(stats[Ss.GK]) || 0), player.id, 0xFFFFFF, "normal");
+        room.sendAnnouncement("📈 WR: " + (stats[Ss.WR] || "0.00") + "%", player.id, 0xFFFFFF, "normal");
+        room.sendAnnouncement("「👓」Essas estatísticas contam somente partidas oficiais 4x4.", player.id, 0x7DFA89, "bold");
+        return false;
+    }
+
+    if (["!mestats"].includes(message[0].toLowerCase())) {
+        var stats;
+        localStorage.getItem(getAuth(player)) ? stats = JSON.parse(localStorage.getItem(getAuth(player))) : stats = [0, 0, 0, 0, "0.00", 0, 0, 0, 0, "0.00"];
+
+        room.sendAnnouncement("⸢📄⸥ O Jogador " + player.name + " mostrou seus stats!", null, 0xFF7900, "bold");
+        room.sendAnnouncement("🎮 Partidas: " + (Number(stats[Ss.GA]) || 0), null, 0xFFFFFF, "normal");
+        room.sendAnnouncement("⚽ Gols: " + (Number(stats[Ss.GL]) || 0) + " | 👟 Assistências: " + (Number(stats[Ss.AS]) || 0), null, 0xFFFFFF, "normal");
+        room.sendAnnouncement("🧤 Partidas como GK: " + (Number(stats[Ss.GK]) || 0), null, 0xFFFFFF, "normal");
+        room.sendAnnouncement("📈 WR: " + (stats[Ss.WR] || "0.00") + "%", null, 0xFFFFFF, "normal");
+        return false;
+    }
+
+    // ★★★ COMANDO !MUTELIST / !MUTES ★★★
+    if (["!mutes", "!mutelist"].includes(message[0].toLowerCase())) {
+        var cstm = " Lista de mutados: ";
+        var temMutado = false;
+        for (var i = 0; i < extendedP.length; i++) {
+            if (room.getPlayer(extendedP[i][eP.ID]) != null && getMute(room.getPlayer(extendedP[i][eP.ID]))) {
+                temMutado = true;
+                if (140 - cstm.length < (room.getPlayer(extendedP[i][eP.ID]).name + "[" + (extendedP[i][eP.ID]) + "], ").length) {
+                    room.sendChat(cstm, player.id);
+                    cstm = "... ";
+                }
+                cstm += room.getPlayer(extendedP[i][eP.ID]).name + "[" + (extendedP[i][eP.ID]) + "], ";
+            }
+        }
+        if (!temMutado) {
+            room.sendChat(" Não há ninguém na lista de mutados!", player.id);
+            return false;
+        }
+        cstm = cstm.substring(0, cstm.length - 2);
+        cstm += ".";
+        room.sendChat(cstm, player.id);
+        return false;
+    }
+
+    // ★★★ COMANDO !MUTE (ADMIN) ★★★
+    // Uso:
+    // !mute #1 5   -> muta o ID 1 por 5 minutos
+    // !mute #1     -> muta o ID 1 por 5 minutos
+    // !mute 1 5   -> também aceita sem #
+    if (["!mute"].includes(message[0].toLowerCase())) {
+        if (!player.admin) return false;
+
+        var alvoMuteRaw = message[1];
+        var minutosMute = Number(message[2]);
+
+        if (!alvoMuteRaw) {
+            room.sendAnnouncement("❌ Use: !mute #ID minutos | Ex.: !mute #1 5", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+
+        var alvoIdTexto = String(alvoMuteRaw).replace(/^#/, "");
+        var alvoId = Number(alvoIdTexto);
+
+        if (!Number.isInteger(alvoId) || alvoId <= 0 || !room.getPlayer(alvoId)) {
+            room.sendAnnouncement("❌ Jogador não encontrado. Use o ID, por exemplo #1.", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+
+        var alvoMute = room.getPlayer(alvoId);
+
+        if (alvoMute.admin) {
+            room.sendAnnouncement("❌ Você não pode mutar outro Admin.", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+
+        if (getMute(alvoMute)) {
+            room.sendAnnouncement("⚠️ " + alvoMute.name + " já está mutado.", player.id, 0xFFC12F, "bold");
+            return false;
+        }
+
+        if (!Number.isFinite(minutosMute) || minutosMute <= 0) minutosMute = 5;
+        minutosMute = Math.floor(minutosMute);
+
+        setMute(alvoMute, true);
+        sendModerationLog("MUTE", alvoMute.name, player.name, "Comando administrativo: " + minutosMute + " minuto(s).");
+
+        room.sendAnnouncement(
+            "🔇 " + alvoMute.name + " foi mutado por " + minutosMute + " minuto(s).",
+            null, 0x9B59B6, "bold", 2
+        );
+
+        setTimeout(function(targetId, targetName) {
+            var p = room.getPlayer(targetId);
+
+            // Só remove o mute automático se ele ainda estiver mutado.
+            if (p && getMute(p)) {
+                setMute(p, false);
+                room.sendAnnouncement(
+                    "🔊 " + targetName + " foi desmutado automaticamente.",
+                    null, 0x7DFA89, "bold", 1
+                );
+                sendModerationLog("UNMUTE_AUTO", targetName, "Sistema", "Tempo do mute encerrado.");
+            }
+        }, minutosMute * 60 * 1000, alvoMute.id, alvoMute.name);
+
+        return false;
+    }
+
+    // ★★★ COMANDO !UNMUTE (ADMIN) ★★★
+    // Uso:
+    // !unmute #1
+    // !unmute 1
+    // !unmute all
+    if (["!unmute"].includes(message[0].toLowerCase())) {
+        if (!player.admin) return false;
+
+        var alvoUnmuteRaw = message[1];
+
+        if (!alvoUnmuteRaw) {
+            room.sendAnnouncement("❌ Use: !unmute #ID | !unmute all", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+
+        if (String(alvoUnmuteRaw).toLowerCase() === "all") {
+            extendedP.forEach(function(ePlayer) {
+                ePlayer[eP.MUTE] = false;
+            });
+
+            room.sendAnnouncement("🔊 Todos os jogadores foram desmutados.", null, 0x7DFA89, "bold", 1);
+            sendModerationLog("UNMUTE_ALL", "Todos", player.name, "Todos os mutes removidos.");
+            return false;
+        }
+
+        var alvoUnmuteId = Number(String(alvoUnmuteRaw).replace(/^#/, ""));
+
+        if (!Number.isInteger(alvoUnmuteId) || alvoUnmuteId <= 0 || !room.getPlayer(alvoUnmuteId)) {
+            room.sendAnnouncement("❌ Jogador não encontrado. Use o ID, por exemplo #1.", player.id, 0xFF6B6B, "bold");
+            return false;
+        }
+
+        var alvoUnmute = room.getPlayer(alvoUnmuteId);
+
+        if (!getMute(alvoUnmute)) {
+            room.sendAnnouncement("⚠️ " + alvoUnmute.name + " não está mutado.", player.id, 0xFFC12F, "bold");
+            return false;
+        }
+
+        setMute(alvoUnmute, false);
+        room.sendAnnouncement("🔊 " + alvoUnmute.name + " foi desmutado por " + player.name + ".", null, 0x7DFA89, "bold", 1);
+        sendModerationLog("UNMUTE", alvoUnmute.name, player.name, "Comando administrativo.");
+
+        return false;
+    }
+
+    if (["!banlist", "!bans"].includes(message[0].toLowerCase())) {
+        if (banList.length == 0) {
+            room.sendChat(" Não há ninguém na lista de banidos!", player.id);
+            return false;
+        }
+        var cstm = " Lista de banidos: ";
+        for (var i = 0; i < banList.length; i++) {
+            if (140 - cstm.length < (banList[i][0] + "[" + (banList[i][1]) + "], ").length) {
+                room.sendChat(cstm, player.id);
+                cstm = "... ";
+            }
+            cstm += banList[i][0] + "[" + (banList[i][1]) + "], ";
+        }
+        cstm = cstm.substring(0, cstm.length - 2);
+        cstm += ".";
+        room.sendChat(cstm, player.id);
+        return false;
+    }
+
+    if (["!clearbans"].includes(message[0].toLowerCase())) {
+        if (player.admin) {
+            if (message.length == 1) {
+                room.clearBans();
+                room.sendChat("Bans removidos!");
+                banList = [];
+                sendModerationLog("CLEAR_BANS", "Lista de bans", player.name, "Todos os bans removidos");
+            }
+            if (message.length == 2) {
+                if (!Number.isNaN(Number.parseInt(message[1]))) {
+                    if (Number.parseInt(message[1]) > 0) {
+                        ID = Number.parseInt(message[1]);
+                        room.clearBan(ID);
+                        setTimeout(() => {
+                            banList = banList.filter((array) => array[1] != ID);
+                        }, 20);
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    if (["!bb", "!bye", "!cya", "!gn"].includes(message[0].toLowerCase())) {
+        room.kickPlayer(player.id, "👋 Até mais!", false);
+        return false;
+    }
+
+    // BAN AUTOMÁTICO: racismo e uso de "PCD" como ofensa
+    var mensagemModeracao = String(originalMessage || "").toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    // Detecta SOMENTE termos de racismo/PCD como palavras ou expressões inteiras.
+    // Xingamentos comuns (ex.: lixo, merda, porra, cu, etc.) NÃO geram kick/ban.
+    var racismoDetectado = xingo.some(function(term) {
+        var t = String(term).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        if (!t) return false;
+        var escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp("(^|\\s)" + escaped + "($|\\s|[!?.,;:])", "i").test(mensagemModeracao);
+    });
+    var pcdDetectado = pcdTermos.some(function(term) {
+        var t = String(term).toLowerCase().replace(/\./g, "");
+        return new RegExp("(^|\\s)" + t + "($|\\s|[!?.,;:])", "i").test(mensagemModeracao.replace(/\./g, ""));
+    });
+    if (racismoDetectado || pcdDetectado) {
+        var motivoBan = racismoDetectado ? "❌ Racismo não é tolerado nesta sala." : "❌ Ofensas usando PCD não são toleradas nesta sala.";
+        room.kickPlayer(player.id, motivoBan, true);
+        sendEventLog(player.name, "AUTO_BAN", motivoBan);
+        return false;
+    }
+    if (link.includes(message[0])) {
+        room.sendAnnouncement("Você não pode enviar links aqui, " + player.name, player.id, Cor.Warn, "italic", 2);
+        return false;
+    }
+
+    if (message[0][0] == "!") {
+        return false;
+    }
+
+    // ★★★ PICK 4x4: ESCOLHA EXCLUSIVAMENTE POR NÚMERO ★★★
+    if (TeamR.length != 0 && TeamB.length != 0 && inChooseMode) {
+        if (player.id == TeamR[0].id || player.id == TeamB[0].id) {
+            // Verifica se é um número
+            if (!Number.isNaN(Number.parseInt(message[0]))) {
+                var num = Number.parseInt(message[0]);
+                
+                if (TeamR.length <= TeamB.length && player.id == TeamR[0].id) {
+                     if (num > teamS.length || num < 1) {
+                        room.sendAnnouncement("[⚠️] Ops! O número que você escolheu é inválido.", player.id, 0xfaca29, "normal");
+                        return false;
+                    } else {
+                        room.setPlayerTeam(teamS[num - 1].id, Team.RED);
+                        room.sendAnnouncement(player.name + " escolheu o(a): " + teamS[num - 1].name + "!", null, 0x55bae2, "normal");
+                        clearTimeout(timeOutCap); // Reseta o timer ao escolher
+                        choosePlayer(); // Chama o próximo
+                        return false;
+                    }
+                }
+                
+                if (TeamR.length > TeamB.length && player.id == TeamB[0].id) {
+                    if (num > teamS.length || num < 1) {
+                        room.sendAnnouncement("[⚠️] Ops! O número que você escolheu é inválido.", player.id, 0xfaca29, "normal");
+                        return false;
+                    } else {
+                        room.setPlayerTeam(teamS[num - 1].id, Team.BLUE);
+                        room.sendAnnouncement(player.name + " escolheu o(a): " + teamS[num - 1].name + "!", null, 0x55bae2, "normal");
+                        clearTimeout(timeOutCap); // Reseta o timer ao escolher
+                        choosePlayer(); // Chama o próximo
+                        return false;
+                    }
+                }
+            }
+            
+            // Nenhum comando textual é aceito durante o Pick 4x4.
+        }
+    }
+
+    // Verificar se está mutado.
+    // O jogador fica em silêncio enquanto durar o mute.
+    // Não envia aviso a cada mensagem para evitar spam visual.
+    if (getMute(player)) {
+        return false;
+    }
+
+    // Slow mode
+    if (slowMode > 0) {
+        if (!player.admin) {
+            if (!SMSet.has(player.id)) {
+                SMSet.add(player.id);
+                setTimeout((number) => {
+                    SMSet.delete(number);
+                }, slowMode * 1000, player.id);
+            } else {
+                return false;
+            }
+        }
+    }
+
+    // ================= CHAT FINAL =================
+    // Primeiro verifica o CARGO pelo AUTH. Não depende de localStorage/stats.
+    // Assim SuperAdmin/Admin/Booster sempre usam o emoji + cor escolhidos.
+    // Jogador normal sempre fica branco.
+    var cargoChat = cargoInfo(player);
+    var rankEmojiChat = "📄";
+    var chatColorChat = 0xFFFFFF;
+
+    if (cargoChat && (cargoChat.nome === "SuperAdmin" ||
+                      cargoChat.nome === "Admin" ||
+                      cargoChat.nome === "Booster")) {
+        rankEmojiChat = cargoChat.emoji ||
+            (cargoChat.nome === "SuperAdmin" ? "👑" :
+             cargoChat.nome === "Admin" ? "🛡️" : "💎");
+        chatColorChat = cargoChat.cor;
+        if (typeof chatColorChat !== "number") {
+            chatColorChat = hexParaCor(chatColorChat, 0xFFFFFF);
+        }
+    }
+
+    // Mensagem inteira recebe a mesma cor do cargo.
+    room.sendAnnouncement(
+        "⸢" + rankEmojiChat + "⸥ " + player.name + ": " + originalMessage,
+        null,
+        chatColorChat,
+        "normal"
+    );
+    return false;
+}
+
+room.onPlayerActivity = function(player) {
+    // O AFK agora é calculado pela posição real no onGameTick.
+    // Não zeramos o contador aqui, pois apertar teclas sem sair do lugar
+    // não deve impedir o kick por AFK.
+}
+
+room.onPlayerBallKick = function(player) {
+    if (lastPlayersTouched[0] == null || player.id != lastPlayersTouched[0].id) {
+        !activePlay ? activePlay = true : null;
+        lastTeamTouched = player.team;
+        lastPlayersTouched[1] = lastPlayersTouched[0];
+        lastPlayersTouched[0] = player;
+    }
+}
+
+/* GESTÃO DE JOGO */
+room.onGameStart = function(byPlayer) {
+    if (!recordingActive && sendRecWebhookURL) {
+        try { room.startRecording(); recordingActive = true; } catch (e) { console.log("[REC] Erro ao iniciar gravação:", e); }
+    }
+    sendEventLog("SALA", "GAME_START", byPlayer ? ("por " + byPlayer.name) : "automático");
+    game = new Game(Date.now(), room.getScores(), []);
+    coinsAwardedForGame = false;
+    countAFK = true;
+    activePlay = false;
+    goldenGoal = false;
+    afkPositionState = {};
+    afkWarnings = {};
+    allReds.concat(allBlues).forEach(function(p) {
+        if (p) setActivity(p, 0);
+    });
+    endGameVariable = false;
+    lastPlayersTouched = [null, null];
+    Rposs = 0;
+    Bposs = 0;
+    GKList = [];
+    allReds = [];
+    allBlues = [];
+    matchReds = [];
+    matchBlues = [];
+
+    // Snapshot oficial da partida. No 4x4, estes 8 jogadores são os
+    // participantes que receberão as estatísticas, mesmo que alguém saia
+    // ou troque de time depois.
+    if (TeamR.length === maxTeamSize && TeamB.length === maxTeamSize) {
+        matchReds = TeamR.slice(0, maxTeamSize);
+        matchBlues = TeamB.slice(0, maxTeamSize);
+        allReds = matchReds.slice();
+        allBlues = matchBlues.slice();
+    }
+
+    room.sendAnnouncement(centerText("🥅 PARTIDA INICIANDO 🥅"), null, Cor.Branco, "bold");
+    room.sendAnnouncement(centerText("Quer mudar o uniforme? Digite '!uni'"), null, 0x2EF55D, "bold");
+    room.sendAnnouncement(centerText("[💬] Use 't' mensagem para conversar com a sua equipe!"), null, 0x5EE7FF);
+    for (var i = 0; i < extendedP.length; i++) {
+        extendedP[i][eP.GK] = 0;
+        extendedP[i][eP.ACT] = 0;
+        room.getPlayer(extendedP[i][eP.ID]) == null ? extendedP.splice(i, 1) : null;
+    }
+    deactivateChooseMode();
+}
+
+// ★★★ SISTEMA WINNER STAYS (VENCEDOR FICA) ★★★
+room.onGameStop = function(byPlayer) {
+    if ((!byPlayer || byPlayer.id == 0) && endGameVariable) {
+        var recData = null;
+        if (recordingActive) {
+            try { recData = room.stopRecording(); } catch (e) { console.log("[REC] Erro ao parar gravação:", e); }
+            recordingActive = false;
+        }
+        if (recData) enviarGravacaoDiscord(recData, gerarSumulaPartida());
+        sendEventLog("SALA", "GAME_STOP", "gravação enviada");
+        sendGeneralLog("GAME_STOP", "Partida encerrada. Replay: " + (recData ? "sim" : "não"));
+        updateTeams();
+
+        if (inChooseMode) {
+            if (players.length == 2 * maxTeamSize) {
+                inChooseMode = false;
+                resetBtn();
+                for (var i = 0; i < maxTeamSize; i++) {
+                    setTimeout(() => { randomBtn(); }, 400 * i);
+                }
+                setTimeout(() => { room.startGame(); }, 2000);
+            } else {
+                // ★★★ WINNER STAYS: VENCEDOR FICA, PERDEDOR VAI PRO SPEC ★★★
+                if (lastWinner == Team.RED) {
+                    // Red ganhou: Blue vai pro spec, Red fica
+                    blueToSpecBtn();
+                } else if (lastWinner == Team.BLUE) {
+                    // Blue ganhou: Red vai pro spec, Blue vira Red e fica
+                    redToSpecBtn();
+                    blueToRedBtn();
+                } else {
+                    resetBtn();
+                }
+                setTimeout(() => { topBtn(); }, 500);
+            }
+        } else {
+            if (players.length == 2) {
+                if (lastWinner == Team.BLUE) {
+                    room.setPlayerTeam(TeamB[0].id, Team.RED);
+                    room.setPlayerTeam(TeamR[0].id, Team.BLUE);
+                }
+                setTimeout(() => { room.startGame(); }, 2000);
+            } else if (players.length == 3 || players.length >= 2 * maxTeamSize + 1) {
+                if (lastWinner == Team.RED) {
+                    blueToSpecBtn();
+                } else {
+                    redToSpecBtn();
+                    blueToRedBtn();
+                }
+                setTimeout(() => { topBtn(); }, 200);
+                setTimeout(() => { room.startGame(); }, 2000);
+            } else if (players.length == 4) {
+                resetBtn();
+                setTimeout(() => {
+                    randomBtn();
+                    setTimeout(() => { randomBtn(); }, 500);
+                }, 500);
+                setTimeout(() => { room.startGame(); }, 2000);
+            } else if (players.length == 5 || players.length >= 2 * maxTeamSize + 1) {
+                if (lastWinner == Team.RED) {
+                    blueToSpecBtn();
+                } else {
+                    redToSpecBtn();
+                    blueToRedBtn();
+                }
+                setTimeout(() => { topBtn(); }, 200);
+                activateChooseMode();
+            } else if (players.length == 6) {
+                resetBtn();
+                setTimeout(() => {
+                    randomBtn();
+                    setTimeout(() => {
+                        randomBtn();
+                        setTimeout(() => { randomBtn(); }, 500);
+                    }, 500);
+                }, 500);
+                setTimeout(() => { room.startGame(); }, 2000);
+            }
+        }
+    }
+}
+
+room.onGamePause = function(byPlayer) {}
+
+room.onGameUnpause = function(byPlayer) {
+    if ((TeamR.length == maxTeamSize && TeamB.length == maxTeamSize && inChooseMode) || (TeamR.length == TeamB.length && teamS.length < 2 && inChooseMode)) {
+        deactivateChooseMode();
+    }
+}
+
+room.onTeamGoal = function(team) {
+    let assistencia = "";
+    let goleador = "";
+    let goalMaker = lastPlayersTouched[0] ? lastPlayersTouched[0].id : null;
+    activePlay = false;
+    countAFK = false;
+    const scores = room.getScores();
+    game.scores = scores;
+
+    if (lastPlayersTouched[0] != null && lastPlayersTouched[0].team == team) {
+        if (lastPlayersTouched[1] != null && lastPlayersTouched[1].team == team) {
+            room.sendAnnouncement(centerText("TOCA A MÚÚSICAAA, É GOOOOOL!!!"), null, Cor.Verde, "bold");
+            room.sendAnnouncement(centerText("⚽ Gol de " + lastPlayersTouched[0].name + " ⚽"), null, Cor.Branco, "bold");
+            room.sendAnnouncement(centerText("👟 Assistência: " + lastPlayersTouched[1].name + " 👟"), null, Cor.Branco, "bold");
+            room.sendAnnouncement(centerText("Velocidade do chute: " + ballSpeed.toPrecision(4).toString() + " km/h"), null, Cor.Branco, "normal");
+            game.goals.push(new Goal(scores.time, team, lastPlayersTouched[0], lastPlayersTouched[1]));
+        } else {
+            room.sendAnnouncement(centerText("TOCA A MÚÚSICAAA, É GOOOOOL!!!"), null, Cor.Verde, "bold");
+            room.sendAnnouncement(centerText("⚽ Gol de " + lastPlayersTouched[0].name + " ⚽"), null, Cor.Branco, "bold");
+            room.sendAnnouncement(centerText("Velocidade do chute: " + ballSpeed.toPrecision(4).toString() + " km/h"), null, Cor.Branco, "normal");
+            game.goals.push(new Goal(scores.time, team, lastPlayersTouched[0], null));
+        }
+        if (goalMaker) {
+            setTimeout(function() {
+                room.setPlayerAvatar(goalMaker, "🎯");
+                setTimeout(function() {
+                    room.setPlayerAvatar(goalMaker, "⚽");
+                    setTimeout(function() {
+                        room.setPlayerAvatar(goalMaker, null);
+                    }, 3000);
+                }, 1200);
+            }, 1);
+        }
+        if (lastPlayersTouched[1] != null && lastPlayersTouched[1].team == team) {
+            let goalAssist = lastPlayersTouched[1].id;
+            setTimeout(function() {
+                room.setPlayerAvatar(goalAssist, "🤝");
+                setTimeout(function() {
+                    room.setPlayerAvatar(goalAssist, "👟");
+                    setTimeout(function() {
+                        room.setPlayerAvatar(goalAssist, null);
+                    }, 2500);
+                }, 1000);
+            }, 1);
+        }
+    } else {
+        room.sendAnnouncement(centerText("🤦‍♂️ É GOOOOOL CONTRA!! 🤦‍♂️"), null, Cor.Amarelo, "bold");
+        room.sendAnnouncement(centerText("🤡 Gol de " + (lastPlayersTouched[0] ? lastPlayersTouched[0].name : "alguém") + " 🤡"), null, Cor.Branco, "bold");
+        room.sendAnnouncement(centerText("Velocidade do chute: " + ballSpeed.toPrecision(4).toString() + " km/h"), null, Cor.Branco, "normal");
+        game.goals.push(new Goal(scores.time, team, null, null));
+        if (goalMaker) {
+            setTimeout(function() {
+                room.setPlayerAvatar(goalMaker, "🤦‍♂️");
+                setTimeout(function() {
+                    room.setPlayerAvatar(goalMaker, "🤡");
+                    setTimeout(function() {
+                        room.setPlayerAvatar(goalMaker, null);
+                    }, 3000);
+                }, 1000);
+            }, 1);
+            golcontra(lastPlayersTouched[0]);
+        }
+    }
+
+    if (scores.scoreLimit != 0 && (scores.red == scores.scoreLimit || scores.blue == scores.scoreLimit && scores.blue > 0 || goldenGoal == true)) {
+        endGame(team);
+        goldenGoal = false;
+        setTimeout(() => { room.stopGame(); }, 1000);
+    }
+}
+
+room.onPositionsReset = function() {
+    countAFK = true;
+    lastPlayersTouched = [null, null];
+    afkPositionState = {};
+    afkWarnings = {};
+}
+
+/* DIVERSOS */
+room.onRoomLink = function(url) {}
+
+room.onPlayerAdminChange = function(changedPlayer, byPlayer) {
+    if (getMute(changedPlayer) && changedPlayer.admin) {
+        room.sendChat(changedPlayer.name + " foi desmutado.");
+        setMute(changedPlayer, false);
+    }
+    if (byPlayer.id != 0 && localStorage.getItem(getAuth(byPlayer)) && JSON.parse(localStorage.getItem(getAuth(byPlayer)))[Ss.RL] == "admin") {
+        room.sendChat("Você não tem permissão para nomear um jogador como administrador!", byPlayer.id);
+        room.setPlayerAdmin(changedPlayer.id, false);
+    }
+}
+
+room.onStadiumChange = function(newStadiumName, byPlayer) {}
+
+room.onGameTick = function() {
+    checkTime();
+    getLastTouchOfTheBall();
+    getStats();
+    handleInactivity();
+}
+
+msg1 = setInterval(function() {
+    room.sendAnnouncement("Sempre mantenha o respeito, e nunca xingue ou ofenda alguém!!", null, 0xff8a4a, "normal");
+}, msg1Time);
+
+// ★★★ DIVULGAÇÃO DISCORD A CADA 5 MINUTOS ★★★
+setInterval(function() {
+    room.sendAnnouncement("Entre nesse nosso discord:                                                                                                                                                                                                                     https://discord.gg/5jftdNp6sH !!", null, 0x00FF00, "bold");
+}, 300000); // 300000 ms = 5 minutos
