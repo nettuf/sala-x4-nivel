@@ -12,7 +12,7 @@ const {
   sameTouchPlayer,
   dedupeMatchPlayers,
 } = require("../gameLogic");
-const { pickMatchMvps, pickMatchWorst } = require("../titles");
+const { pickMatchMvps, pickMatchWorst, filterPlayersAtWhistle } = require("../titles");
 const {
   fieldEightAtWhistle,
   shouldSendHaxbookStats,
@@ -473,6 +473,14 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     });
     match.goals = goals;
     const players = buildPlayersPayload(finalScores, winner, lineupRed, lineupBlue);
+    const finishedAuths = new Set(
+      room
+        .getPlayerList()
+        .filter((p) => p && p.id !== 0 && (p.team === 1 || p.team === 2))
+        .map((p) => who(p).auth)
+        .filter(Boolean)
+    );
+    const playersForTitles = filterPlayersAtWhistle(players, finishedAuths);
     const fieldEight = fieldEightAtWhistle(
       room.getPlayerList().map((p) => who(p))
     );
@@ -502,8 +510,8 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
           }),
         })
       : null;
-    const mvps = valid ? pickMatchMvps(players) : [];
-    const worst = valid ? pickMatchWorst(players) : [];
+    const mvps = valid ? pickMatchMvps(playersForTitles) : [];
+    const worst = valid ? pickMatchWorst(playersForTitles) : [];
     const poss = possessionPercents(redPoss, bluePoss);
 
     const snapshot = {

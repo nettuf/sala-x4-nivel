@@ -512,6 +512,7 @@ function createRoom(HBInit) {
         !warmupNeedsLiveFill(redN, blueN, specReadyCount(), { grow: growOnSameMap }) &&
         !promoteToX4
       ) {
+        if (choose.isActive()) choose.onPlayerJoin();
         return;
       }
     }
@@ -576,7 +577,7 @@ function createRoom(HBInit) {
         if (held.start) {
           scheduleLobbyStart(startCompetitiveFromCurrentField);
         } else {
-          scheduleLobbyStart(() => choose.continueFromField());
+          scheduleLobbyStart(() => choose.continueFromField({ winnerStays: true }));
         }
         return;
       }
@@ -1501,13 +1502,14 @@ function createRoom(HBInit) {
     return predicate();
   }
 
-  /** Perdedores já saíram: o próximo time tem no máximo o capitão no azul. */
+  /** Perdedores já saíram: no máximo 1 azul (capitão do spec). */
   function winnerStaysSettled(winner) {
     const players = room.getPlayerList().filter((p) => p.id !== 0 && !afk.isAfk(p.id));
     const red = players.filter((p) => p.team === TEAM.RED).length;
     const blue = players.filter((p) => p.team === TEAM.BLUE).length;
     if (winner !== TEAM.RED && winner !== TEAM.BLUE) return true;
-    return blue <= 1 && red > 0;
+    if (blue > 1) return false;
+    return red > 0;
   }
 
   function winnerStaysExclude(p) {
@@ -1549,13 +1551,13 @@ function createRoom(HBInit) {
       const redN = eligible.filter((p) => p.team === TEAM.RED).length;
       const blueN = eligible.filter((p) => p.team === TEAM.BLUE).length;
       if (specs.length && (redN >= 1 || blueN >= 1) && redN !== blueN) {
-        choose.continueFromField();
+        choose.continueFromField({ winnerStays: true });
         return true;
       }
       laterForCurrentLobby(refreshLobby);
       return true;
     }
-    choose.continueFromField();
+    choose.continueFromField({ winnerStays: true });
     return true;
   }
 

@@ -30,6 +30,7 @@ const {
   resolveTitle,
   pickMatchMvps,
   pickMatchWorst,
+  filterPlayersAtWhistle,
   formatChatPrefix,
   formatChatBody,
   replaceVowelsWithSnacks,
@@ -525,6 +526,20 @@ describe("titles / cargos", () => {
     ]);
     assert.equal(worst.length, 1);
     assert.equal(worst[0].auth, "b");
+  });
+
+  it("filterPlayersAtWhistle: quem saiu no meio não entra em MVP nem Pior", () => {
+    const all = [
+      { auth: "left", nick: "Saiu", goals: 5, assists: 0, own_goals: 0, result: "win" },
+      { auth: "stay", nick: "Ficou", goals: 1, assists: 0, own_goals: 0, result: "win" },
+      { auth: "lose", nick: "Perdeu", goals: 0, assists: 0, own_goals: 3, result: "loss" },
+      { auth: "stay2", nick: "Ficou2", goals: 0, assists: 0, own_goals: 0, result: "loss" },
+    ];
+    const pool = filterPlayersAtWhistle(all, new Set(["stay", "stay2"]));
+    const mvps = pickMatchMvps(pool);
+    const worst = pickMatchWorst(pool);
+    assert.equal(mvps[0].auth, "stay");
+    assert.equal(worst[0].auth, "stay2");
   });
 
   it("GK com CS pode ser MVP; 2 gols ainda ganha do CS", () => {

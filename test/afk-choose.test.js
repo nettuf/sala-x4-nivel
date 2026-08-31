@@ -797,6 +797,84 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
   });
 });
 
+describe("choose + AFK: bugs de lista e time desigual", () => {
+  it("AFK no campo (lista stale) não impede pick com spec disponível", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 3; i++) host.addPlayer(TEAM.RED);
+    const afkField = host.players[1];
+    host.addPlayer(TEAM.BLUE);
+    for (let i = 0; i < 2; i++) host.addPlayer(TEAM.SPEC);
+
+    host.handles.afk.noteAfk(afkField.id);
+    assert.equal(host.find(afkField.id).team, TEAM.RED, "AFK async ainda no time");
+
+    host.handles.choose.continueFromField();
+    await settle();
+
+    assert.equal(host.handles.choose.isActive(), true);
+    const cap = host.handles.choose.currentCaptain();
+    assert.ok(cap);
+    assert.equal(cap.team, TEAM.BLUE, "capitão do time com vaga");
+
+    await host.chat(cap, "1");
+    await settle();
+
+    const { red, blue } = host.handles.choose.list();
+    const redElig = red.filter((p) => !host.handles.afk.isAfk(p.id)).length;
+    const blueElig = blue.filter((p) => !host.handles.afk.isAfk(p.id)).length;
+    assert.equal(redElig, 2, "AFK no vermelho não conta como terceiro jogador");
+    assert.ok(blueElig >= 2, "azul pickou do spec em vez de ficar 3x1");
+    host.cleanup();
+  });
+
+  it("spec entra no meio do choose ao vivo → lista aparece sem precisar de !afk", async () => {
+    const host = bootRoom();
+    startChoose(host);
+    host.startMatch({ competitive: false });
+    assert.ok(host.live(), "warmup ao vivo com choose aberto");
+
+    const cap = host.handles.choose.currentCaptain();
+    host.announcements.length = 0;
+
+    const novo = host.addPlayer(TEAM.SPEC, "NovoSpec");
+    host.handles.refreshLobby();
+    await settle();
+
+    const listMsg = host.lastSpecList();
+    assert.ok(listMsg, "lista enviada ao capitão");
+    assert.equal(listMsg.to, cap.id);
+    assert.match(listMsg.msg, new RegExp(`${novo.name}\\[`));
+    host.cleanup();
+  });
+
+  it("refreshLobby repetido não reinicia o timer — capitão vai AFK", async () => {
+    const host = bootRoom();
+    const anterior = config.chooseTimeSec;
+    config.chooseTimeSec = 0.2;
+    try {
+      for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+      const cap = host.addPlayer(TEAM.BLUE);
+      host.addPlayer(TEAM.BLUE);
+      for (let i = 0; i < 3; i++) host.addPlayer(TEAM.SPEC);
+      host.handles.choose.continueFromField();
+      assert.equal(host.handles.choose.currentCaptain()?.id, cap.id);
+
+      for (let i = 0; i < 6; i++) {
+        host.handles.choose.onPlayerJoin();
+        host.handles.refreshLobby();
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      await new Promise((r) => setTimeout(r, 220));
+
+      assert.equal(host.handles.afk.isAfk(cap.id), true, "timer não pode resetar a cada refresh");
+      assert.equal(host.find(cap.id).team, TEAM.SPEC);
+    } finally {
+      config.chooseTimeSec = anterior;
+      host.cleanup();
+    }
+  });
+});
+
 describe("choose: pick do capitão", () => {
   it("capitão completa o time por número e o 4v4 começa", async () => {
     const host = bootRoom();

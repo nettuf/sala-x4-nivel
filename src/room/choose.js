@@ -213,6 +213,36 @@ function createChooseController(room, {
   }
 
   /**
+   * Winner stays: vencedores cheios + perdedores ainda no outro time (async).
+   * Devolve todos pro spec e sobe o 1º elegível como capitão — nunca picka
+   * em cima de 2–3 perdedores que ainda não saíram.
+   */
+  function normalizeWinnerStaysSide() {
+    if (replacement) return false;
+    const size = currentTeamSize();
+    const redN = teamCount(TEAM.RED);
+    const blueN = teamCount(TEAM.BLUE);
+
+    if (redN >= size && blueN > 1 && blueN < size) {
+      const waiting = list().specReady.slice();
+      const { blue } = list();
+      for (const p of eligibleOn(blue)) setTeam(p.id, TEAM.SPEC);
+      const captain = waiting[0] || list().specReady[0];
+      if (captain) setTeam(captain.id, TEAM.BLUE);
+      return true;
+    }
+    if (blueN >= size && redN > 1 && redN < size) {
+      const waiting = list().specReady.slice();
+      const { red } = list();
+      for (const p of eligibleOn(red)) setTeam(p.id, TEAM.SPEC);
+      const captain = waiting[0] || list().specReady[0];
+      if (captain) setTeam(captain.id, TEAM.RED);
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Completa sozinho o time da vez quando o spec tem exatamente as vagas
    * (1=1, 2=2, 3=3). Mais opções que vagas → o capitão escolhe.
    * Reposição AO VIVO nunca auto-completa: o motor despausava no 3v4.
@@ -512,7 +542,7 @@ function createChooseController(room, {
    * Pós-streak: times já montados (vencedores no red + 1 azul).
    * Não reseta o campo.
    */
-  function continueFromField() {
+  function continueFromField({ winnerStays = false } = {}) {
     if (room.getScores()) {
       try {
         room.pauseGame(true);
@@ -528,24 +558,28 @@ function createChooseController(room, {
       return;
     }
 
-    const { red, blue } = list();
+    if (winnerStays) normalizeWinnerStaysSide();
+
+    const redN = teamCount(TEAM.RED);
+    const blueN = teamCount(TEAM.BLUE);
     // Vencedores já no campo: não resetar o time cheio só porque o outro ainda está vazio.
-    if (red.length >= currentTeamSize() && !blue.length) {
+    // AFK ainda no time (lista stale) não conta como “cheio”.
+    if (redN >= currentTeamSize() && blueN === 0) {
       if (!promoteSpecTo(TEAM.BLUE)) {
         abortChoose("Sem jogadores elegíveis para o outro time — voltando ao lobby.");
         return;
       }
-    } else if (blue.length >= currentTeamSize() && !red.length) {
+    } else if (blueN >= currentTeamSize() && redN === 0) {
       if (!promoteSpecTo(TEAM.RED)) {
         abortChoose("Sem jogadores elegíveis para o outro time — voltando ao lobby.");
         return;
       }
-    } else if (!red.length || !blue.length) {
-      if (!red.length && !promoteSpecTo(TEAM.RED)) {
+    } else if (redN === 0 || blueN === 0) {
+      if (redN === 0 && !promoteSpecTo(TEAM.RED)) {
         abortChoose("Sem jogadores elegíveis — voltando ao lobby.");
         return;
       }
-      if (!list().blue.length && !promoteSpecTo(TEAM.BLUE)) {
+      if (teamCount(TEAM.BLUE) === 0 && !promoteSpecTo(TEAM.BLUE)) {
         abortChoose("Sem jogadores elegíveis — voltando ao lobby.");
         return;
       }
@@ -558,9 +592,37 @@ function createChooseController(room, {
     activate();
   }
 
-  /** Alguém entrou no meio do choose: só atualiza a lista do capitão (não reseta times). */
+  /** Alguém entrou no meio do choose: atualiza a lista sem zerar o timer do capitão. */
   function onPlayerJoin() {
     if (!active) return;
+    if (tryFinishChoose()) return;
+    if (tryFillExactHoles()) return;
+
+    const team = pickingTeam() || (replacement && replacement.targetTeam) || 0;
+    if (!team || (!replacement && !teamHasHole(team))) return;
+
+    let { specReady } = list();
+    if (!specReady.length) {
+      if (abortIfNoEligibleSpec()) return;
+    }
+
+    // 1 spec / 1 vaga: precisa do fluxo completo (auto-sobe ou abort).
+    if (specReady.length === 1 && teamHasHole(team) && !isLiveReplacement()) {
+      promptCaptain();
+      return;
+    }
+
+    const cap = currentCaptain();
+    if (!cap) {
+      promptCaptain();
+      return;
+    }
+
+    // refreshLobby batendo de novo: não reinicia os 20s de escolha.
+    if (timeout) {
+      announceSpecList(cap.id);
+      return;
+    }
     promptCaptain();
   }
 
@@ -586,8 +648,7 @@ function createChooseController(room, {
       promptCaptain();
       return;
     }
-    const { red, blue } = list();
-    if (!red.length || !blue.length) {
+    if (teamCount(TEAM.RED) === 0 || teamCount(TEAM.BLUE) === 0) {
       // Quem o admin acabou de mandar pro spec não volta na hora como capitão.
       onPlayerLeave({ skipId: movedPlayer?.team === TEAM.SPEC ? movedPlayer.id : null });
       return;
@@ -730,10 +791,12 @@ function createChooseController(room, {
       return;
     }
 
-    const players = room.getPlayerList().filter((p) => p.id !== 0);
+    const players = room.getPlayerList().filter((p) => p.id !== 0 && !excluded(p));
     const size = currentTeamSize();
     let { red, blue, spec, specReady } = list();
-    if (players.length < size * 2 || red.length > size || blue.length > size) {
+    const redN = teamCount(TEAM.RED);
+    const blueN = teamCount(TEAM.BLUE);
+    if (players.length < size * 2 || redN > size || blueN > size) {
       deactivate();
       room.sendAnnouncement("Choose cancelado — poucos jogadores.", null, 0xe67e22, "normal", 1);
       return;
@@ -741,17 +804,17 @@ function createChooseController(room, {
 
     // Sem streak: se ficou 2 a mais de um lado, o último escolhido volta pro spec (FC/Wazarr).
     const streakNow = typeof getStreak === "function" ? getStreak() : 0;
-    if (!room.getScores() && streakNow === 0 && Math.abs(red.length - blue.length) === 2) {
-      const larger = red.length > blue.length ? red : blue;
-      const extra = larger[larger.length - 1];
+    if (!room.getScores() && streakNow === 0 && Math.abs(redN - blueN) === 2) {
+      const largerSide = redN > blueN ? eligibleOn(red) : eligibleOn(blue);
+      const extra = largerSide[largerSide.length - 1];
       setTeam(extra.id, TEAM.SPEC);
       room.sendAnnouncement("🤖 Equilibrando: último escolhido voltou pro spec.", null, 0x3498db, "normal", 1);
       ({ red, blue, spec, specReady } = list());
     }
 
     // Time vazio → sobe o 1º do spec pronto (AFK não sobe). Nunca aborta se ainda há gente.
-    if (!red.length || !blue.length) {
-      const empty = !red.length ? TEAM.RED : TEAM.BLUE;
+    if (teamCount(TEAM.RED) === 0 || teamCount(TEAM.BLUE) === 0) {
+      const empty = teamCount(TEAM.RED) === 0 ? TEAM.RED : TEAM.BLUE;
       const next =
         (skipId ? specReady.find((p) => p.id !== skipId) : null) || specReady[0];
       if (next) {
@@ -766,8 +829,8 @@ function createChooseController(room, {
         );
         ({ red, blue, spec, specReady } = list());
       } else if (
-        (red.length >= currentTeamSize() && !blue.length) ||
-        (blue.length >= currentTeamSize() && !red.length)
+        (teamCount(TEAM.RED) >= currentTeamSize() && teamCount(TEAM.BLUE) === 0) ||
+        (teamCount(TEAM.BLUE) >= currentTeamSize() && teamCount(TEAM.RED) === 0)
       ) {
         promptCaptain();
         return;
@@ -781,8 +844,8 @@ function createChooseController(room, {
 
     if (allowExactFill && tryFillExactHoles()) return;
 
-    // Times iguais e quase sem spec pronto → se 4v4 pronto, inicia
-    if (red.length === blue.length && specReady.length < 2 && bothFull()) {
+    // Times iguais e quase sem spec pronto → se 3v3/4v4 pronto, inicia
+    if (teamCount(TEAM.RED) === teamCount(TEAM.BLUE) && specReady.length < 2 && bothFull()) {
       deactivate();
       onReadyToStart();
       return;

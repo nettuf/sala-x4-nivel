@@ -261,6 +261,54 @@ describe("winner stays ignora AFK no spec", () => {
     host.cleanup();
   });
 
+  it("4v4 + 2 spec ativos + 4 AFK: azul perde → spec vira capitão, perdedores saem", async () => {
+    const host = bootRoom();
+    const reds = [];
+    const blues = [];
+    for (let i = 0; i < 4; i++) reds.push(host.addPlayer(TEAM.RED));
+    for (let i = 0; i < 4; i++) blues.push(host.addPlayer(TEAM.BLUE));
+    const specCap = host.addPlayer(TEAM.SPEC, "CapSpec");
+    host.addPlayer(TEAM.SPEC, "Reserva");
+    for (let i = 0; i < 4; i++) {
+      const p = host.addPlayer(TEAM.SPEC);
+      host.handles.afk.setAfk(p, true);
+    }
+    host.startMatch({ competitive: true });
+
+    const scores = host.live();
+    Object.assign(scores, { red: config.scoreLimit, blue: 0, time: 240 });
+    host.handles.match.onTick();
+    host.handles.match.markVictory();
+    host.room.stopGame();
+    await host.room.onGameStop();
+    await new Promise((r) => setTimeout(r, 500));
+
+    assert.equal(host.handles.choose.isActive(), true);
+    assert.equal(host.teamCount(TEAM.RED), 4);
+    assert.equal(host.teamCount(TEAM.BLUE), 1, "só o capitão do spec no azul");
+    assert.equal(host.handles.choose.currentCaptain()?.id, specCap.id);
+    for (const p of blues) {
+      assert.equal(host.find(p.id).team, TEAM.SPEC, `${p.name} perdedor no spec`);
+    }
+    host.cleanup();
+  });
+
+  it("4v4: perdedores ainda no azul (async) → choose manda pro spec e sobe capitão", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+    for (let i = 0; i < 3; i++) host.addPlayer(TEAM.BLUE);
+    const specCap = host.addPlayer(TEAM.SPEC, "CapSpec");
+    host.addPlayer(TEAM.SPEC, "Reserva");
+
+    host.handles.choose.continueFromField({ winnerStays: true });
+    await new Promise((r) => setTimeout(r, 200));
+
+    assert.equal(host.teamCount(TEAM.RED), 4);
+    assert.equal(host.teamCount(TEAM.BLUE), 1);
+    assert.equal(host.handles.choose.currentCaptain()?.id, specCap.id);
+    host.cleanup();
+  });
+
   it("não inicia a próxima partida enquanto os perdedores ainda estão no campo", async () => {
     const host = bootRoom({ deferTeamChanges: true });
     fill4v4(host);

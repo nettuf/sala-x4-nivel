@@ -376,6 +376,12 @@ function byAuthNick(a, b) {
   return String(a.auth || a.nick || "").localeCompare(String(b.auth || b.nick || ""));
 }
 
+/** MVP/Pior: só quem estava em campo no apito (não spec, não quem saiu). */
+function filterPlayersAtWhistle(players, finishedAuths) {
+  if (!finishedAuths?.size) return players || [];
+  return (players || []).filter((p) => p.auth && finishedAuths.has(p.auth));
+}
+
 /**
  * MVP da partida: sempre 1.
  * Com vencedor → só no time que ganhou; empate → qualquer time.
@@ -496,6 +502,7 @@ module.exports = {
   CHAT_COLOR_BLUE,
   CHAT_COLOR_SPEC,
   CHAT_COLOR_CHEFE,
+  filterPlayersAtWhistle,
   pickMatchMvps,
   pickMatchWorst,
   matchContribution,
