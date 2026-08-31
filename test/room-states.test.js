@@ -640,6 +640,33 @@ describe("ações de admin", () => {
       `auto-AFK perdendo devia ragequit, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
     );
     assert.equal(host.live(), null);
+    await host.room.onGameStop();
+    assert.equal(host.handles.streak.get(), 1, "vitória 2x0 por ragequit conta streak");
+    host.cleanup();
+  });
+
+  it("4v4 2x0: perdedor nunca mexeu → ragequit conta vitória (não RR sem stats)", async () => {
+    const host = bootRoom();
+    const config = require("../src/config");
+    const all = fill4v4(host);
+    host.startMatch({ competitive: true });
+    const blue = all.find((p) => p.team === TEAM.BLUE);
+    for (const p of all) {
+      if (p.id !== blue.id) host.activity(p);
+    }
+    Object.assign(host.live(), { red: 2, blue: 0, time: 120, timeLimit: 240 });
+    host.handles.match.onTick();
+    const movers = all.filter((p) => p.id !== blue.id);
+    host.idle(all, { moving: movers, idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(
+      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
+      `2x0 sem movimento devia ragequit, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.equal(host.said(/AFK no começo/i), false, "placar decidido: não é RR de kickoff");
+    await host.room.onGameStop();
+    assert.equal(host.handles.streak.get(), 1, "ragequit 2x0 sem movimento conta vitória");
     host.cleanup();
   });
 

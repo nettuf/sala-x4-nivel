@@ -327,13 +327,19 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
   }
 
   function isValidGame(scores) {
-    // Treino e warmup (1–7 jogadores) nunca contam para stats/replay.
-    if (!match?.competitive) return false;
-    return isValidMatchScores(scores, {
+    if (!match) return false;
+    const opts = {
       scoreLimit: config.scoreLimit,
       timeLimitMin: config.timeLimit,
       endByVictory,
-    });
+    };
+    // Ragequit após 4v4 oficial (mesmo se virou 3v3 no meio) ainda conta.
+    if (endByVictory && match.everCompetitive) {
+      return isValidMatchScores(scores, opts);
+    }
+    // Treino e warmup (1–7 jogadores) nunca contam para stats/replay.
+    if (!match.competitive) return false;
+    return isValidMatchScores(scores, opts);
   }
 
   function scoredBy(goal, player) {

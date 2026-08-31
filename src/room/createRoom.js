@@ -913,13 +913,15 @@ function createRoom(HBInit) {
     const leftField = previousTeam === TEAM.RED || previousTeam === TEAM.BLUE;
 
     // Começo da partida (nunca teclou/chutou): RR sem stats em 1v1–4v4.
-    // Depois o capitão escolhe o substituto se tiver spec.
+    // Placar já decidido (ex. 2x0): ragequit conta vitória, não RR.
     if (
       leftField &&
       player &&
       isKickoffIdleAfk(type, player.id, movedThisMatch) &&
       room.getScores()
     ) {
+      const scores = match.snapshotScores() || room.getScores();
+      if (tryEndAsRageQuit(player, scores, { fieldTeam: previousTeam })) return;
       restartAfterKickoffAfk(player);
       return;
     }

@@ -160,6 +160,18 @@ describe("ragequit no x4 oficial", () => {
     assert.equal(result.scoreBlue, 0);
     assert.equal(result.valid, true);
   });
+
+  it("ragequit após 4v4→3v3: competitive off ainda conta vitória", async () => {
+    const host = setup();
+    host.setScores({ red: 2, blue: 0, time: 120, timeLimit: 240 });
+    host.match.onTick();
+    host.match.setCompetitive(false, { breakFormat: true });
+    host.match.markVictory();
+    const result = await host.match.finish();
+    assert.equal(result.valid, true);
+    assert.equal(result.decided, true);
+    assert.equal(result.winner, TEAM.RED);
+  });
 });
 
 describe("gol de ouro, posse e late joiner", () => {
