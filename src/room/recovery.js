@@ -48,6 +48,26 @@ function planCompetitiveRecovery({
       if (fill) return fill;
     }
 
+    // Time zerou (saídas em massa): sobe todo o spec; depois park se ainda faltar gente.
+    const emptyTeam =
+      redCount === 0 && blueCount > 0
+        ? TEAM.RED
+        : blueCount === 0 && redCount > 0
+          ? TEAM.BLUE
+          : 0;
+    if (emptyTeam && specCount > 0) {
+      const holes = teamSize - (emptyTeam === TEAM.RED ? redCount : blueCount);
+      if (specCount < holes) {
+        return {
+          action: "fill-partial",
+          targetTeam: emptyTeam,
+          count: Math.min(specCount, holes),
+        };
+      }
+      const fill = planSpecFill(emptyTeam, holes, specCount);
+      if (fill) return fill;
+    }
+
     // 4v3 sem spec: o extra do time maior vai ao spec e o 3v3 segue.
     if (
       specCount === 0 &&
@@ -101,7 +121,25 @@ function planExactFill({ redCount, blueCount, specCount, teamSize = 4 } = {}) {
   if (need === 0) return { action: "start" };
   const eligible =
     (Number(redCount) || 0) + (Number(blueCount) || 0) + (Number(specCount) || 0);
-  if (eligible < teamSize * 2) return { action: "keep" };
+
+  // Um time cheio e o outro vazio: sobe todo o spec mesmo com menos vagas que faltam.
+  if (blueNeed > 0 && redNeed === 0 && specCount > 0 && specCount < blueNeed) {
+    return { action: "fill-partial", redNeed: 0, blueNeed: specCount };
+  }
+  if (redNeed > 0 && blueNeed === 0 && specCount > 0 && specCount < redNeed) {
+    return { action: "fill-partial", redNeed: specCount, blueNeed: 0 };
+  }
+
+  if (eligible < teamSize * 2) {
+    if (specCount > 0 && need > 0 && (redNeed === 0 || blueNeed === 0)) {
+      return {
+        action: "fill-partial",
+        redNeed: redNeed > 0 ? Math.min(redNeed, specCount) : 0,
+        blueNeed: blueNeed > 0 ? Math.min(blueNeed, specCount) : 0,
+      };
+    }
+    return { action: "keep" };
+  }
   if (redNeed > 0 && blueNeed > 0) return { action: "choose" };
   if (specCount === need) return { action: "fill-all", redNeed, blueNeed };
   if (specCount > need) return { action: "choose" };
@@ -109,6 +147,10 @@ function planExactFill({ redCount, blueCount, specCount, teamSize = 4 } = {}) {
 }
 
 function applyExactFill(room, specs, { redNeed = 0, blueNeed = 0 } = {}) {
+  applyPartialFill(room, specs, { redNeed, blueNeed });
+}
+
+function applyPartialFill(room, specs, { redNeed = 0, blueNeed = 0 } = {}) {
   let i = 0;
   for (let n = 0; n < redNeed; n++) {
     const p = specs[i++];
@@ -180,6 +222,7 @@ module.exports = {
   planCompetitiveRecovery,
   planExactFill,
   applyExactFill,
+  applyPartialFill,
   effectiveTeamSize,
   isKickoffIdleAfk,
   planKickoffAfkRecovery,

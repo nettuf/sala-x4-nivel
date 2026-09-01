@@ -358,6 +358,11 @@ describe("uniformes: emoji do kit", () => {
     assert.equal(findKit("amigosvasco").text, 0xffe0e0);
     assert.deepEqual(findKit("amigosvasco").colors, [0x000000, 0x000000, 0x000000]);
     assert.equal(findKit("amigosvasco").emoji, "✠");
+    assert.equal(findKit("duki").name, "Amigos do Duki");
+    assert.equal(findKit("duki").angle, 42);
+    assert.equal(findKit("duki").text, 0xffffff);
+    assert.deepEqual(findKit("duki").colors, [0xc2ffe7, 0xffffff, 0xfbd9ff]);
+    assert.equal(findKit("duki").emoji, undefined);
     assert.equal(findKit("alanzoka").name, "Alanzoka & amigos");
     assert.equal(findKit("alanzoka").angle, 66);
     assert.equal(findKit("alanzoka").text, 0x283950);

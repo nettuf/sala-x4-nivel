@@ -253,6 +253,23 @@ describe("x4 estabilidade: rebalanceamento e recovery", () => {
     host.cleanup();
   });
 
+  it("4v4 ao vivo: 4 red 0 blue 3 spec → sobe azuis e desce 3v3", async () => {
+    const host = bootRoom();
+    await growTo(host, 11);
+    assert.equal(field(host).red, 4);
+    assert.equal(field(host).blue, 4);
+    assert.equal(field(host).spec, 3);
+    const scores = host.live();
+    for (const p of [...host.players.filter((x) => x.team === TEAM.BLUE)]) {
+      host.quit(p);
+    }
+    await waitLobby(1200);
+    assertNvN(host, 3, 1);
+    assert.equal(host.live(), scores);
+    assert.equal(host.handles.choose.isActive(), false);
+    host.cleanup();
+  });
+
   it("pós-vitória com specs: monta times e não fica pausado", async () => {
     const host = bootRoom();
     await growTo(host, 10);

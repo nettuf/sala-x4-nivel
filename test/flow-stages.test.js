@@ -285,6 +285,15 @@ function createMockRoomHost() {
       return;
     }
 
+    if (plan.action === "fill-partial") {
+      const n = Number(plan.count) || 0;
+      for (let i = 0; i < n; i++) {
+        if (specs[i]) room.setPlayerTeam(specs[i].id, plan.targetTeam);
+      }
+      recoverCompetitiveLineup();
+      return;
+    }
+
     if (plan.action === "choose") {
       if (choose.isReplacement()) {
         choose.onPlayerJoin();

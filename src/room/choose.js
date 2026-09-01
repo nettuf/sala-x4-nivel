@@ -274,6 +274,17 @@ function createChooseController(room, {
     return true;
   }
 
+  function promoteSpecsTo(team, maxMoves = currentTeamSize()) {
+    let moved = 0;
+    while (teamCount(team) < currentTeamSize() && moved < maxMoves && list().specReady[0]) {
+      const next = list().specReady[0];
+      if (typeof onPickFromSpec === "function") onPickFromSpec(next, team);
+      setTeam(next.id, team);
+      moved++;
+    }
+    return moved;
+  }
+
   function teamHasHole(team) {
     return teamCount(team) < currentTeamSize();
   }
@@ -332,6 +343,33 @@ function createChooseController(room, {
       const holes = holesByTeam();
       const need =
         replacement.targetTeam === TEAM.RED ? holes.red : holes.blue;
+      const otherTeam = replacement.targetTeam === TEAM.RED ? TEAM.BLUE : TEAM.RED;
+      if (
+        need > 0 &&
+        specReady.length > 0 &&
+        specReady.length < need &&
+        teamCount(otherTeam) >= currentTeamSize() &&
+        teamCount(replacement.targetTeam) === 0
+      ) {
+        const names = [];
+        for (const p of [...specReady]) {
+          if (typeof onPickFromSpec === "function") onPickFromSpec(p, replacement.targetTeam);
+          setTeam(p.id, replacement.targetTeam);
+          names.push(p.name);
+        }
+        room.sendAnnouncement(
+          `${names.join(", ")} entraram (${names.length} no spec, ${need} vagas) — equilibrando times.`,
+          null,
+          0x2ecc71,
+          "bold",
+          1
+        );
+        const onReady = replacement.onReady;
+        deactivate();
+        afterTeamChange(() => onReady?.({ cancelled: true, partial: true }));
+        return true;
+      }
+
       if (need <= 0 || specReady.length !== need) return false;
       const names = [];
       let last = null;
@@ -827,9 +865,10 @@ function createChooseController(room, {
   function onPlayerLeave({ skipId = null, allowExactFill = true } = {}) {
     if (!active) return;
     if (replacement) {
+      if (tryFillExactHoles()) return;
       const cap = currentCaptain() || ensureCaptain();
-      const { spec } = list();
-      if (!cap || !spec.length) {
+      const { specReady } = list();
+      if (!cap || !specReady.length) {
         const onReady = replacement.onReady;
         deactivate();
         onReady?.({ cancelled: true });

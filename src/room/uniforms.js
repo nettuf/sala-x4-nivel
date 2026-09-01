@@ -133,6 +133,13 @@ const COMMUNITY_KITS = [
     emoji: "✠",
   },
   {
+    id: "duki",
+    name: "Amigos do Duki",
+    angle: 42,
+    text: 0xffffff,
+    colors: [0xc2ffe7, 0xffffff, 0xfbd9ff],
+  },
+  {
     id: "alanzoka",
     name: "Alanzoka & amigos",
     angle: 66,

@@ -99,6 +99,18 @@ describe("recuperação do 4v4 competitivo", () => {
     );
   });
 
+  it("4 vermelho + 0 azul + 3 spec ao vivo → sobe os 3 e depois desce 3v3", () => {
+    assert.deepEqual(plan({ redCount: 4, blueCount: 0, specCount: 3 }), {
+      action: "fill-partial",
+      targetTeam: TEAM.BLUE,
+      count: 3,
+    });
+    assert.deepEqual(plan({ redCount: 4, blueCount: 3, specCount: 0 }), {
+      action: "park-larger",
+      targetTeam: TEAM.RED,
+    });
+  });
+
   it("jogo já parado com menos de 8 → rebalanceia", () => {
     assert.equal(
       plan({ redCount: 3, blueCount: 4, specCount: 0, live: false }).action,
@@ -201,6 +213,13 @@ describe("pós-vitória: preencher sem sobra ou pickar", () => {
     assert.deepEqual(
       planExactFill({ redCount: 4, blueCount: 1, specCount: 3, teamSize: 4 }),
       { action: "fill-all", redNeed: 0, blueNeed: 3 }
+    );
+  });
+
+  it("4 vermelho + 0 azul + 3 spec → sobe os 3 azuis sem pick impossível", () => {
+    assert.deepEqual(
+      planExactFill({ redCount: 4, blueCount: 0, specCount: 3, teamSize: 4 }),
+      { action: "fill-partial", redNeed: 0, blueNeed: 3 }
     );
   });
 

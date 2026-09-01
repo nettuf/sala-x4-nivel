@@ -14,6 +14,7 @@ const {
   planCompetitiveRecovery,
   planExactFill,
   applyExactFill,
+  applyPartialFill,
   effectiveTeamSize,
   isKickoffIdleAfk,
   planKickoffAfkRecovery,
@@ -28,6 +29,7 @@ const { createCommandHandler } = require("../commands");
 const { detectRageQuit, isChooseToken, rageQuitMessages, targetTeamSize } = require("../gameLogic");
 const { rememberIdentity, withIdentity } = require("./playerAuth");
 const { guardRoomApi } = require("./safeApi");
+const { scheduleMidgameDisc } = require("./disc");
 
 function createRoom(HBInit) {
   const token = config.readToken();
@@ -782,6 +784,35 @@ function createRoom(HBInit) {
       return;
     }
 
+    if (plan.action === "fill-partial") {
+      const names = [];
+      if (plan.targetTeam != null) {
+        const n = Number(plan.count) || 0;
+        for (let i = 0; i < n; i++) {
+          if (!specs[i]) break;
+          room.setPlayerTeam(specs[i].id, plan.targetTeam);
+          if (live) match.addToLineup(specs[i], plan.targetTeam);
+          names.push(specs[i].name);
+        }
+      } else {
+        applyPartialFill(room, specs, plan);
+        for (let i = 0; i < (plan.redNeed || 0) + (plan.blueNeed || 0); i++) {
+          if (specs[i]) names.push(specs[i].name);
+        }
+      }
+      if (names.length) {
+        room.sendAnnouncement(
+          `${names.join(", ")} entraram automaticamente (${names.length} no spec).`,
+          null,
+          0x2ecc71,
+          "bold",
+          1
+        );
+      }
+      recoverCompetitiveLineup();
+      return;
+    }
+
     if (plan.action === "choose") {
       const startChoose = () => {
         if (live) pauseForReplacement();
@@ -1002,6 +1033,9 @@ function createRoom(HBInit) {
     // Monta o 4v4/warmup já; stats/cargo/Discord não podem atrasar o jogo
     // (era o mesmo tipo de espera do saveMatch no fim da partida).
     refreshLobby();
+    if (room.getScores() || match.isRunning()) {
+      scheduleMidgameDisc(room, player.id, stadiumKind);
+    }
     afk.ensureReserveSlots();
     if (!auth) retryAuth(player.id);
 
@@ -1319,6 +1353,9 @@ function createRoom(HBInit) {
     }
 
     uniforms.syncAvatars();
+    if (room.getScores() || match.isRunning()) {
+      scheduleMidgameDisc(room, changedPlayer.id, stadiumKind);
+    }
     if (changedPlayer.team !== TEAM.SPEC) afk.touch(changedPlayer.id);
     if (byPlayer) afk.touch(byPlayer.id);
     if (match.isCompetitive() && changedPlayer.team !== TEAM.SPEC) {
@@ -1562,6 +1599,11 @@ function createRoom(HBInit) {
     if (fill.action === "fill-all") {
       applyExactFill(room, specs, fill);
       startFromCurrentField();
+      return true;
+    }
+    if (fill.action === "fill-partial") {
+      applyPartialFill(room, specs, fill);
+      laterForCurrentLobby(refreshLobby);
       return true;
     }
     if (fill.action === "keep") {
