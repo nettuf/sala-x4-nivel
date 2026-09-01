@@ -127,6 +127,7 @@ function createAfkTracker(room, opts = {}) {
    * Corrida própria em linha reta não entra aqui.
    */
   function isExternalPush(prev, pos, st, wallNow) {
+    if (hadRecentInput(st, wallNow)) return false;
     const dx = pos.x - prev.x;
     const dy = pos.y - prev.y;
     const distSq = dx * dx + dy * dy;
@@ -442,6 +443,7 @@ function createAfkTracker(room, opts = {}) {
 
     let punished = false;
     forEachFieldPlayer(wallNow, (p, st) => {
+      applyMotion(p, st, wallNow);
       const idle = idleMs(st, wallNow);
       if (punished) {
         if (idle >= config.afkWarnMs && !st.warned) {

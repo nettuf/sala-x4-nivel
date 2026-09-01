@@ -393,3 +393,103 @@ describe("matriz corrida vs parado vs empurrão (60Hz)", () => {
     });
   }
 });
+
+describe("paridade TDJ: drible, kickoff e fallback 1s", () => {
+  it("colisão grande com tecla recente não cai AFK", () => {
+    withAfkTimes(() => {
+      const { room, players } = mockAfkRoom(4);
+      const p1 = players.find((p) => p.id === 1);
+      let x = 0;
+      room.getPlayerDiscProperties = (id) =>
+        id === 1 ? { x, y: 0, xspeed: 0.8, yspeed: 0 } : { x: 10, y: 0, xspeed: 0, yspeed: 0 };
+      const afk = createAfkTracker(room);
+      const t0 = 1_700_000_000_000;
+      afk.resetClocks(t0);
+      afk.noteGameTick(t0);
+      for (let i = 1; i <= 17; i++) {
+        afk.noteActivity(p1, t0 + i * 1000 - 50);
+        x += 2.0;
+        afk.noteGameTick(t0 + i * 1000);
+      }
+      afk.tick(t0 + 17000);
+      assert.equal(players.find((p) => p.id === 1).team, 1, "drible/colisão");
+      afk.stop();
+    });
+  });
+
+  it("notePositionsReset evita falso empurrão no kickoff", () => {
+    withAfkTimes(() => {
+      const { room, players } = mockAfkRoom(4);
+      const p1 = players.find((p) => p.id === 1);
+      let x = 100;
+      room.getPlayerDiscProperties = (id) =>
+        id === 1 ? { x, y: 0, xspeed: 0.8, yspeed: 0 } : { x: 0, y: 0, xspeed: 0, yspeed: 0 };
+      const afk = createAfkTracker(room);
+      const t0 = 1_700_000_000_000;
+      afk.resetClocks(t0);
+      afk.noteGameTick(t0);
+      afk.notePositionsReset();
+      x = 0;
+      for (let i = 1; i <= 17; i++) {
+        afk.noteActivity(p1, t0 + i * 1000 - 50);
+        x += 0.8;
+        afk.noteGameTick(t0 + i * 1000);
+      }
+      afk.tick(t0 + 17000);
+      assert.equal(players.find((p) => p.id === 1).team, 1, "pós-kickoff");
+      afk.stop();
+    });
+  });
+
+  it("fallback de 1s reamostra movimento sem onGameTick", () => {
+    withAfkTimes(() => {
+      const { room, players } = mockAfkRoom(4);
+      const p1 = players.find((p) => p.id === 1);
+      let x = 0;
+      room.getPlayerDiscProperties = (id) =>
+        id === 1 ? { x, y: 0, xspeed: 0.8, yspeed: 0 } : { x: 0, y: 0, xspeed: 0, yspeed: 0 };
+      const afk = createAfkTracker(room);
+      const t0 = 1_700_000_000_000;
+      afk.resetClocks(t0);
+      for (let s = 1; s <= 17; s++) {
+        afk.noteActivity(p1, t0 + s * 1000 - 100);
+        x += 0.8 * 15;
+        afk.tick(t0 + s * 1000);
+      }
+      assert.equal(players.find((p) => p.id === 1).team, 1, "só tick de 1s");
+      afk.stop();
+    });
+  });
+});
+
+describe("comparação com AFK ingênuo (comunidade Haxball)", () => {
+  it("padrão onPlayerActivity: tecla sem deslocar nunca pune (falso negativo)", () => {
+    const last = new Map();
+    const t0 = 1_000_000;
+    last.set(1, t0);
+    const idle = Date.now() - last.get(1);
+    assert.ok(idle >= 0);
+    last.set(1, t0);
+    assert.equal(t0 + 20_000 - last.get(1) > 16_000, true, "ingênuo puniria só pelo relógio");
+    last.set(1, t0 + 19_000);
+    assert.equal(t0 + 20_000 - last.get(1) < 16_000, true, "ingênuo zera com qualquer tecla");
+  });
+
+  it("nosso: tecla sem deslocar no disco ainda cai AFK", () => {
+    withAfkTimes(() => {
+      const { room, players } = mockAfkRoom(4);
+      const p1 = players.find((p) => p.id === 1);
+      room.getPlayerDiscProperties = () => ({ x: 0, y: 0, xspeed: 0, yspeed: 0 });
+      const afk = createAfkTracker(room);
+      const t0 = 1_700_000_000_000;
+      afk.resetClocks(t0);
+      for (let i = 1; i <= 17; i++) {
+        afk.noteActivity(p1, t0 + i * 1000);
+        afk.noteGameTick(t0 + i * 1000);
+      }
+      afk.tick(t0 + 17000);
+      assert.equal(players.find((p) => p.id === 1).team, 0, "parado de verdade");
+      afk.stop();
+    });
+  });
+});
