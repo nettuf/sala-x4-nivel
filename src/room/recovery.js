@@ -125,8 +125,11 @@ function applyExactFill(room, specs, { redNeed = 0, blueNeed = 0 } = {}) {
  * Vale para treino 1v1–3v3 e 4v4: RR sem stats, depois o capitão escolhe.
  * Empurrão e chute mexem o disco e zeram; tecla no lugar e chat não.
  */
-function isKickoffIdleAfk(type, playerId, movedIds) {
-  return type === "auto-afk" && playerId != null && !movedIds.has(playerId);
+function isKickoffIdleAfk(type, playerId, movedIds, kickoffFieldIds) {
+  if (type !== "auto-afk" || playerId == null || movedIds.has(playerId)) return false;
+  // Só quem estava em campo no apito: pick/reposição no meio da partida nunca RR.
+  if (kickoffFieldIds && kickoffFieldIds.size > 0 && !kickoffFieldIds.has(playerId)) return false;
+  return true;
 }
 
 /**

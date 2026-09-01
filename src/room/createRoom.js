@@ -72,6 +72,8 @@ function createRoom(HBInit) {
   };
 
   const movedThisMatch = new Set();
+  /** Quem estava em campo no onGameStart — só esses podem RR por AFK de kickoff. */
+  const kickoffFieldIds = new Set();
   const afk = createAfkTracker(room, {
     shouldAutoAfk: () => shouldCountAutoAfk(room.getPlayerList()),
     onFieldMove: (id) => movedThisMatch.add(id),
@@ -918,7 +920,7 @@ function createRoom(HBInit) {
     if (
       leftField &&
       player &&
-      isKickoffIdleAfk(type, player.id, movedThisMatch) &&
+      isKickoffIdleAfk(type, player.id, movedThisMatch, kickoffFieldIds) &&
       room.getScores()
     ) {
       const scores = match.snapshotScores() || room.getScores();
@@ -1039,6 +1041,7 @@ function createRoom(HBInit) {
     chatFlood.forget(player.id);
     commands.forgetPlayer(player.id);
     movedThisMatch.delete(player.id);
+    kickoffFieldIds.delete(player.id);
   }
 
   function announceRageQuit(player, reason) {
@@ -1370,12 +1373,16 @@ function createRoom(HBInit) {
     winnerStaysPending = null;
     stopHoldPauseLoop();
     movedThisMatch.clear();
+    kickoffFieldIds.clear();
     kickoffAfkRestart = false;
     afk.setPaused(false);
     afk.resetClocks();
     uniforms.prepareKickoff();
     uniforms.syncAvatars();
     const humans = room.getPlayerList().filter((p) => p.id !== 0);
+    for (const p of humans) {
+      if (p.team === TEAM.RED || p.team === TEAM.BLUE) kickoffFieldIds.add(p.id);
+    }
     const hasRed = humans.some((p) => p.team === TEAM.RED);
     const hasBlue = humans.some((p) => p.team === TEAM.BLUE);
     if (hasRed && hasBlue) {

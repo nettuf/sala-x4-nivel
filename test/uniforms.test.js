@@ -321,6 +321,7 @@ describe("uniformes: emoji do kit", () => {
   it("kits com emoji fixo: baleio, cacadores, copas, gh, gigachads, gordo, jalin, marconhados, mdr, moggadores, nickname, olympus guardians, palhacada, pedro, rafaela, rato, skdreams, tigre, tulio, zebra family e zebrados", () => {
     const comEmoji = KITS.filter((k) => k.emoji).map((k) => k.id).sort();
     assert.deepEqual(comEmoji, [
+      "amigosvasco",
       "baleio",
       "cacadores",
       "copas",
@@ -340,7 +341,6 @@ describe("uniformes: emoji do kit", () => {
       "skdreams",
       "tigre",
       "tulio",
-      "unimundial",
       "zebrados",
       "zebrafamily",
     ]);
@@ -349,11 +349,11 @@ describe("uniformes: emoji do kit", () => {
     assert.equal(findKit("artemis").angle, 90);
     assert.equal(findKit("artemis").text, 0x1f1f1f);
     assert.deepEqual(findKit("artemis").colors, [0x00764b, 0xffffff, 0x00764b]);
-    assert.equal(findKit("unimundial").name, "Amigos do ✠");
-    assert.equal(findKit("unimundial").angle, 38);
-    assert.equal(findKit("unimundial").text, 0xffe0e0);
-    assert.deepEqual(findKit("unimundial").colors, [0x000000, 0x000000, 0x000000]);
-    assert.equal(findKit("unimundial").emoji, "✠");
+    assert.equal(findKit("amigosvasco").name, "Amigos do ✠");
+    assert.equal(findKit("amigosvasco").angle, 38);
+    assert.equal(findKit("amigosvasco").text, 0xffe0e0);
+    assert.deepEqual(findKit("amigosvasco").colors, [0x000000, 0x000000, 0x000000]);
+    assert.equal(findKit("amigosvasco").emoji, "✠");
     assert.equal(findKit("futx4").name, "Alanzoka & amigos");
     assert.equal(findKit("futx4").angle, 66);
     assert.equal(findKit("futx4").text, 0x283950);

@@ -1297,6 +1297,68 @@ describe("choose: reposição em partida", () => {
     host.cleanup();
   });
 
+  it("pickado na reposição: ocioso não RR a partida (só kickoff do apito)", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    const specs = [host.addPlayer(TEAM.SPEC), host.addPlayer(TEAM.SPEC)];
+    host.startMatch();
+    for (const p of all) host.activity(p);
+
+    host.quit(all[0]);
+    await settle();
+
+    const cap = host.handles.choose.currentCaptain();
+    await host.chat(cap, "1");
+    await settle();
+    await new Promise((r) => setTimeout(r, 2600));
+
+    const picked = specs[0];
+    assert.equal(host.find(picked.id).team, TEAM.RED, "spec entrou na reposição");
+    const liveBefore = host.live();
+    assert.ok(liveBefore, "partida ao vivo");
+
+    const movers = all.filter((p) => p.id !== picked.id && p.team !== TEAM.SPEC);
+    host.idle([picked], { moving: movers, idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await settle();
+
+    assert.equal(host.handles.afk.isAfk(picked.id), true);
+    assert.equal(host.find(picked.id).team, TEAM.SPEC);
+    assert.equal(host.live(), liveBefore, "não reinicia a partida");
+    assert.equal(host.teamCount(TEAM.RED), 3, "buraco no time — reposição normal, não RR");
+    host.cleanup();
+  });
+
+  it("entrada no meio + pick: ocioso não RR a partida", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch();
+    for (const p of all) host.activity(p);
+
+    const late = host.addPlayer(TEAM.SPEC);
+    host.quit(all[0]);
+    await settle();
+
+    const cap = host.handles.choose.currentCaptain();
+    await host.chat(cap, "1");
+    await settle();
+    await new Promise((r) => setTimeout(r, 2600));
+
+    assert.equal(host.find(late.id).team, TEAM.RED, "quem entrou foi pickado");
+    const liveBefore = host.live();
+    assert.ok(liveBefore);
+
+    const movers = all.filter((p) => p.id !== late.id && p.team !== TEAM.SPEC);
+    host.idle([late], { moving: movers, idleMs: config.afkActionMs + 500 });
+    host.handles.afk.tick(Date.now());
+    await settle();
+
+    assert.equal(host.handles.afk.isAfk(late.id), true);
+    assert.equal(host.live(), liveBefore, "não reinicia a partida");
+    assert.equal(host.teamCount(TEAM.RED), 3, "reposição ao vivo, não RR de kickoff");
+    host.cleanup();
+  });
+
   it("saída com 2 specs: despausa do motor/admin não volta o jogo sem pick", async () => {
     const host = bootRoom();
     const all = fill4v4(host);

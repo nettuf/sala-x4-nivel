@@ -119,7 +119,7 @@ const KITS = [
     colors: [0x00764b, 0xffffff, 0x00764b],
   },
   {
-    id: "unimundial",
+    id: "amigosvasco",
     name: "Amigos do ✠",
     angle: 38,
     text: 0xffe0e0,

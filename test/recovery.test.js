@@ -125,10 +125,18 @@ describe("AFK no começo da partida", () => {
   it("auto-AFK sem ter mexido é kickoff; teclou nesta partida não é", () => {
     const { isKickoffIdleAfk } = require("../src/room/recovery");
     const moved = new Set([2]);
-    assert.equal(isKickoffIdleAfk("auto-afk", 1, moved), true);
-    assert.equal(isKickoffIdleAfk("auto-afk", 2, moved), false);
-    assert.equal(isKickoffIdleAfk("voluntary-afk", 1, moved), false);
-    assert.equal(isKickoffIdleAfk("kick", 1, moved), false);
+    const kickoff = new Set([1, 2, 3]);
+    assert.equal(isKickoffIdleAfk("auto-afk", 1, moved, kickoff), true);
+    assert.equal(isKickoffIdleAfk("auto-afk", 2, moved, kickoff), false);
+    assert.equal(isKickoffIdleAfk("voluntary-afk", 1, moved, kickoff), false);
+    assert.equal(isKickoffIdleAfk("kick", 1, moved, kickoff), false);
+  });
+
+  it("pick/reposição no meio da partida não conta como kickoff", () => {
+    const { isKickoffIdleAfk } = require("../src/room/recovery");
+    const moved = new Set();
+    const kickoff = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.equal(isKickoffIdleAfk("auto-afk", 9, moved, kickoff), false);
   });
 
   it("vagas = opções no spec puxa auto; sobra gente o capitão escolhe", () => {
