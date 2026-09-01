@@ -332,6 +332,7 @@ describe("uniformes: emoji do kit", () => {
       "gigachads",
       "gordo",
       "jalin",
+      "leao",
       "marconhados",
       "mdr",
       "moggadores",
@@ -363,6 +364,11 @@ describe("uniformes: emoji do kit", () => {
     assert.equal(findKit("duki").text, 0xffffff);
     assert.deepEqual(findKit("duki").colors, [0xc2ffe7, 0xffffff, 0xfbd9ff]);
     assert.equal(findKit("duki").emoji, undefined);
+    assert.equal(findKit("leao").name, "Leões da Jamaica");
+    assert.equal(findKit("leao").angle, 90);
+    assert.equal(findKit("leao").text, 0xffffff);
+    assert.deepEqual(findKit("leao").colors, [0x009b3a, 0x000000, 0xfed100]);
+    assert.equal(findKit("leao").emoji, "🦁");
     assert.equal(findKit("alanzoka").name, "Alanzoka & amigos");
     assert.equal(findKit("alanzoka").angle, 66);
     assert.equal(findKit("alanzoka").text, 0x283950);

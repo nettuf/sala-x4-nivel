@@ -124,6 +124,24 @@ function bootRoom({ deferTeamChanges = false } = {}) {
       if (on) room.onGamePause(who);
       else room.onGameUnpause(who);
     },
+    /** Admin parou pelo painel do Haxball (stop + onGameStop com byPlayer). */
+    adminStop(admin) {
+      scores = null;
+      const who = snapshot(admin || players[0]);
+      return room.onGameStop?.(who);
+    },
+    /** Admin iniciou pelo painel (start + onGameStart com byPlayer). */
+    adminStart(admin) {
+      scores = {
+        red: 0,
+        blue: 0,
+        time: 0,
+        scoreLimit: config.scoreLimit,
+        timeLimit: config.timeLimit * 60,
+      };
+      const who = snapshot(admin || players[0]);
+      room.onGameStart?.(who);
+    },
     /**
      * Motor despausou sozinho (setPlayerTeam). pauseGame() dentro do
      * onGameUnpause é ignorado — só o timeout/tick seguinte re-pausa.

@@ -235,6 +235,10 @@ function createRoom(HBInit) {
   let replacementEpoch = 0;
   /** Admin pausou/despausou manualmente: não re-pausa reposição por cima. */
   let adminPauseOverride = false;
+  /** Admin parou pelo painel: não remonta lobby até dar start de novo. */
+  let adminManualStopHold = false;
+  /** Estado da partida antes do stop manual (para adoptLiveGame no restart). */
+  let adminStoppedMatchState = null;
   const slowChat = new Set();
   const chatFlood = createChatFloodGuard({
     limit: config.chatFloodLimit,
@@ -469,6 +473,7 @@ function createRoom(HBInit) {
   }
 
   function refreshLobby() {
+    if (adminManualStopHold) return;
     if (postMatchBusy) return;
     if (winnerStaysPending) {
       if (tryFinishWinnerStays()) return;
@@ -1338,6 +1343,10 @@ function createRoom(HBInit) {
 
   room.onPlayerTeamChange = (changedPlayer, byPlayer) => {
     choose.confirmTeamChange(changedPlayer);
+    if (isAdminManualAction(byPlayer)) {
+      adminManualStopHold = false;
+      adminStoppedMatchState = null;
+    }
     if (afk.isAfk(changedPlayer.id) && changedPlayer.team !== 0) {
       room.setPlayerTeam(changedPlayer.id, 0);
       if (byPlayer) {
@@ -1402,13 +1411,18 @@ function createRoom(HBInit) {
     afk.notePositionsReset();
   };
 
-  room.onGameStart = () => {
+  room.onGameStart = (byPlayer) => {
     enginePaused = false;
     holdUntilPick = false;
     replacementPauseActive = false;
     adminPauseOverride = false;
     winnerStaysPending = null;
     stopHoldPauseLoop();
+    if (isAdminManualAction(byPlayer) && room.getScores() && !match.isRunning()) {
+      adminManualStopHold = false;
+      match.adoptLiveGame(adminStoppedMatchState || inferCompetitiveFromField());
+      adminStoppedMatchState = null;
+    }
     movedThisMatch.clear();
     kickoffFieldIds.clear();
     kickoffAfkRestart = false;
@@ -1522,16 +1536,47 @@ function createRoom(HBInit) {
     }
   };
 
-  room.onGameStop = async () => {
+  room.onGameStop = async (byPlayer) => {
     try {
-      await handleGameStop();
+      await handleGameStop(byPlayer);
     } catch (err) {
       // Falha no save/replay não pode deixar a sala sem próximo jogo.
       console.error("[room] onGameStop", err?.message || err);
       postMatchBusy = false;
+      adminManualStopHold = false;
       setTimeout(refreshLobby, 1200);
     }
   };
+
+  function isAdminManualAction(byPlayer) {
+    return !!(byPlayer && byPlayer.id);
+  }
+
+  function inferCompetitiveFromField() {
+    const players = room.getPlayerList().filter((p) => p.id !== 0 && !afk.isAfk(p.id));
+    const redN = players.filter((p) => p.team === TEAM.RED).length;
+    const blueN = players.filter((p) => p.team === TEAM.BLUE).length;
+    const competitive =
+      stadiumKind === "x4" && redN >= config.teamSize && blueN >= config.teamSize;
+    return {
+      competitive,
+      everCompetitive: competitive,
+      startedFourOnFour: competitive,
+      formatBroken: false,
+    };
+  }
+
+  function handleAdminManualStop() {
+    adminManualStopHold = true;
+    adminStoppedMatchState = match.captureState();
+    lobbyRevision += 1;
+    winnerStaysPending = null;
+    choose.deactivate();
+    releaseReplacementPause({ force: true });
+    if (match.isRunning()) match.cancelRecordingOnly();
+    else adminStoppedMatchState = null;
+    postMatchBusy = false;
+  }
 
   function waitMs(ms) {
     return new Promise((resolve) => {
@@ -1681,7 +1726,7 @@ function createRoom(HBInit) {
     scheduleWinnerStaysRetry();
   }
 
-  async function handleGameStop() {
+  async function handleGameStop(byPlayer) {
     holdUntilPick = false;
     replacementPauseActive = false;
     adminPauseOverride = false;
@@ -1695,6 +1740,13 @@ function createRoom(HBInit) {
       postMatchBusy = false;
       return;
     }
+    // Stop pelo painel do admin: mantém times, não winner stays nem refreshLobby.
+    if (isAdminManualAction(byPlayer)) {
+      handleAdminManualStop();
+      return;
+    }
+    adminManualStopHold = false;
+    adminStoppedMatchState = null;
     postMatchBusy = true;
     uniforms.noteMatchEnd();
     let result = null;

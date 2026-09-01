@@ -140,6 +140,14 @@ const COMMUNITY_KITS = [
     colors: [0xc2ffe7, 0xffffff, 0xfbd9ff],
   },
   {
+    id: "leao",
+    name: "Leões da Jamaica",
+    angle: 90,
+    text: 0xffffff,
+    colors: [0x009b3a, 0x000000, 0xfed100],
+    emoji: "🦁",
+  },
+  {
     id: "alanzoka",
     name: "Alanzoka & amigos",
     angle: 66,

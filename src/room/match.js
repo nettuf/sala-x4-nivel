@@ -679,6 +679,46 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     match = null;
   }
 
+  function captureState() {
+    if (!match) return null;
+    return {
+      competitive: !!match.competitive,
+      everCompetitive: !!match.everCompetitive,
+      startedFourOnFour: !!match.startedFourOnFour,
+      formatBroken: !!match.formatBroken,
+    };
+  }
+
+  /** Admin startGame no painel: o motor já rodou, só sincroniza o controller. */
+  function adoptLiveGame(state = {}) {
+    if (match) return;
+    const redN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 1).length;
+    const blueN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 2).length;
+    match = {
+      competitive: !!state.competitive,
+      everCompetitive: !!state.everCompetitive,
+      startedFourOnFour: !!state.startedFourOnFour,
+      formatBroken: !!state.formatBroken,
+      recordingStarted: false,
+      touches: [],
+      goals: [],
+      lastGoal: null,
+      lineupRed: playersOf(1).map((p) => ({ id: p.id, name: p.name, auth: p.auth || null })),
+      lineupBlue: playersOf(2).map((p) => ({ id: p.id, name: p.name, auth: p.auth || null })),
+    };
+    try {
+      room.startRecording();
+      match.recordingStarted = true;
+    } catch (err) {
+      console.warn("[match] startRecording (adopt)", err.message);
+    }
+    if (!state.competitive && redN >= 4 && blueN >= 4) {
+      match.competitive = true;
+      match.everCompetitive = true;
+      match.startedFourOnFour = true;
+    }
+  }
+
   return {
     start,
     onBallKick,
@@ -693,6 +733,8 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     rageQuitReason,
     snapshotScores,
     cancelRecordingOnly,
+    captureState,
+    adoptLiveGame,
   /** breakFormat: true só quando o formato oficial quebrou (ex. 4v4→3v3). Lobby não marca. */
     setCompetitive(value, { breakFormat = false } = {}) {
       if (!match) return;

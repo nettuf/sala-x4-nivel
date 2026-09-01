@@ -505,6 +505,36 @@ describe("ações de admin", () => {
     host.cleanup();
   });
 
+  it("admin stop + start no 4v4 mantém os times e não remonta o lobby", async () => {
+    const host = bootRoom();
+    const field = fill4v4(host);
+    const spec = host.addPlayer(TEAM.SPEC);
+    const admin = host.addPlayer(TEAM.SPEC);
+    host.startMatch();
+
+    const before = new Map(host.players.map((p) => [p.id, p.team]));
+    await host.adminStop(admin);
+    await new Promise((r) => setTimeout(r, 1400));
+    for (const p of host.players) {
+      assert.equal(p.team, before.get(p.id), `${p.name} não deveria trocar de time após stop do admin`);
+    }
+
+    host.adminStart(admin);
+    assert.ok(host.live(), "jogo voltou ao vivo");
+    assert.ok(host.handles.match.isRunning(), "controller sincronizado após start do admin");
+    assert.ok(host.handles.match.isCompetitive(), "4v4 continua competitivo");
+    for (const p of host.players) {
+      assert.equal(p.team, before.get(p.id), `${p.name} não deveria trocar após restart do admin`);
+    }
+
+    host.handles.refreshLobby();
+    for (const p of field) {
+      assert.equal(p.team, before.get(p.id), "refreshLobby não remonta após restart manual");
+    }
+    assert.equal(spec.team, TEAM.SPEC, "spec continua no banco");
+    host.cleanup();
+  });
+
   it("4v3 com reposição: admin pausa e despausa sem o bot re-pausar", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
