@@ -22,6 +22,9 @@ function createChooseController(room, {
   let replacement = null;
   let lockedSize = 0;
   const pendingTeams = new Map();
+  /** Última lista/timer enviados ao capitão (health + refresh). */
+  let lastPickPromptAt = 0;
+  let lastPickCaptainId = 0;
 
   function excluded(p) {
     return typeof isExcluded === "function" ? !!isExcluded(p) : false;
@@ -119,20 +122,90 @@ function createChooseController(room, {
 
   /** Lista só quem pode ser escolhido: AFK não aparece nem ocupa número. Só o capitão vê. */
   function announceSpecList(captainId) {
+    const id = Number(captainId);
+    if (!Number.isInteger(id) || id <= 0) return;
+    lastPickPromptAt = Date.now();
+    lastPickCaptainId = id;
     const { specReady } = list();
     if (!specReady.length) {
-      tell(captainId, "Sem jogadores no spec.", 0xe74c3c, "bold", 2);
+      tell(id, "Sem jogadores no spec.", 0xe74c3c, "bold", 2);
       return;
     }
     const line = specReady.map((p, i) => `${p.name}[${i + 1}]`).join(", ");
-    tell(captainId, `Specs: ${line}`, 0x3498db, "bold", 1);
+    tell(id, `Specs: ${line}`, 0x3498db, "bold", 1);
     tell(
-      captainId,
+      id,
       `Escolha em ${config.chooseTimeSec}s: número | top | random | bottom${streakSuffix()}`,
       0xecf0f1,
       "normal",
       1
     );
+  }
+
+  function pickPromptStale(maxAgeMs = 4000) {
+    if (!active || !lastPickCaptainId) return true;
+    return Date.now() - lastPickPromptAt >= maxAgeMs;
+  }
+
+  function scheduleCaptainTimeouts(cap) {
+    const chooseTime = config.chooseTimeSec;
+    const capId = cap.id;
+    timeout = setTimeout(() => {
+      if (!active || currentCaptain()?.id !== capId) {
+        promptCaptain();
+        return;
+      }
+      tell(
+        cap.id,
+        `${cap.name}, ${Math.floor(chooseTime / 2)}s restantes!`,
+        0xf1c40f,
+        "bold",
+        2
+      );
+      timeout = setTimeout(() => {
+        if (!active || currentCaptain()?.id !== capId) {
+          promptCaptain();
+          return;
+        }
+        if (tryFinishChoose()) return;
+        parkTimedOutCaptain(cap);
+      }, (chooseTime / 2) * 1000);
+      if (typeof timeout.unref === "function") timeout.unref();
+    }, (chooseTime / 2) * 1000);
+    if (typeof timeout.unref === "function") timeout.unref();
+  }
+
+  /**
+   * Envia Specs + instrução e inicia (ou mantém) o timer de pick.
+   * refreshOnly: só atualiza a lista — não zera o relógio (join no meio do pick).
+   */
+  function beginCaptainPickTurn({ refreshOnly = false } = {}) {
+    if (!active) return false;
+
+    const team = pickingTeam() || (replacement && replacement.targetTeam) || 0;
+    if (!team) {
+      tryFinishChoose();
+      return false;
+    }
+    if (!replacement && !teamHasHole(team)) {
+      if (!tryFinishChoose()) deactivate();
+      return false;
+    }
+
+    if (!list().specReady.length) {
+      if (abortIfNoEligibleSpec()) return false;
+    }
+
+    const cap = ensureCaptain();
+    if (!cap) return false;
+
+    announceSpecList(cap.id);
+
+    if (!refreshOnly) {
+      clearCapTimeout();
+      scheduleCaptainTimeouts(cap);
+    }
+    return true;
   }
 
   /** Time que precisa pickar: nunca o que já está completo. */
@@ -310,7 +383,11 @@ function createChooseController(room, {
       afterTeamChange(onReadyToStart);
       return true;
     }
-    afterTeamChange(() => promptCaptain());
+    if (!beginCaptainPickTurn()) {
+      afterTeamChange(() => promptCaptain({ allowExactFill: true }));
+    } else {
+      afterTeamChange(() => beginCaptainPickTurn({ refreshOnly: true }));
+    }
     return true;
   }
 
@@ -349,15 +426,13 @@ function createChooseController(room, {
 
     const team = pickingTeam() || (replacement && replacement.targetTeam) || 0;
     if (!team) return;
-    if (!replacement && !teamHasHole(team)) return;
 
-    let { specReady, spec } = list();
+    let { specReady } = list();
     // Única opção restante: sobe sozinho (ensureCaptain se o time estiver vazio).
     // Ao vivo o capitão tem que escolher — auto aqui despausava sem pick.
     if (specReady.length === 1 && teamHasHole(team) && !isLiveReplacement()) {
       const cap = ensureCaptain() || currentCaptain();
       if (cap) {
-        // Se o único spec virou o capitão, a vaga pode já ter fechado.
         if (tryFinishChoose() || tryFillExactHoles()) return;
         ({ specReady } = list());
         if (specReady.length === 1 && teamHasHole(team)) {
@@ -368,46 +443,11 @@ function createChooseController(room, {
         return;
       }
     }
-    if (!list().specReady.length) {
-      if (abortIfNoEligibleSpec()) return;
+
+    if (!beginCaptainPickTurn()) {
+      const cap = ensureCaptain();
+      if (!cap) abortChoose("Sem jogadores para escolher — voltando ao lobby.");
     }
-
-    const cap = ensureCaptain();
-    if (!cap) {
-      abortChoose("Sem jogadores para escolher — voltando ao lobby.");
-      return;
-    }
-
-    announceSpecList(cap.id);
-
-    const chooseTime = config.chooseTimeSec;
-    const capId = cap.id;
-    timeout = setTimeout(() => {
-      if (!active || currentCaptain()?.id !== capId) {
-        promptCaptain();
-        return;
-      }
-      tell(
-        cap.id,
-        `${cap.name}, ${Math.floor(chooseTime / 2)}s restantes!`,
-        0xf1c40f,
-        "bold",
-        2
-      );
-      timeout = setTimeout(() => {
-        if (!active || currentCaptain()?.id !== capId) {
-          promptCaptain();
-          return;
-        }
-        if (tryFinishChoose()) return;
-        // Antes kickava e o onPlayerLeave às vezes preenchia as vagas
-        // sozinho ("pegou os primeiros"). Agora: AFK no fim da fila e o
-        // próximo do time picka.
-        parkTimedOutCaptain(cap);
-      }, (chooseTime / 2) * 1000);
-      if (typeof timeout.unref === "function") timeout.unref();
-    }, (chooseTime / 2) * 1000);
-    if (typeof timeout.unref === "function") timeout.unref();
   }
 
   /**
@@ -499,6 +539,8 @@ function createChooseController(room, {
     lockedSize = 0;
     clearCapTimeout();
     replacement = null;
+    lastPickPromptAt = 0;
+    lastPickCaptainId = 0;
   }
 
   function activate() {
@@ -624,7 +666,7 @@ function createChooseController(room, {
 
     // refreshLobby batendo de novo: não reinicia os 20s de escolha.
     if (timeout) {
-      announceSpecList(cap.id);
+      beginCaptainPickTurn({ refreshOnly: true });
       return;
     }
     promptCaptain();
@@ -736,7 +778,11 @@ function createChooseController(room, {
         afterTeamChange(() => onReady?.({ chosen }));
         return true;
       }
-      afterTeamChange(() => promptCaptain());
+      if (!beginCaptainPickTurn()) {
+        afterTeamChange(() => promptCaptain({ allowExactFill: true }));
+      } else {
+        afterTeamChange(() => beginCaptainPickTurn({ refreshOnly: true }));
+      }
       return true;
     }
 
@@ -746,11 +792,12 @@ function createChooseController(room, {
       return true;
     }
 
-    const nextCap = currentCaptain();
-    if (nextCap && list().specReady.length >= 2) {
-      announceSpecList(nextCap.id);
+    // Lista + timer na hora; depois do defer só renumera (times async do Haxball).
+    if (!beginCaptainPickTurn()) {
+      afterTeamChange(() => promptCaptain({ allowExactFill: true }));
+    } else {
+      afterTeamChange(() => beginCaptainPickTurn({ refreshOnly: true }));
     }
-    afterTeamChange(() => promptCaptain());
     return true;
   }
 
@@ -879,6 +926,8 @@ function createChooseController(room, {
     list,
     promptCaptain,
     currentCaptain,
+    pickPromptStale,
+    beginCaptainPickTurn,
   };
 }
 

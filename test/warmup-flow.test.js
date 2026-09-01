@@ -362,11 +362,15 @@ describe("escolha de reposição", () => {
       onReadyToStart: () => {},
     });
 
-    choose.startReplacement(TEAM.RED, () => {
-      ready += 1;
-    });
+    choose.startReplacement(
+      TEAM.RED,
+      () => {
+        ready += 1;
+      },
+      { teamSize: 2 }
+    );
     assert.equal(choose.isReplacement(), true);
-    assert.equal(announcements.at(-2).to, 1);
+    assert.ok(announcements.some((a) => a.to === 1 && /^Specs:/.test(a.msg)));
     assert.equal(choose.handleCaptainChat(players[0], "2"), true);
     assert.equal(players.find((player) => player.id === 5).team, TEAM.RED);
     assert.equal(ready, 1);

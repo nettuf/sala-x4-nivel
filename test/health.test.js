@@ -199,14 +199,32 @@ describe("diagnóstico da sala", () => {
     assert.equal(d.action, "recover");
   });
 
-  it("choose sem capitão é reavaliado; com capitão fica quieto", () => {
+  it("choose sem capitão é reavaliado; com capitão e lista recente fica quieto", () => {
     assert.equal(
       diagnoseRoom({ chooseActive: true, hasCaptain: false, redCount: 4, specReadyCount: 2 }).action,
       "prompt-choose"
     );
     assert.equal(
-      diagnoseRoom({ chooseActive: true, hasCaptain: true, redCount: 4, blueCount: 1, specReadyCount: 2 }).action,
+      diagnoseRoom({
+        chooseActive: true,
+        hasCaptain: true,
+        redCount: 4,
+        blueCount: 1,
+        specReadyCount: 2,
+        pickPromptStale: false,
+      }).action,
       "none"
+    );
+    assert.equal(
+      diagnoseRoom({
+        chooseActive: true,
+        hasCaptain: true,
+        redCount: 4,
+        blueCount: 1,
+        specReadyCount: 2,
+        pickPromptStale: true,
+      }).action,
+      "prompt-choose"
     );
   });
 

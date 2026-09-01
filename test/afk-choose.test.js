@@ -1431,10 +1431,10 @@ describe("choose: reposição em partida", () => {
 
 /**
  * Contrato da ociosidade em partida (não é treino solo):
- * aviso 8s, spec 12s; kickoff = RR sem stats; RR não zera streak, só derrota.
+ * aviso 12s, spec 16s; kickoff = RR sem stats; RR não zera streak, só derrota.
  */
-describe("partida 4v4: ociosidade 8s/12s, RR no começo, streak só na derrota", () => {
-  it("no meio do 4v4: 8s avisa, 12s AFK no spec, sem RR", async () => {
+describe("partida 4v4: ociosidade 12s/16s, RR no começo, streak só na derrota", () => {
+  it("no meio do 4v4: 12s avisa, 16s AFK no spec, sem RR", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.addPlayer(TEAM.SPEC);
@@ -1446,7 +1446,7 @@ describe("partida 4v4: ociosidade 8s/12s, RR no começo, streak só na derrota",
 
     host.idle(all, { moving: ativos, idleMs: config.afkWarnMs + 500 });
     host.handles.afk.tick(Date.now());
-    assert.ok(host.said(/mexa-se/, parado.id), "aviso privado aos 8s");
+    assert.ok(host.said(/mexa-se/, parado.id), "aviso privado aos 12s");
     assert.equal(host.find(parado.id).team, TEAM.RED, "aviso não tira do time");
     assert.equal(host.handles.afk.isAfk(parado.id), false);
     assert.ok(host.live(), "partida segue");
@@ -1455,7 +1455,7 @@ describe("partida 4v4: ociosidade 8s/12s, RR no começo, streak só na derrota",
     host.handles.afk.tick(Date.now());
     await settle();
 
-    assert.equal(host.find(parado.id).team, TEAM.SPEC, "12s → spec AFK");
+    assert.equal(host.find(parado.id).team, TEAM.SPEC, "16s → spec AFK");
     assert.equal(host.handles.afk.isAfk(parado.id), true);
     assert.equal(host.said(/AFK no começo/i), false, "já tinha mexido: não é RR");
     assert.ok(host.live(), "jogo não reinicia no meio");

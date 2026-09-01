@@ -1691,6 +1691,7 @@ function createRoom(HBInit) {
         replacement: choose.isReplacement(),
         holdingPause: replacementPauseActive || holdUntilPick,
         hasCaptain: !!choose.currentCaptain(),
+        pickPromptStale: choose.isActive() && choose.pickPromptStale(),
         competitive: match.isCompetitive(),
         winnerStaysPending: !!winnerStaysPending,
         redCount: red.filter((p) => !afk.isAfk(p.id)).length,
@@ -1727,7 +1728,7 @@ function createRoom(HBInit) {
         return;
       }
       if (action === "prompt-choose") {
-        choose.promptCaptain();
+        if (!choose.beginCaptainPickTurn()) choose.promptCaptain();
         return;
       }
       if (action === "refresh-lobby") refreshLobby();

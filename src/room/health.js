@@ -23,6 +23,7 @@ function diagnoseRoom({
   replacement = false,
   holdingPause = false,
   hasCaptain = false,
+  pickPromptStale = false,
   competitive = false,
   winnerStaysPending = false,
   redCount = 0,
@@ -77,6 +78,9 @@ function diagnoseRoom({
   if (chooseActive) {
     if (!hasCaptain) {
       return { action: "prompt-choose", reason: "choose sem capitão" };
+    }
+    if (specReadyCount > 0 && pickPromptStale) {
+      return { action: "prompt-choose", reason: "choose sem lista ao capitão" };
     }
     return { action: "none" };
   }

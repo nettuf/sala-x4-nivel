@@ -17,6 +17,10 @@ const SPEED_EPS = 0.4;
 const SPEED_EPS_SQ = SPEED_EPS * SPEED_EPS;
 /** Deslocamento mínimo junto da velocidade: xspeed sujo com disco parado não conta. */
 const WALK_DELTA_EPS = 0.35;
+/** Tecla recente: empurrão com xspeed fantasma não zera AFK de quem estava parado. */
+const INPUT_WINDOW_MS = 2000;
+/** Parado há isso + deslize sem tecla = empurrão gradual. */
+const IDLE_BEFORE_PUSH_MS = 500;
 /** Haxball: onGameTick = 60 Hz. Apex incrementa ACT nesse loop. */
 const TICK_HZ = 60;
 const MS_PER_TICK = 1000 / TICK_HZ;
@@ -44,9 +48,9 @@ function afkRemainSec() {
 /**
  * AFK é um estado só, venha do !afk ou de ficar parado em campo.
  *
- * Relógio = parede (8s aviso, 12s spec). Zera se o disco ANDAR no tick
+ * Relógio = parede (12s aviso, 16s spec). Zera se o disco ANDAR no tick
  * (velocidade de corrida + deslocamento — linha reta conta).
- * Empurrão e deriva de 1s NÃO zeram.
+ * Empurrão, xspeed fantasma em parado e deriva de 1s NÃO zeram.
  */
 function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number, lastPos: {x:number,y:number}|null }>} */
@@ -72,7 +76,7 @@ function createAfkTracker(room, opts = {}) {
   }
 
   function blankState(now) {
-    return { lastActive: now, warned: false, idleTicks: 0, lastPos: null };
+    return { lastActive: now, warned: false, idleTicks: 0, lastPos: null, walkStreak: 0, lastInputAt: 0 };
   }
 
   function touch(playerId, wallNow = Date.now()) {
@@ -82,6 +86,8 @@ function createAfkTracker(room, opts = {}) {
     cur.warned = false;
     cur.idleTicks = 0;
     cur.lastPos = null;
+    cur.walkStreak = 0;
+    cur.lastInputAt = 0;
     state.set(playerId, cur);
   }
 
@@ -106,18 +112,64 @@ function createAfkTracker(room, opts = {}) {
     return null;
   }
 
+  function hadRecentInput(st, wallNow) {
+    return !!(st.lastInputAt && wallNow - st.lastInputAt < INPUT_WINDOW_MS);
+  }
+
+  function idleForPush(st, wallNow) {
+    const tickIdle = (Number(st.idleTicks) || 0) * MS_PER_TICK;
+    const wallIdle = wallNow - st.lastActive;
+    return Math.max(tickIdle, wallIdle);
+  }
+
   /**
-   * Andou NESTE frame? Só corrida (xspeed/yspeed + deslocamento).
-   * Empurrão (salto ≥ BUMP_EPS num tick) não zera AFK nem movedThisMatch.
+   * Salto grande ou empurrão gradual em quem estava parado (sem tecla).
+   * Corrida própria em linha reta não entra aqui.
+   */
+  function isExternalPush(prev, pos, st, wallNow) {
+    const dx = pos.x - prev.x;
+    const dy = pos.y - prev.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < WALK_DELTA_EPS * WALK_DELTA_EPS) return false;
+    if (distSq >= BUMP_EPS * BUMP_EPS) return true;
+    if (!isWalkingSpeed(pos)) return false;
+    const streak = Number(st.walkStreak) || 0;
+    if (streak >= 2) return false;
+    const dist = Math.sqrt(distSq);
+    // Empurrão gradual: passo ≥1.0 sem tecla em quem já estava parado (corrida ~0.8/tick não entra).
+    return (
+      dist >= 1.0 &&
+      idleForPush(st, wallNow) >= IDLE_BEFORE_PUSH_MS &&
+      !hadRecentInput(st, wallNow)
+    );
+  }
+
+  /**
+   * Andou NESTE frame? Corrida (xspeed/yspeed + deslocamento contínuo).
+   * Empurrão não zera AFK nem movedThisMatch; linha reta conta.
    */
   function applyMotion(p, st, wallNow) {
     const pos = playerPos(p);
     if (!pos) return false;
-    const bumped = !!(st.lastPos && hasMoved(st.lastPos, pos, BUMP_EPS));
-    const slid = !!(st.lastPos && hasMoved(st.lastPos, pos, WALK_DELTA_EPS));
-    const walking = isWalkingSpeed(pos) && slid;
+    const prev = st.lastPos;
+    const external = !!(prev && isExternalPush(prev, pos, st, wallNow));
+    const slid = !!(prev && hasMoved(prev, pos, WALK_DELTA_EPS));
+    const hasSpeed = isWalkingSpeed(pos);
+
+    if (!external && slid) {
+      st.walkStreak = (Number(st.walkStreak) || 0) + 1;
+    } else if (external || !slid) {
+      st.walkStreak = 0;
+    }
+
     st.lastPos = { x: pos.x, y: pos.y };
-    if (!walking || bumped) return false;
+
+    const walking =
+      !external &&
+      slid &&
+      ((hasSpeed && (Number(st.walkStreak) || 0) >= 1) || (Number(st.walkStreak) || 0) >= 2);
+
+    if (!walking) return false;
     st.lastActive = wallNow;
     st.warned = false;
     st.idleTicks = 0;
@@ -268,6 +320,7 @@ function createAfkTracker(room, opts = {}) {
       st.idleTicks = 0;
       st.lastPos = null;
       st.warned = false;
+      st.walkStreak = 0;
     }
   }
 
@@ -450,7 +503,9 @@ function createAfkTracker(room, opts = {}) {
     noteActivity(player, wallNow = Date.now()) {
       if (!player?.id || afks.has(player.id)) return;
       if (!state.has(player.id)) touch(player.id, wallNow);
-      applyMotion(player, state.get(player.id), wallNow);
+      const st = state.get(player.id);
+      st.lastInputAt = wallNow;
+      applyMotion(player, st, wallNow);
     },
     stop() {
       clearInterval(interval);
@@ -464,6 +519,8 @@ module.exports = {
   shouldCountAutoAfk,
   hasMoved,
   isWalkingSpeed,
+  INPUT_WINDOW_MS,
+  IDLE_BEFORE_PUSH_MS,
   MOVE_EPS: BUMP_EPS,
   BUMP_EPS,
   SPEED_EPS,

@@ -201,6 +201,45 @@ describe("capitão e lista de pick", () => {
     assert.equal(resolved, null);
   });
 
+  it("reposição ao vivo: lista aparece na hora após cada pick (sem esperar defer)", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(11, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(3, TEAM.BLUE),
+      p(4, TEAM.BLUE),
+      p(5, TEAM.BLUE),
+      p(6),
+      p(7),
+      p(8),
+    ];
+    const deferred = [];
+    const announcements = [];
+    const room = {
+      getPlayerList: () => players,
+      getScores: () => ({ red: 0, blue: 0, time: 10 }),
+      setPlayerTeam(id, team) {
+        players.find((row) => row.id === id).team = team;
+      },
+      sendAnnouncement: (msg, to) => announcements.push({ msg, to }),
+      kickPlayer: () => {},
+    };
+    const choose = createChooseController(room, {
+      onReadyToStart: () => {},
+      deferAfterTeamChange: (cb) => deferred.push(cb),
+    });
+    choose.startReplacement(TEAM.RED, () => {});
+    const cap = choose.currentCaptain();
+    announcements.length = 0;
+    assert.equal(choose.handleCaptainChat(cap, "1"), true);
+    assert.equal(choose.isReplacement(), true, "ainda falta 1 vaga no vermelho");
+    const immediate = lastSpecs(announcements);
+    assert.ok(immediate, "reposição ao vivo: lista na hora do 2º pick");
+    assert.equal(immediate.to, cap.id);
+    deferred.forEach((fn) => fn());
+    assert.ok(lastSpecs(announcements), "lista permanece após defer");
+  });
+
   it("reposição 2 vagas e 2 specs → puxa os dois sem pick", () => {
     const players = [
       p(1, TEAM.RED),
@@ -870,6 +909,34 @@ describe("matriz de pick do capitão", () => {
     assert.equal(b.choose.isActive(), false);
     assert.equal(two.find((row) => row.id === 3).team, TEAM.SPEC);
     assert.equal(two.find((row) => row.id === 4).team, TEAM.BLUE);
+  });
+
+  it("depois do pick a lista aparece na hora, sem esperar defer do Haxball", () => {
+    const players = winnersAndSpecs(6);
+    const deferred = [];
+    const announcements = [];
+    const room = {
+      getPlayerList: () => players,
+      getScores: () => null,
+      setPlayerTeam(id, team) {
+        players.find((row) => row.id === id).team = team;
+      },
+      sendAnnouncement: (msg, to) => announcements.push({ msg, to }),
+      kickPlayer: () => {},
+    };
+    const choose = createChooseController(room, {
+      onReadyToStart: () => {},
+      deferAfterTeamChange: (cb) => deferred.push(cb),
+    });
+    choose.continueFromField();
+    const cap = choose.currentCaptain();
+    announcements.length = 0;
+    assert.equal(choose.handleCaptainChat(cap, "1"), true);
+    const immediate = lastSpecs(announcements);
+    assert.ok(immediate, "lista na hora do pick, não só após defer");
+    assert.equal(immediate.to, cap.id);
+    deferred.forEach((fn) => fn());
+    assert.ok(lastSpecs(announcements), "lista permanece após times assentarem");
   });
 
   it("8º entra no 3v3 choose: lista atualiza e o capitão continua pickando", () => {
