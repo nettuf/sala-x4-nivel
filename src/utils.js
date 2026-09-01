@@ -74,7 +74,69 @@ function findPlayer(room, ref) {
   return partial.length === 1 ? partial[0] : null;
 }
 
-/** `@nick oi` / `@#12 oi` no começo da mensagem. `oi @nick` continua público. */
+function findPlayerForWhisper(players, ref) {
+  if (!ref) return null;
+  const raw = String(ref).trim();
+  if (!raw) return null;
+
+  if (raw.startsWith("#")) {
+    const id = Number(raw.slice(1));
+    return players.find((p) => p.id === id) || null;
+  }
+
+  const lower = raw.toLowerCase();
+  const exact = players.find((p) => p.name.toLowerCase() === lower);
+  if (exact) return exact;
+
+  const partial = players.filter((p) => p.name.toLowerCase().includes(lower));
+  if (partial.length === 1) return partial[0];
+
+  if (/^\d+$/.test(raw)) {
+    return players.find((p) => p.id === Number(raw)) || null;
+  }
+
+  return null;
+}
+
+/**
+ * `@nick oi` no começo da mensagem. Resolve nick com espaços e prioriza nome
+ * sobre id numérico. `oi @nick` continua público.
+ */
+function resolveWhisper(room, message) {
+  const text = String(message || "").trim();
+  if (!text.startsWith("@")) return null;
+  const rest = text.slice(1).trim();
+  if (!rest) return { target: null, body: "" };
+
+  const players = room.getPlayerList().filter((p) => p.id !== 0);
+
+  const hashLead = rest.match(/^#(\d+)(?:\s+([\s\S]+))?$/);
+  if (hashLead) {
+    return {
+      target: findPlayerForWhisper(players, "#" + hashLead[1]),
+      body: String(hashLead[2] || "").trim(),
+    };
+  }
+
+  const sorted = players.slice().sort((a, b) => b.name.length - a.name.length);
+  for (const p of sorted) {
+    const nameLower = p.name.toLowerCase();
+    const restLower = rest.toLowerCase();
+    if (restLower === nameLower) return { target: p, body: "" };
+    if (restLower.startsWith(nameLower + " ")) {
+      return { target: p, body: rest.slice(p.name.length).trim() };
+    }
+  }
+
+  const token = rest.match(/^(\S+)(?:\s+([\s\S]+))?$/);
+  if (!token) return null;
+  return {
+    target: findPlayerForWhisper(players, token[1]),
+    body: String(token[2] || "").trim(),
+  };
+}
+
+/** @deprecated use resolveWhisper(room, message) */
 function parseWhisper(message) {
   const text = String(message || "").trim();
   const match = text.match(/^@(\S+)(?:\s+([\s\S]+))?$/);
@@ -85,4 +147,13 @@ function parseWhisper(message) {
   };
 }
 
-module.exports = { connToIp, parseDurationToMs, formatDuration, findPlayer, parseWhisper, kickReason };
+module.exports = {
+  connToIp,
+  parseDurationToMs,
+  formatDuration,
+  findPlayer,
+  findPlayerForWhisper,
+  parseWhisper,
+  resolveWhisper,
+  kickReason,
+};

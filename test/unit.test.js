@@ -6,7 +6,7 @@ const {
   parseDurationToMs,
   formatDuration,
   findPlayer,
-  parseWhisper,
+  resolveWhisper,
 } = require("../src/utils");
 const {
   attributeGoal,
@@ -82,12 +82,27 @@ describe("utils", () => {
     assert.equal(findPlayer(room, "#99"), null);
   });
 
-  it("parseWhisper só no começo da mensagem", () => {
-    assert.deepEqual(parseWhisper("@Netto eae"), { mention: "Netto", body: "eae" });
-    assert.deepEqual(parseWhisper("@#3 bora"), { mention: "#3", body: "bora" });
-    assert.deepEqual(parseWhisper("@Netto"), { mention: "Netto", body: "" });
-    assert.equal(parseWhisper("oi @Netto"), null);
-    assert.equal(parseWhisper("!t bola"), null);
+  it("resolveWhisper no começo, nick com espaço e @#id", () => {
+    const room = {
+      getPlayerList: () => [
+        { id: 0, name: "Host" },
+        { id: 3, name: "Netto" },
+        { id: 7, name: "Baleio" },
+        { id: 12, name: "Foo Bar" },
+        { id: 99, name: "3" },
+      ],
+    };
+    assert.equal(resolveWhisper(room, "@Netto eae").target.id, 3);
+    assert.equal(resolveWhisper(room, "@Netto eae").body, "eae");
+    assert.equal(resolveWhisper(room, "@#3 bora").target.id, 3);
+    assert.equal(resolveWhisper(room, "@#3 bora").body, "bora");
+    assert.equal(resolveWhisper(room, "@Foo Bar oi").target.id, 12);
+    assert.equal(resolveWhisper(room, "@Foo Bar oi").body, "oi");
+    assert.equal(resolveWhisper(room, "@3 msg").target.id, 99);
+    assert.equal(resolveWhisper(room, "@3 msg").body, "msg");
+    assert.equal(resolveWhisper(room, "@Netto").body, "");
+    assert.equal(resolveWhisper(room, "oi @Netto"), null);
+    assert.equal(resolveWhisper(room, "!t bola"), null);
   });
 });
 

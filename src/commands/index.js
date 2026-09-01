@@ -1,5 +1,5 @@
 const config = require("../config");
-const { findPlayer, parseDurationToMs, formatDuration, connToIp, kickReason, parseWhisper } = require("../utils");
+const { findPlayer, parseDurationToMs, formatDuration, connToIp, kickReason, resolveWhisper } = require("../utils");
 const { resolvePlayerAuth } = require("../room/playerAuth");
 const { isRandomKitArg, parseTeamRef } = require("../room/uniforms");
 const { createBan, deactivateBan, listActiveBans } = require("../db/bans");
@@ -45,6 +45,8 @@ const RANKING_CMDS = {
   gc: { stat: "own_goals", title: "🤦 Top 5 gols contra" },
   owngoal: { stat: "own_goals", title: "🤦 Top 5 gols contra" },
   owngoals: { stat: "own_goals", title: "🤦 Top 5 gols contra" },
+  mvp: { stat: "mvps", title: "⭐ Top 5 MVPs" },
+  mvps: { stat: "mvps", title: "⭐ Top 5 MVPs" },
   cs: { stat: "cs", title: "🧤 Top 5 clean sheets" },
   cleansheet: { stat: "cs", title: "🧤 Top 5 clean sheets" },
   cleansheets: { stat: "cs", title: "🧤 Top 5 clean sheets" },
@@ -74,7 +76,7 @@ function playerHelpLines({
   else if (canAfk) lines.push("!afk — ficar AFK / voltar");
   lines.push("!afks — ver quem está AFK");
   lines.push("!ids — lista id dos jogadores");
-  lines.push("@nick msg — mensagem privada (ou @#id)");
+  lines.push("@nick msg — mensagem privada (nick com espaço: @nome completo msg)");
   if (onField) lines.push("t <msg> — chat do time");
   if (isAdmin) lines.push("% <msg> — chat só de staff");
   lines.push(
@@ -116,7 +118,7 @@ function zoeiraHelpLines() {
 function rankingHelpLines() {
   return [
     "— Ranking —",
-    "!gols !assists !golcontra !cs !jogos !wom — top 5",
+    "!gols !assists !golcontra !cs !jogos !mvp !wom — top 5",
     "!streak — streak atual",
     "!topstreak — recorde da sala",
   ];
@@ -156,6 +158,7 @@ const MOD_ADMIN_CMDS = new Set([
   "mute",
   "mutelist",
   "unmute",
+  "verstats",
 ]);
 
 function parseModListPage(args) {
@@ -189,6 +192,7 @@ function adminHelpText(level = 0) {
     "!mute <#id|nick> <tempo> [motivo]",
     "!mutelist [pág] — mutes ativos (nick · auth)",
     "!unmute <#id|nick|auth>",
+    "!verstats <#id|nick> — stats de outro jogador (veja !ids)",
     "!uni red|blue <kit> — troca o uniforme de um time",
     "!uni random — sorteia os dois times",
     "!uni red|blue random — sorteia um lado",
@@ -435,6 +439,26 @@ function createCommandHandler(room, ctx) {
     return false;
   }
 
+  async function showPlayerStatusCard(viewer, target) {
+    const auth = resolvePlayerAuth(target, ctx.auths, room.getPlayerList());
+    if (!auth) {
+      room.sendAnnouncement(
+        target.id === viewer.id ? noAuthMsg : `${target.name} está sem auth (guest).`,
+        viewer.id,
+        0xe74c3c,
+        "normal",
+        1
+      );
+      return true;
+    }
+    if (blockLookup(viewer, "stats")) return true;
+    const s = (await getPlayerStats(auth)) || emptyPlayerStats();
+    const adminLevel = ctx.admins.get(target.id)?.level || 0;
+    const title = resolveTitle(s, s.selected_title, adminLevel);
+    room.sendAnnouncement(formatStatusCard(target.name, s, title), viewer.id, title.color, "bold", 1);
+    return true;
+  }
+
   async function loadTitleForPlayer(player) {
     const adminLevel = ctx.admins.get(player.id)?.level || 0;
     const auth = resolveAuth(player);
@@ -447,24 +471,40 @@ function createCommandHandler(room, ctx) {
     return wearJoke(player, title) || title;
   }
 
+  function chatSpeaker(player, title) {
+    const live = room.getPlayerList().find((p) => p.id === player.id);
+    const name = live?.name ?? player.name;
+    const emblem = title?.emblem || "";
+    let head = "";
+    if (emblem) head += `[${emblem}]`;
+    if (ctx.afk?.isAfk?.(player.id)) head += "[AFK]";
+    return head ? `${head} ${name}` : name;
+  }
+
+  function chatNick(player) {
+    const live = room.getPlayerList().find((p) => p.id === player.id);
+    const name = live?.name ?? player.name;
+    return ctx.afk?.isAfk?.(player.id) ? `[AFK] ${name}` : name;
+  }
+
   function formatPlayerChat(player, message) {
     const title = displayTitle(player, ensureTitlesMap().get(player.id));
     const live = room.getPlayerList().find((p) => p.id === player.id);
     const team = live?.team ?? player.team;
     return {
-      line: `${formatChatPrefix(title)}${player.name}: ${formatChatBody(title, message)}`,
+      line: `${chatSpeaker(player, title)}: ${formatChatBody(title, message)}`,
       color: chatColor(title, team),
     };
   }
 
   /** @returns {boolean} true se consumiu a mensagem (era PV) */
   function handleWhisper(player, message) {
-    const parsed = parseWhisper(message);
+    const parsed = resolveWhisper(room, message);
     if (!parsed) return false;
 
     if (!parsed.body) {
       room.sendAnnouncement(
-        "Uso: @nick mensagem  ·  ou @#id mensagem (veja !ids)",
+        "Uso: @nick mensagem  ·  nick com espaço: @nome completo msg",
         player.id,
         0xe74c3c,
         "normal",
@@ -473,10 +513,10 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
-    const target = findPlayer(room, parsed.mention);
+    const target = parsed.target;
     if (!target) {
       room.sendAnnouncement(
-        "Jogador não encontrado para o PV. Use nick único ou @#id.",
+        "Jogador não encontrado para o PV. Confira o nick ou use !ids.",
         player.id,
         0xe74c3c,
         "normal",
@@ -548,7 +588,7 @@ function createCommandHandler(room, ctx) {
     const color = player.team === 1 ? 0xe74c3c : 0x3498db;
     for (const p of room.getPlayerList()) {
       if (p.team === player.team) {
-        room.sendAnnouncement(`${emoji} [TEAM] ${player.name}: ${body}`, p.id, color, "bold", 1);
+        room.sendAnnouncement(`${emoji} [TEAM] ${chatNick(player)}: ${body}`, p.id, color, "bold", 1);
       }
     }
     ctx.chatLog?.push({ nick: player.name, text: body, kind: "team" });
@@ -579,7 +619,7 @@ function createCommandHandler(room, ctx) {
       room.sendAnnouncement("Uso: % <mensagem>", player.id, 0xe74c3c, "normal", 1);
       return true;
     }
-    const line = `👑 [ADM] ${player.name}: ${body}`;
+    const line = `👑 [ADM] ${chatNick(player)}: ${body}`;
     const online = new Set(room.getPlayerList().map((p) => p.id));
     for (const adminId of ctx.admins.keys()) {
       if (!online.has(adminId)) continue;
@@ -949,10 +989,18 @@ function createCommandHandler(room, ctx) {
         );
         return true;
       }
-      const auth = resolvePlayerAuth(target, ctx.auths, room.getPlayerList());
-      if (!auth) {
+      return showPlayerStatusCard(player, target);
+    }
+
+    if (cmd === "verstats") {
+      if (!args.length) {
+        room.sendAnnouncement("Uso: !verstats <#id|nick> — veja !ids", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const target = findPlayer(room, args.join(" "));
+      if (!target) {
         room.sendAnnouncement(
-          target.id === player.id ? noAuthMsg : `${target.name} está sem auth (guest).`,
+          "Jogador não encontrado. Uso: !verstats <#id|nick>",
           player.id,
           0xe74c3c,
           "normal",
@@ -960,12 +1008,7 @@ function createCommandHandler(room, ctx) {
         );
         return true;
       }
-      if (blockLookup(player, "stats")) return true;
-      const s = (await getPlayerStats(auth)) || emptyPlayerStats();
-      const adminLevel = ctx.admins.get(target.id)?.level || 0;
-      const title = resolveTitle(s, s.selected_title, adminLevel);
-      room.sendAnnouncement(formatStatusCard(target.name, s, title), player.id, title.color, "bold", 1);
-      return true;
+      return showPlayerStatusCard(player, target);
     }
 
     if (cmd === "listacargos" || cmd === "todososcargos" || cmd === "cargoslista") {

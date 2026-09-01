@@ -275,7 +275,7 @@ async function setSelectedTitle(auth, titleId) {
 }
 
 function emptyBoards() {
-  return { goals: [], assists: [], own_goals: [], cs: [], woms: [], games: [] };
+  return { goals: [], assists: [], own_goals: [], mvps: [], cs: [], woms: [], games: [] };
 }
 
 function mapLeaderboardRows(data, col, nickMap) {
@@ -338,7 +338,7 @@ function createLeaderboardStore({ ttlMs = 60_000, load } = {}) {
 }
 
 async function queryLeaderboards(sb) {
-  const cols = ["games", "goals", "assists", "own_goals", "cs", "woms"];
+  const cols = ["games", "goals", "assists", "own_goals", "mvps", "cs", "woms"];
   const results = await Promise.all(
     cols.map(async (col) => {
       const { data, error } = await sb

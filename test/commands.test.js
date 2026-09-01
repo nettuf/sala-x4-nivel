@@ -130,11 +130,15 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
-  it("@#id funciona e nick inexistente avisa só no PV", () => {
+  it("nick com espaço no PV e @#id legado", () => {
     const room = mockRoom();
+    room._players.push({ id: 4, name: "Foo Bar", team: 0, auth: "auth4" });
     const afk = createAfkTracker(room);
     const ctx = { admins: new Map(), mutes: new Map(), afk, titles: new Map() };
     const cmd = createCommandHandler(room, ctx);
+    assert.equal(cmd.handleWhisper(room._players[0], "@Foo Bar oi"), true);
+    assert.ok(room.announcements.some((a) => a.to === 4 && /oi/.test(a.msg)));
+    room.announcements.length = 0;
     assert.equal(cmd.handleWhisper(room._players[0], "@#3 bora"), true);
     assert.ok(room.announcements.some((a) => a.to === 3 && /bora/.test(a.msg)));
     room.announcements.length = 0;
@@ -851,6 +855,23 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("chat mostra [AFK] no nick quando jogador está AFK", () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    afk.setAfk(room._players[2], true);
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      afk,
+      titles: new Map([[3, { emblem: "🌱", name: "Novato", color: 0xbdc3c7 }]]),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    assert.equal(cmd.formatPlayerChat(room._players[2], "papoi").line, "[🌱][AFK] Spec: papoi");
+    afk.setAfk(room._players[2], false);
+    assert.equal(cmd.formatPlayerChat(room._players[2], "papoi").line, "[🌱] Spec: papoi");
+    afk.stop();
+  });
+
   it("chat de Chefe usa só o cargo ativo", () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
@@ -886,7 +907,7 @@ describe("comandos (mock room)", () => {
     assert.equal(cmd.formatPlayerChat(room._players[2], "oi").line, "Spec: oi", "spec não pega");
 
     afk.setAfk(room._players[0], true);
-    assert.match(cmd.formatPlayerChat(room._players[0], "oi").line, /^\[🌱\] /, "AFK perde o 🔥");
+    assert.equal(cmd.formatPlayerChat(room._players[0], "oi").line, "[🌱][AFK] RedCap: oi", "AFK perde o 🔥");
     afk.stop();
   });
 
@@ -938,7 +959,7 @@ describe("comandos (mock room)", () => {
     assert.ok(room.announcements.some((a) => a.to === 3 && /Espere/i.test(a.msg)));
   });
 
-  it("!gols !assists !golcontra !cs !jogos mostram top 5", async () => {
+  it("!gols !assists !golcontra !cs !jogos !mvp mostram top 5", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
     const boards = {
@@ -946,6 +967,7 @@ describe("comandos (mock room)", () => {
       goals: [{ nick: "Netto", value: 12 }],
       assists: [{ nick: "Ana", value: 8 }],
       own_goals: [{ nick: "Caio", value: 3 }],
+      mvps: [{ nick: "Craque", value: 15 }],
       cs: [{ nick: "Goleiro", value: 5 }],
     };
     const ctx = {
@@ -960,6 +982,7 @@ describe("comandos (mock room)", () => {
     await cmd.handle(room._players[0], "!golcontra");
     await cmd.handle(room._players[0], "!cs");
     await cmd.handle(room._players[0], "!jogos");
+    await cmd.handle(room._players[0], "!mvp");
     const msg = room.announcements.map((a) => a.msg).join("\n");
     assert.match(msg, /Top 5 gols/);
     assert.match(msg, /1\. Netto — 12/);
@@ -971,6 +994,8 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /1\. Goleiro — 5/);
     assert.match(msg, /Top 5 jogos/);
     assert.match(msg, /1\. Veterano — 420/);
+    assert.match(msg, /Top 5 MVPs/);
+    assert.match(msg, /1\. Craque — 15/);
     afk.stop();
   });
 
@@ -1032,6 +1057,31 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /MVP/);
     assert.match(msg, /WR /);
     assert.match(msg, /Chefe|Novato|🌱|👑/);
+  });
+
+  it("!verstats é só admin e mostra o mesmo card do !stats", async () => {
+    const room = mockRoom();
+    const ctx = {
+      admins: new Map([[1, { level: 2, title: "Mod" }]]),
+      mutes: new Map(),
+      auths: new Map([
+        [1, "auth1"],
+        [3, "auth3"],
+      ]),
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[2], "!verstats #1");
+    assert.ok(room.announcements.some((a) => a.to === 3 && /Sem permissão/i.test(a.msg)));
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!verstats #3");
+    const msg = room.announcements.filter((a) => a.to === 1).map((a) => a.msg).join("\n");
+    assert.match(msg, /Spec/);
+    assert.match(msg, /Jogos:/);
+    assert.match(msg, /Gols:/);
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!verstats");
+    assert.ok(room.announcements.some((a) => /Uso: !verstats/i.test(a.msg)));
   });
 
   it("!stats sem auth nem cache avisa para logar", async () => {
