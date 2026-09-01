@@ -509,6 +509,7 @@ describe("ações de admin", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
     host.startMatch();
 
     host.quit(all[0]);
@@ -697,12 +698,13 @@ describe("ações de admin", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
     host.startMatch();
     Object.assign(host.live(), { red: 2, blue: 0, time: 40 });
     host.handles.match.onTick();
     const red = all.find((p) => p.team === TEAM.RED);
     host.handles.afk.setAfk(red, true);
-    assert.equal(host.handles.choose.isReplacement(), true, "reposição aberta");
+    assert.equal(host.handles.choose.isReplacement(), true, "reposição aberta com 2 specs");
     const blue = all.find((p) => p.team === TEAM.BLUE && host.find(p.id));
     host.quit(blue);
     await new Promise((r) => setTimeout(r, 250));

@@ -421,10 +421,10 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     host.cleanup();
   });
 
-  it("auto-AFK no 4v4 com 1 spec pausa e abre reposição pro capitão", async () => {
+  it("auto-AFK no 4v4 com 1 spec: puxa automático e segue 4v4", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
-    host.addPlayer(TEAM.SPEC);
+    const unico = host.addPlayer(TEAM.SPEC);
     host.startMatch();
     for (const p of all) host.activity(p);
 
@@ -434,21 +434,10 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
 
     assert.equal(host.handles.afk.isAfk(all[0].id), true);
     assert.ok(host.pauses.includes(true), "jogo pausou antes de repor");
-    assert.equal(host.handles.choose.isReplacement(), true, "1 spec não auto-completa ao vivo");
-    assert.equal(host.teamCount(TEAM.RED), 3, "não despausa 3v4");
-    assert.equal(host.lastPause(), true);
-    assert.equal(
-      host.announcements.filter((a) => /🔄 Reposição/.test(a.msg)).length,
-      1,
-      "não anuncia reposição duas vezes"
-    );
-
-    const cap = host.handles.choose.currentCaptain();
-    assert.equal(host.find(cap.id).team, TEAM.RED);
-    await host.chat(cap, "1");
-    await settle();
-
-    assert.equal(host.teamCount(TEAM.RED), 4, "vaga preenchida depois do pick");
+    assert.equal(host.handles.choose.isReplacement(), false, "1 vaga e 1 spec → auto");
+    assert.equal(host.find(unico.id).team, TEAM.RED);
+    assert.equal(host.teamCount(TEAM.RED), 4, "não fica 3v4");
+    assert.ok(host.said(/única opção/i));
     assert.equal(host.lastPause(), false);
     assert.ok(host.live());
     host.cleanup();
@@ -568,7 +557,8 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
   it("AFK volta no spec no meio da reposição: continua pausado até o pick", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
-    host.addPlayer(TEAM.SPEC, "ud");
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
     host.startMatch();
     for (const p of all) host.activity(p);
 
@@ -576,7 +566,7 @@ describe("AFK: interação com admin e com a saída de jogadores", () => {
     host.handles.afk.tick(Date.now());
     await settle();
 
-    assert.equal(host.handles.choose.isReplacement(), true);
+    assert.equal(host.handles.choose.isReplacement(), true, "2 specs → capitão escolhe");
     assert.equal(host.lastPause(), true);
     assert.equal(host.find(all[0].id).team, TEAM.SPEC);
 
@@ -1117,6 +1107,28 @@ describe("choose: pick do capitão", () => {
     }
   });
 
+  it("4v4 ao vivo: blue 3, 6 specs (5 AFK) → único ativo entra sem pick", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+    for (let i = 0; i < 3; i++) host.addPlayer(TEAM.BLUE);
+    const specs = [];
+    for (let i = 0; i < 6; i++) specs.push(host.addPlayer(TEAM.SPEC));
+    host.startMatch({ competitive: true });
+    assert.ok(host.live());
+
+    for (const s of specs.slice(1)) host.handles.afk.setAfk(host.find(s.id), true);
+    await settle();
+
+    host.handles.choose.startReplacement(TEAM.BLUE, () => {});
+    await settle();
+
+    assert.equal(host.find(specs[0].id).team, TEAM.BLUE, "único spec ativo sobe");
+    assert.ok(host.said(/única opção/i));
+    assert.equal(host.teamCount(TEAM.BLUE), 4);
+    assert.equal(host.handles.choose.isActive(), false);
+    host.cleanup();
+  });
+
   it("4v4 ao vivo: quit + cap AFK, o próximo picka as duas vagas e não começa 3v4", async () => {
     const host = bootRoom();
     const anterior = config.chooseTimeSec;
@@ -1325,7 +1337,7 @@ describe("choose: reposição em partida", () => {
     assert.equal(host.handles.afk.isAfk(picked.id), true);
     assert.equal(host.find(picked.id).team, TEAM.SPEC);
     assert.equal(host.live(), liveBefore, "não reinicia a partida");
-    assert.equal(host.teamCount(TEAM.RED), 3, "buraco no time — reposição normal, não RR");
+    assert.equal(host.teamCount(TEAM.RED), 4, "1 vaga e 1 spec sobrando → auto-reposição");
     host.cleanup();
   });
 
@@ -1336,6 +1348,7 @@ describe("choose: reposição em partida", () => {
     for (const p of all) host.activity(p);
 
     const late = host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
     host.quit(all[0]);
     await settle();
 
@@ -1355,7 +1368,7 @@ describe("choose: reposição em partida", () => {
 
     assert.equal(host.handles.afk.isAfk(late.id), true);
     assert.equal(host.live(), liveBefore, "não reinicia a partida");
-    assert.equal(host.teamCount(TEAM.RED), 3, "reposição ao vivo, não RR de kickoff");
+    assert.equal(host.teamCount(TEAM.RED), 4, "1 vaga e 1 spec sobrando → auto-reposição, sem RR");
     host.cleanup();
   });
 

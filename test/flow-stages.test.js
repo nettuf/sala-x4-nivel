@@ -1212,23 +1212,22 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("sair no 4v4 com spec → capitão escolhe o substituto", () => {
+  it("sair no 4v4 com spec → único spec entra automático", () => {
     const host = createMockRoomHost();
     host.growTo(9);
     assert.equal(host.snapshot().matchRunning, true);
     assert.equal(host.snapshot().spec, 1);
     const reds = host.players.filter((p) => p.team === TEAM.RED);
+    const spec = host.players.find((p) => p.team === TEAM.SPEC);
     const leaving = reds[3];
-    const cap = reds[0];
     host.removePlayer(leaving.id);
-    assert.equal(host.choose.isReplacement(), true);
-    assert.equal(host.currentCaptain().id, cap.id);
-    assert.equal(host.captainPick("1"), true);
+    assert.equal(host.choose.isReplacement(), false);
     const s = host.snapshot();
     assert.equal(s.matchRunning, true);
     assert.equal(s.red, 4);
     assert.equal(s.blue, 4);
     assert.equal(s.spec, 0);
+    assert.equal(host.players.find((p) => p.id === spec.id).team, TEAM.RED);
     host.cleanup();
   });
 
@@ -1525,19 +1524,15 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("4v4 + 1 spec: capitão sai → o 2º do time escolhe o spec", () => {
+  it("4v4 + 1 spec: capitão sai → único spec entra automático", () => {
     const host = createMockRoomHost();
     host.growTo(9);
     const spec = host.players.find((p) => p.team === TEAM.SPEC);
     const redCap = host.players.find((p) => p.team === TEAM.RED);
-    const remainingRed = host.players.filter((p) => p.team === TEAM.RED && p.id !== redCap.id);
 
     host.removePlayer(redCap.id);
 
-    assert.equal(host.choose.isReplacement(), true);
-    assert.equal(host.currentCaptain().id, remainingRed[0].id);
-    assert.equal(host.captainPick("1"), true);
-
+    assert.equal(host.choose.isReplacement(), false);
     const s = host.snapshot();
     assert.equal(s.matchRunning, true);
     assert.equal(host.match.isCompetitive(), true);
@@ -1546,7 +1541,6 @@ describe("fluxo por estágios da sala", () => {
     assert.equal(s.blue, 4);
     assert.equal(s.spec, 0);
     assert.equal(host.players.find((p) => p.id === spec.id).team, TEAM.RED);
-    assert.equal(host.players.find((p) => p.id === remainingRed[0].id).team, TEAM.RED);
     host.cleanup();
   });
 
@@ -1613,17 +1607,14 @@ describe("fluxo por estágios da sala", () => {
     host.cleanup();
   });
 
-  it("4v4 + 1 spec: AFK no campo → capitão escolhe o spec", () => {
+  it("4v4 + 1 spec: AFK no campo → único spec entra automático", () => {
     const host = createMockRoomHost();
     host.growTo(9);
     const spec = host.players.find((p) => p.team === TEAM.SPEC);
     const reds = host.players.filter((p) => p.team === TEAM.RED);
-    const cap = reds[0];
     const idle = reds[3];
     host.setVoluntaryAfk(idle.id, true);
-    assert.equal(host.choose.isReplacement(), true);
-    assert.equal(host.currentCaptain().id, cap.id);
-    assert.equal(host.captainPick("1"), true);
+    assert.equal(host.choose.isReplacement(), false);
     const s = host.snapshot();
     assert.equal(s.chooseActive, false);
     assert.equal(s.matchRunning, true);

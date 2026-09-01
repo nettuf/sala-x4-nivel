@@ -4,30 +4,36 @@ const { TEAM } = require("./choose");
  * Uniformes: [angle, textColor, colors[]] no formato do room.setTeamColors.
  * Padrão inicial: vermelho tudo preto, azul tudo branco.
  */
-const KIT_PRETO = { id: "preto", name: "Preto", angle: 0, text: 0x000000, colors: [0x000000] };
-const KIT_BRANCO = { id: "branco", name: "Branco", angle: 0, text: 0xffffff, colors: [0xffffff] };
-
-const KITS = [
-  KIT_PRETO,
-  KIT_BRANCO,
-  { id: "padrao", name: "Padrão Hax", angle: 0, text: 0xffffff, colors: [0xe56e56] },
-  { id: "bra", name: "Brasil", angle: 90, text: 0x40bfff, colors: [0xffe600] },
-  { id: "arg", name: "Argentina", angle: 90, text: 0x1c3f94, colors: [0x75aadb, 0xffffff] },
-  { id: "ale", name: "Alemanha", angle: 90, text: 0xffffff, colors: [0x000000, 0xff1212, 0xffdd00] },
-  { id: "ita", name: "Itália", angle: 90, text: 0xffffff, colors: [0x0066b3] },
-  { id: "fra", name: "França", angle: 90, text: 0xffffff, colors: [0x1f3d99] },
-  { id: "por", name: "Portugal", angle: 90, text: 0xffe600, colors: [0xc60c30, 0x006233] },
-  { id: "fla", name: "Flamengo", angle: 90, text: 0xffffff, colors: [0xc52613, 0x000000] },
-  { id: "pal", name: "Palmeiras", angle: 90, text: 0xffffff, colors: [0x006437] },
-  { id: "cor", name: "Corinthians", angle: 90, text: 0xffffff, colors: [0x000000] },
-  { id: "sao", name: "São Paulo", angle: 90, text: 0xd4212b, colors: [0xffffff, 0x000000] },
-  { id: "vas", name: "Vasco", angle: 45, text: 0xffffff, colors: [0x000000, 0xffffff] },
-  { id: "cru", name: "Cruzeiro", angle: 90, text: 0xffffff, colors: [0x1b3f8b] },
-  { id: "gre", name: "Grêmio", angle: 90, text: 0xffffff, colors: [0x0d80bf, 0x000000] },
-  { id: "int", name: "Internacional", angle: 90, text: 0xffffff, colors: [0xd4212b] },
-  { id: "san", name: "Santos", angle: 90, text: 0x000000, colors: [0xffffff] },
+const COLOR_KITS = [
+  { id: "preto", name: "Preto", angle: 0, text: 0xffffff, colors: [0x000000] },
+  { id: "branco", name: "Branco", angle: 0, text: 0x000000, colors: [0xffffff] },
+  { id: "amarelo", name: "Amarelo", angle: 90, text: 0x000000, colors: [0xffd700] },
+  { id: "vermelho", name: "Vermelho", angle: 90, text: 0xffffff, colors: [0xff0000] },
+  { id: "azul", name: "Azul", angle: 90, text: 0xffffff, colors: [0x0055ff] },
+  { id: "verde", name: "Verde", angle: 90, text: 0xffffff, colors: [0x00aa00] },
+  { id: "laranja", name: "Laranja", angle: 90, text: 0x000000, colors: [0xff8800] },
+  { id: "rosa", name: "Rosa", angle: 90, text: 0xffffff, colors: [0xff69b4] },
   { id: "roxo", name: "Roxo", angle: 90, text: 0xffffff, colors: [0x8e44ad] },
-  { id: "verde", name: "Verde neon", angle: 90, text: 0x1c1c1c, colors: [0x2ecc71] },
+  { id: "cinza", name: "Cinza", angle: 90, text: 0xffffff, colors: [0x808080] },
+  { id: "marrom", name: "Marrom", angle: 90, text: 0xffffff, colors: [0x8b4513] },
+  { id: "ciano", name: "Ciano", angle: 90, text: 0x000000, colors: [0x00ffff] },
+  { id: "magenta", name: "Magenta", angle: 90, text: 0xffffff, colors: [0xff00ff] },
+  { id: "vinho", name: "Vinho", angle: 90, text: 0xffffff, colors: [0x800020] },
+  { id: "dourado", name: "Dourado", angle: 90, text: 0x000000, colors: [0xffc800] },
+  { id: "prata", name: "Prata", angle: 90, text: 0x000000, colors: [0xc0c0c0] },
+  { id: "bege", name: "Bege", angle: 90, text: 0x000000, colors: [0xf5f5dc] },
+  { id: "turquesa", name: "Turquesa", angle: 90, text: 0x000000, colors: [0x40e0d0] },
+  { id: "lima", name: "Lima", angle: 90, text: 0x000000, colors: [0xccff00] },
+  { id: "neon", name: "Neon", angle: 90, text: 0x000000, colors: [0x39ff14] },
+];
+
+const COLOR_KIT_IDS = new Set(COLOR_KITS.map((k) => k.id));
+const COLOR_PAGES = [COLOR_KITS.slice(0, 10), COLOR_KITS.slice(10, 20)];
+
+const KIT_PRETO = COLOR_KITS[0];
+const KIT_BRANCO = COLOR_KITS[1];
+
+const COMMUNITY_KITS = [
   { id: "baleio", name: "Amigos do Baleio", angle: 60, text: 0xffffff, colors: [0x0080ff, 0x004077, 0xc720ab], emoji: "🐋" },
   { id: "rato", name: "Amigos do Rato", angle: 12, text: 0xff6929, colors: [0x707715, 0xff6929], emoji: "🐀" },
   { id: "rasta", name: "Amigos do Rastão", angle: 60, text: 0xffffff, colors: [0xff0aff] },
@@ -127,13 +133,23 @@ const KITS = [
     emoji: "✠",
   },
   {
-    id: "futx4",
+    id: "alanzoka",
     name: "Alanzoka & amigos",
     angle: 66,
     text: 0x283950,
     colors: [0x8ac7f0],
   },
+  {
+    id: "pau",
+    name: "Amigos de Pau",
+    angle: 360,
+    text: 0xffa649,
+    colors: [0x0f0f0f, 0xffffff, 0x000000],
+    emoji: "🪵",
+  },
 ];
+
+const KITS = [...COLOR_KITS, ...COMMUNITY_KITS];
 
 function defaultKit(team) {
   return team === TEAM.RED ? KIT_PRETO : KIT_BRANCO;
@@ -191,6 +207,20 @@ function kitsTooSimilar(a, b, threshold = 60) {
   if (lumA < 35 && lumB < 35) return true;
   if (lumA > 220 && lumB > 220) return true;
   return false;
+}
+
+function isColorKit(id) {
+  return COLOR_KIT_IDS.has(kitKey(id));
+}
+
+function listColorPage(page) {
+  const list = COLOR_PAGES[page - 1];
+  if (!list) return null;
+  return list.map((k) => `!${k.id}`).join(" ");
+}
+
+function listCommunityText() {
+  return COMMUNITY_KITS.map((k) => k.id).join(", ");
 }
 
 function findKit(id) {
@@ -259,7 +289,7 @@ function validateChange({ team, kitId, current }) {
   }
   const kit = findKit(kitId);
   if (!kit) {
-    return { ok: false, error: "Uniforme inexistente. Veja !unis" };
+    return { ok: false, error: "Uniforme inexistente. Veja !unis ou !cores1" };
   }
   const other = team === TEAM.RED ? TEAM.BLUE : TEAM.RED;
   const otherKit = findKit(current[other]);
@@ -471,7 +501,7 @@ function createUniformManager(room, opts = {}) {
   }
 
   function listText() {
-    return KITS.map((k) => k.id).join(", ");
+    return listCommunityText();
   }
 
   reset({ preserveKickoffRandom: true });
@@ -497,9 +527,15 @@ function createUniformManager(room, opts = {}) {
 
 module.exports = {
   KITS,
+  COLOR_KITS,
+  COLOR_PAGES,
+  COMMUNITY_KITS,
   KIT_PRETO,
   KIT_BRANCO,
   findKit,
+  isColorKit,
+  listColorPage,
+  listCommunityText,
   isRandomKitArg,
   pickRandomKit,
   kitsTooSimilar,

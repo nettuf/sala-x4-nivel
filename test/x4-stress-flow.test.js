@@ -149,19 +149,17 @@ describe("stress: !afk no spec", () => {
     host.cleanup();
   });
 
-  it("4v4 + 2 specs: um !afk, sai do campo → capitão só vê o ativo", async () => {
+  it("4v4 + 2 specs: um !afk, sai do campo → único ativo entra automático", async () => {
     const host = bootRoom();
     await growTo(host, 10);
     const specs = host.players.filter((p) => p.team === TEAM.SPEC);
     await host.chat(specs[0], "!afk");
     await settle();
+    const ativo = specs[1];
     host.quit(host.players.find((p) => p.team === TEAM.RED));
     await waitLobby();
-    assert.equal(host.handles.choose.isReplacement(), true);
-    const listed = host.handles.choose.list().specReady.map((p) => p.id);
-    assert.ok(!listed.includes(specs[0].id), "AFK fora da lista");
-    assert.ok(listed.includes(specs[1].id), "spec ativo na lista");
-    await pickReplacement(host);
+    assert.equal(host.handles.choose.isReplacement(), false, "1 vaga e 1 ativo → auto");
+    assert.equal(host.find(ativo.id).team, TEAM.RED);
     assertHealthy4v4(host);
     host.cleanup();
   });
@@ -225,14 +223,14 @@ describe("stress: ociosidade → auto-AFK", () => {
     host.cleanup();
   });
 
-  it("4v4 + spec: ocioso abre reposição pro capitão", async () => {
+  it("4v4 + spec: ocioso com 1 spec ativo → auto-reposição", async () => {
     const host = bootRoom();
     await growTo(host, 9);
+    const spec = host.players.find((p) => p.team === TEAM.SPEC);
     const idle = host.players.find((p) => p.team === TEAM.RED);
     await idleToAfk(host, idle);
-    assert.equal(host.handles.choose.isReplacement(), true);
-    assert.ok(host.handles.choose.currentCaptain());
-    await pickReplacement(host);
+    assert.equal(host.handles.choose.isReplacement(), false, "1 vaga e 1 spec → auto");
+    assert.equal(host.find(spec.id).team, TEAM.RED);
     assertHealthy4v4(host);
     host.cleanup();
   });
@@ -325,15 +323,15 @@ describe("stress: entradas e saídas", () => {
     host.cleanup();
   });
 
-  it("capitão sai no 4v4 + spec: o 2º do time picka", async () => {
+  it("capitão sai no 4v4 + spec: único spec entra automático", async () => {
     const host = bootRoom();
     await growTo(host, 9);
+    const spec = host.players.find((p) => p.team === TEAM.SPEC);
     const reds = host.players.filter((p) => p.team === TEAM.RED);
     host.quit(reds[0]);
     await waitLobby();
-    assert.equal(host.handles.choose.isReplacement(), true);
-    assert.equal(host.handles.choose.currentCaptain()?.id, reds[1].id);
-    await pickReplacement(host);
+    assert.equal(host.handles.choose.isReplacement(), false);
+    assert.equal(host.find(spec.id).team, TEAM.RED);
     assertHealthy4v4(host);
     host.cleanup();
   });
@@ -389,11 +387,10 @@ describe("stress: filme caótico 1→12", () => {
     await host.chat(s2, "!afk");
     await settle();
 
-    // ocioso no campo → capitão picka o spec ativo
+    // ocioso no campo → único spec ativo entra automático
     const idle = host.players.find((p) => p.team === TEAM.RED);
     await idleToAfk(host, idle);
-    assert.equal(host.handles.choose.isReplacement(), true);
-    await pickReplacement(host);
+    assert.equal(host.handles.choose.isReplacement(), false, "1 vaga e 1 ativo → auto");
     assertHealthy4v4(host);
     assert.equal(host.find(s1.id).team, TEAM.RED, "spec ativo entrou");
     assert.equal(host.find(s2.id).team, TEAM.SPEC, "spec AFK ficou de fora");
@@ -460,7 +457,7 @@ describe("stress: crescimento com !afk na fila", () => {
     host.cleanup();
   });
 
-  it("no 4v4: 3 specs AFK + 1 ativo — sai do campo, picka só o ativo", async () => {
+  it("no 4v4: 3 specs AFK + 1 ativo — sai do campo, ativo entra automático", async () => {
     const host = bootRoom();
     await boot4v4(host, 4);
     const specs = host.players.filter((p) => p.team === TEAM.SPEC);
@@ -471,10 +468,8 @@ describe("stress: crescimento com !afk na fila", () => {
     const active = specs[3];
     host.quit(host.players.find((p) => p.team === TEAM.BLUE));
     await waitLobby();
-    assert.equal(host.handles.choose.isReplacement(), true);
-    const listed = host.handles.choose.list().specReady.map((p) => p.id);
-    assert.deepEqual(listed, [active.id]);
-    await pickReplacement(host);
+    assert.equal(host.handles.choose.isReplacement(), false, "1 vaga e 1 ativo → auto");
+    assert.equal(host.find(active.id).team, TEAM.BLUE);
     assertHealthy4v4(host);
     host.cleanup();
   });

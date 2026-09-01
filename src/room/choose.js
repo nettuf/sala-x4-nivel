@@ -318,7 +318,7 @@ function createChooseController(room, {
   /**
    * Completa sozinho o time da vez quando o spec tem exatamente as vagas
    * (1=1, 2=2, 3=3). Mais opções que vagas → o capitão escolhe.
-   * Reposição AO VIVO nunca auto-completa: o motor despausava no 3v4.
+   * Ao vivo: auto só com vagas = opções elegíveis (AFK não entram na conta).
    */
   function isLiveReplacement() {
     return !!replacement && !!room.getScores();
@@ -326,7 +326,6 @@ function createChooseController(room, {
 
   function tryFillExactHoles() {
     if (!active) return false;
-    if (isLiveReplacement()) return false;
     const { specReady } = list();
 
     if (replacement) {
@@ -429,8 +428,7 @@ function createChooseController(room, {
 
     let { specReady } = list();
     // Única opção restante: sobe sozinho (ensureCaptain se o time estiver vazio).
-    // Ao vivo o capitão tem que escolher — auto aqui despausava sem pick.
-    if (specReady.length === 1 && teamHasHole(team) && !isLiveReplacement()) {
+    if (specReady.length === 1 && teamHasHole(team)) {
       const cap = ensureCaptain() || currentCaptain();
       if (cap) {
         if (tryFinishChoose() || tryFillExactHoles()) return;
@@ -567,8 +565,7 @@ function createChooseController(room, {
     const { specReady } = list();
     const have = teamCount(targetTeam);
     const need = Math.max(0, teamSize - have);
-    // Ao vivo sempre avisa: 1 spec / 1 vaga não pode auto-completar (despausava).
-    if (isLiveReplacement() || specReady.length !== need) {
+    if (specReady.length !== need) {
       room.sendAnnouncement(
         `🔄 Reposição: capitão ${targetTeam === TEAM.RED ? "vermelho" : "azul"} escolhe um jogador do spec.`,
         null,
@@ -653,7 +650,7 @@ function createChooseController(room, {
     }
 
     // 1 spec / 1 vaga: precisa do fluxo completo (auto-sobe ou abort).
-    if (specReady.length === 1 && teamHasHole(team) && !isLiveReplacement()) {
+    if (specReady.length === 1 && teamHasHole(team)) {
       promptCaptain();
       return;
     }

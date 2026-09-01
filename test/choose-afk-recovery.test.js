@@ -56,14 +56,15 @@ describe("choose + AFK: reposição ao vivo sem spec elegível", () => {
 
   it("4v4: reposição aberta, specs viram AFK → cancela pick e equilibra", async () => {
     const host = bootRoom();
-    await startOfficial4v4(host, 1);
-    const spec = host.players.find((p) => p.team === TEAM.SPEC);
+    await startOfficial4v4(host, 3);
+    const specs = host.players.filter((p) => p.team === TEAM.SPEC);
 
     host.quit(host.players.find((p) => p.team === TEAM.BLUE));
     await waitLobby(800);
-    assert.equal(host.handles.choose.isReplacement(), true, "pick aberto");
+    assert.equal(host.handles.choose.isReplacement(), true, "pick aberto com 3 specs");
 
-    await host.chat(spec, "!afk");
+    for (const spec of specs) host.handles.afk.setAfk(host.find(spec.id), true);
+    host.handles.refreshLobby();
     await waitLobby(1200);
 
     assert.equal(host.handles.choose.isReplacement(), false, "choose soltou");
@@ -88,17 +89,15 @@ describe("choose + AFK: reposição ao vivo sem spec elegível", () => {
     host.cleanup();
   });
 
-  it("4v4: 1 spec ativo → capitão picka e volta 4v4", async () => {
+  it("4v4: 1 spec ativo → puxa automático e volta 4v4", async () => {
     const host = bootRoom();
     await startOfficial4v4(host, 1);
+    const unico = host.players.find((p) => p.team === TEAM.SPEC);
 
     host.quit(host.players.find((p) => p.team === TEAM.BLUE));
     await waitLobby(800);
-    assert.equal(host.handles.choose.isReplacement(), true);
-
-    await pickReplacement(host);
-    await waitLobby(600);
-
+    assert.equal(host.handles.choose.isReplacement(), false, "1 vaga e 1 spec → auto");
+    assert.equal(host.find(unico.id).team, TEAM.BLUE);
     assertNvN(host, 4, 0, "4v4 restaurado");
     assert.equal(host.handles.choose.isActive(), false);
     assert.notEqual(host.lastPause(), true);
@@ -240,7 +239,7 @@ describe("choose + AFK: filme longo", () => {
 
   it("capitão mutado picka número na reposição com spec ativo", async () => {
     const host = bootRoom();
-    await startOfficial4v4(host, 1);
+    await startOfficial4v4(host, 2);
 
     host.quit(host.players.find((p) => p.team === TEAM.RED));
     await waitLobby(800);
@@ -250,7 +249,7 @@ describe("choose + AFK: filme longo", () => {
 
     await host.chat(cap, "1");
     await waitLobby(600);
-    assertNvN(host, 4, 0);
+    assertNvN(host, 4, 1, "4v4 + 1 spec na fila");
     assert.equal(host.handles.choose.isActive(), false);
     host.cleanup();
   });

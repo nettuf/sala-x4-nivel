@@ -482,10 +482,10 @@ describe("uniformes kickoff e winner stays", () => {
       sendAnnouncement: () => {},
     };
     const u = createUniformManager(room);
-    u.change({ player: players[0], isAdmin: true, teamRef: "red", kitId: "fla" });
-    u.change({ player: players[1], isAdmin: true, teamRef: "blue", kitId: "fra" });
+    u.change({ player: players[0], isAdmin: true, teamRef: "red", kitId: "baleio" });
+    u.change({ player: players[1], isAdmin: true, teamRef: "blue", kitId: "azul" });
     u.onWinnerStays(TEAM.BLUE);
-    assert.equal(u.current()[TEAM.RED], "fla");
+    assert.equal(u.current()[TEAM.RED], "baleio");
     assert.equal(u.current()[TEAM.BLUE], "branco");
   });
 });

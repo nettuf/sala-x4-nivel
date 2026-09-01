@@ -1,7 +1,7 @@
 const config = require("../config");
 const { findPlayer, parseDurationToMs, formatDuration, connToIp, kickReason, resolveWhisper } = require("../utils");
 const { resolvePlayerAuth } = require("../room/playerAuth");
-const { isRandomKitArg, parseTeamRef } = require("../room/uniforms");
+const { isRandomKitArg, parseTeamRef, isColorKit, listColorPage } = require("../room/uniforms");
 const { createBan, deactivateBan, listActiveBans } = require("../db/bans");
 const { getAdmin } = require("../db/players");
 const { notifyBan, notifyUnban } = require("../discord/webhook");
@@ -86,7 +86,8 @@ function playerHelpLines({
     "!listacargos — todos os emblemas e como desbloquear",
     "!cargo <id|n> — escolher emblema",
     "— Uniforme —",
-    "!unis — uniformes disponíveis"
+    "!cores1 / !cores2 — cores básicas",
+    "!unis — times e comunidades"
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — troca o uniforme do time");
@@ -777,10 +778,47 @@ function createCommandHandler(room, ctx) {
 
     if (["unis", "uniformes", "kits", "camisas"].includes(cmd)) {
       room.sendAnnouncement(
-        `Uniformes: ${ctx.uniforms?.listText() || "-"}\nAtual: ${ctx.uniforms?.describe() || "-"}\nUse !uni <kit> ou !uni random (capitão ou admin)`,
+        `Times/comunidades: ${ctx.uniforms?.listText() || "-"}\nCores: !cores1 · !cores2\nAtual: ${ctx.uniforms?.describe() || "-"}\nUse !uni <kit>, !<cor> ou !uni random (capitão ou admin)`,
         player.id,
         0xecf0f1,
         "small",
+        1
+      );
+      return true;
+    }
+
+    if (cmd === "cores1" || cmd === "cores2") {
+      const page = cmd === "cores1" ? 1 : 2;
+      const text = listColorPage(page);
+      if (!text) {
+        room.sendAnnouncement("Página de cores inválida.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      room.sendAnnouncement(
+        `Cores ${page}/2: ${text}\nUse !<cor> ou !uni <cor> (capitão ou admin)`,
+        player.id,
+        0xecf0f1,
+        "small",
+        1
+      );
+      return true;
+    }
+
+    if (ctx.uniforms && isColorKit(cmd)) {
+      const result = ctx.uniforms.change({
+        player,
+        isAdmin: !!admin,
+        kitId: cmd,
+      });
+      if (!result.ok) {
+        room.sendAnnouncement(result.error, player.id, 0xe74c3c, "bold", 2);
+        return true;
+      }
+      room.sendAnnouncement(
+        `${player.name} vestiu ${result.kit.name} no time ${result.team === 1 ? "🔴" : "🔵"}`,
+        null,
+        result.team === 1 ? 0xe74c3c : 0x3498db,
+        "bold",
         1
       );
       return true;

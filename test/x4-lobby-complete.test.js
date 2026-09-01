@@ -124,17 +124,18 @@ describe("x4 completo: entradas", () => {
 });
 
 describe("x4 completo: saídas", () => {
-  it("4v4 + 1 spec: sai do campo → pick pausado → volta 4v4", async () => {
+  it("4v4 + 1 spec: sai do campo → auto-reposição → volta 4v4", async () => {
     const host = await boot4v4Live(1);
     const scores = host.live();
     const victim = host.players.find((p) => p.team === TEAM.RED);
+    const spec = host.players.find((p) => p.team === TEAM.SPEC);
     host.quit(victim);
     await settle();
-    assert.equal(host.handles.choose.isReplacement(), true);
-    assert.equal(host.lastPause(), true);
-    assert.equal(field(host).red, 3);
-    await pickReplacement(host);
-    assertHealthy4v4(host);
+    await waitLobby();
+    assert.equal(host.handles.choose.isReplacement(), false, "1 vaga e 1 spec → auto");
+    assert.equal(host.find(spec.id).team, TEAM.RED);
+    assertNvN(host, 4, 0);
+    assert.equal(host.handles.choose.isActive(), false);
     assert.equal(host.live(), scores);
     host.cleanup();
   });
@@ -297,10 +298,20 @@ describe("x4 completo: capitão e pick", () => {
     const victim = host.players.find((p) => p.team === TEAM.RED);
     host.quit(victim);
     await settle();
-    const ready = host.handles.choose.list().specReady;
-    assert.ok(ready.every((p) => p.id !== specs[0].id));
-    await pickReplacement(host);
-    assertHealthy4v4(host);
+    await waitLobby();
+    const ativo = specs[1];
+    if (!host.handles.choose.isReplacement()) {
+      assert.equal(host.find(ativo.id).team, TEAM.RED, "1 vaga e 1 ativo → auto");
+    } else {
+      const ready = host.handles.choose.list().specReady;
+      assert.ok(ready.every((p) => p.id !== specs[0].id));
+      await pickReplacement(host);
+    }
+    assert.equal(field(host).red, 4);
+    assert.equal(field(host).blue, 4);
+    assert.equal(host.find(specs[0].id).team, TEAM.SPEC);
+    assert.equal(host.handles.afk.isAfk(specs[0].id), true);
+    assert.equal(host.handles.choose.isActive(), false);
     host.cleanup();
   });
 });
@@ -322,15 +333,17 @@ describe("x4 completo: bot preenche sozinho", () => {
     host.cleanup();
   });
 
-  it("4v4 ao vivo + 1 spec: sai → capitão escolhe (não auto-fill)", async () => {
+  it("4v4 ao vivo + 1 spec: sai → puxa automático (1=1)", async () => {
     const host = await boot4v4Live(1);
+    const spec = host.players.find((p) => p.team === TEAM.SPEC);
     const victim = host.players.find((p) => p.team === TEAM.RED);
     host.quit(victim);
     await settle();
-    assert.equal(host.handles.choose.isReplacement(), true);
-    assert.equal(host.lastPause(), true);
-    await pickReplacement(host);
-    assertHealthy4v4(host);
+    await waitLobby();
+    assert.equal(host.handles.choose.isReplacement(), false);
+    assert.equal(host.find(spec.id).team, TEAM.RED);
+    assertNvN(host, 4, 0);
+    assert.equal(host.handles.choose.isActive(), false);
     host.cleanup();
   });
 

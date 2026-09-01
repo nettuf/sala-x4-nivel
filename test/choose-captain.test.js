@@ -178,6 +178,37 @@ describe("capitão e lista de pick", () => {
     assert.ok(announcements.some((row) => /única opção/i.test(row.msg)));
   });
 
+  it("reposição AO VIVO: 1 vaga e 1 spec elegível entra sem pick (AFK não contam)", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(11, TEAM.RED),
+      p(12, TEAM.RED),
+      p(13, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(22, TEAM.BLUE),
+      p(3, TEAM.BLUE),
+      p(5),
+      p(6),
+      p(7),
+      p(8),
+      p(9),
+      p(10),
+    ];
+    const excluded = new Set([6, 7, 8, 9, 10]);
+    const { choose, announcements } = setup(players, {
+      excluded,
+      scores: { red: 0, blue: 0, time: 10 },
+    });
+    let result = null;
+    choose.startReplacement(TEAM.BLUE, (payload) => {
+      result = payload;
+    });
+    assert.equal(choose.isActive(), false);
+    assert.equal(players.find((row) => row.id === 5).team, TEAM.BLUE);
+    assert.ok(result && result.chosen);
+    assert.ok(announcements.some((row) => /única opção/i.test(row.msg)));
+  });
+
   it("reposição AO VIVO com specs não fecha sozinha só porque o time ainda conta 4", () => {
     const players = [
       p(1, TEAM.RED),
