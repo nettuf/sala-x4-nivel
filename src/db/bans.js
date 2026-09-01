@@ -1,5 +1,47 @@
 const { getSupabase } = require("./supabase");
 
+async function purgeExpiredBans() {
+  const sb = getSupabase();
+  if (!sb) return;
+  const now = new Date().toISOString();
+  const { error } = await sb
+    .from("bans")
+    .update({ active: false })
+    .eq("active", true)
+    .not("ends_at", "is", null)
+    .lt("ends_at", now);
+  if (error) console.error("[bans] purge expired", error.message);
+}
+
+async function listActiveBans({ page = 1, pageSize = 6 } = {}) {
+  const sb = getSupabase();
+  const pg = Math.max(1, Math.floor(Number(page) || 1));
+  const size = Math.min(10, Math.max(1, Math.floor(Number(pageSize) || 6)));
+  if (!sb) return { unavailable: true, rows: [], total: 0, page: pg, pageSize: size, pages: 0 };
+  await purgeExpiredBans();
+  const from = (pg - 1) * size;
+  const to = from + size - 1;
+  const { data, error, count } = await sb
+    .from("bans")
+    .select("auth, conn, nick", { count: "exact" })
+    .eq("active", true)
+    .order("created_at", { ascending: false })
+    .range(from, to);
+  if (error) {
+    console.error("[bans] list active", error.message);
+    return { unavailable: true, rows: [], total: 0, page: pg, pageSize: size, pages: 0 };
+  }
+  const total = count || 0;
+  return {
+    unavailable: false,
+    rows: data || [],
+    total,
+    page: pg,
+    pageSize: size,
+    pages: total ? Math.ceil(total / size) : 0,
+  };
+}
+
 async function findActiveBan({ auth, conn }) {
   const sb = getSupabase();
   if (!sb) return null;
@@ -72,4 +114,4 @@ async function deactivateBan({ auth, conn }) {
   return data || [];
 }
 
-module.exports = { findActiveBan, createBan, deactivateBan };
+module.exports = { findActiveBan, createBan, deactivateBan, listActiveBans, purgeExpiredBans };

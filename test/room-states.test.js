@@ -309,6 +309,29 @@ describe("winner stays ignora AFK no spec", () => {
     host.cleanup();
   });
 
+  it("4v4 cheio no azul perdedor + spec: winner stays tira todos os azuis e sobe capitão", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+    const blues = [];
+    for (let i = 0; i < 4; i++) blues.push(host.addPlayer(TEAM.BLUE));
+    const specCap = host.addPlayer(TEAM.SPEC, "CapSpec");
+    for (let i = 0; i < 3; i++) {
+      const p = host.addPlayer(TEAM.SPEC);
+      host.handles.afk.setAfk(p, true);
+    }
+
+    host.handles.choose.continueFromField({ winnerStays: true });
+    await new Promise((r) => setTimeout(r, 200));
+
+    assert.equal(host.teamCount(TEAM.RED), 4);
+    assert.equal(host.teamCount(TEAM.BLUE), 1, "só o capitão do spec no azul");
+    assert.equal(host.handles.choose.currentCaptain()?.id, specCap.id);
+    for (const p of blues) {
+      assert.equal(host.find(p.id).team, TEAM.SPEC, "perdedor azul no spec");
+    }
+    host.cleanup();
+  });
+
   it("não inicia a próxima partida enquanto os perdedores ainda estão no campo", async () => {
     const host = bootRoom({ deferTeamChanges: true });
     fill4v4(host);

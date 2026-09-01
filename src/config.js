@@ -74,7 +74,7 @@ const config = {
   cmdLookupPlayerMs: Number(process.env.CMD_LOOKUP_PLAYER_MS || 10000),
   // !gordo / !aura: cooldown global da sala (por tipo) e duração no alvo
   tempTitleCooldownMs: Number(process.env.TEMP_TITLE_COOLDOWN_MS || 15 * 60 * 1000),
-  tempTitleMs: Number(process.env.TEMP_TITLE_MS || 20 * 60 * 1000),
+  tempTitleMs: Number(process.env.TEMP_TITLE_MS || 5 * 60 * 1000),
   // !roleta: mute 3min 50/50, cooldown global da sala
   roletaMuteMs: Number(process.env.ROLETA_MUTE_MS || 3 * 60 * 1000),
   roletaCooldownMs: Number(process.env.ROLETA_COOLDOWN_MS || 15 * 60 * 1000),

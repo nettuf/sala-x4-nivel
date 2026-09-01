@@ -724,6 +724,7 @@ describe("status", () => {
       assists: 7,
       cs: 4,
       mvps: 2,
+      woms: 1,
     };
     const text = formatStatusCard("Netto", stats, { emblem: "👑", name: "Chefe" });
     assert.match(text, /👑 Netto/);
@@ -735,6 +736,7 @@ describe("status", () => {
     assert.match(text, /Assist: 7/);
     assert.match(text, /CS: 4/);
     assert.match(text, /MVP: 2/);
+    assert.match(text, /WoM: 1/);
     assert.equal(winratePct(stats), 60);
     assert.equal(winratePct(emptyPlayerStats()), 0);
   });

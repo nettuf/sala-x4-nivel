@@ -190,8 +190,8 @@ describe("AFK: ações e pausa", () => {
   it("disco andou → zera AFK; tecla no lugar não zera", () => {
     const { room, players } = afkSetup(4);
     const discs = new Map([
-      [1, { x: 0, y: 0 }],
-      [2, { x: 0, y: 0 }],
+      [1, { x: 0, y: 0, xspeed: 0.8, yspeed: 0 }],
+      [2, { x: 0, y: 0, xspeed: 0, yspeed: 0 }],
     ]);
     room.getPlayerDiscProperties = (id) => discs.get(id) || null;
     const afk = createAfkTracker(room);
@@ -203,11 +203,11 @@ describe("AFK: ações e pausa", () => {
     afk.touch(2, at);
     afk.sampleMovement(at);
 
-    discs.set(1, { x: 80, y: 40 });
+    discs.set(1, { x: 0.6, y: 0, xspeed: 0.8, yspeed: 0 });
     afk.sampleMovement(at + 4000);
 
     afk.tick(at + 13000);
-    assert.equal(players.find((p) => p.id === 1).team, 1, "andar o disco zera o relógio");
+    assert.equal(players.find((p) => p.id === 1).team, 1, "corrida zera o relógio");
     assert.equal(players.find((p) => p.id === 2).team, 0, "tecla no lugar não impede o AFK");
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
@@ -713,7 +713,7 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("velocidade suja do host não zera; só salto de posição zera", () => {
+  it("velocidade suja do host não zera; corrida com velocidade zera", () => {
     const { room, players } = afkSetup(4);
     const discs = new Map([
       [1, { x: 0, y: 0, xspeed: 0.8, yspeed: 0.8 }],
@@ -727,13 +727,15 @@ describe("AFK: ações e pausa", () => {
     const t0 = 1_700_000_000_000;
     afk.resetClocks(t0);
     afk.noteGameTick(t0);
+    let x2 = 0;
     for (let i = 1; i <= 13; i++) {
       discs.set(1, { x: 0.2, y: 0, xspeed: 0.8, yspeed: 0.8 });
-      discs.set(2, { x: i * 8, y: 0, xspeed: 0, yspeed: 0 });
+      x2 += 0.8;
+      discs.set(2, { x: x2, y: 0, xspeed: 0.8, yspeed: 0 });
       afk.noteGameTick(t0 + i * 1000);
     }
-    assert.equal(players.find((p) => p.id === 1).team, 0, "xspeed sujo não impede o AFK");
-    assert.equal(players.find((p) => p.id === 2).team, 2, "quem andou de verdade segue em campo");
+    assert.equal(players.find((p) => p.id === 1).team, 0, "xspeed sujo sem deslocar não zera");
+    assert.equal(players.find((p) => p.id === 2).team, 2, "quem corre de verdade segue em campo");
     config.afkWarnMs = prev.warn;
     config.afkActionMs = prev.act;
     afk.stop();
@@ -769,6 +771,32 @@ describe("AFK: ações e pausa", () => {
     assert.equal(hasMoved({ x: 0, y: 0 }, { x: 0.1, y: 0 }), false);
     assert.equal(hasMoved({ x: 0, y: 0 }, { x: 3, y: 0 }), true);
     assert.equal(hasMoved({ x: 0, y: 0 }, { x: 10, y: 0 }), true);
+  });
+
+  it("empurrão (salto grande) não zera AFK nem conta movimento", () => {
+    const { room, players } = afkSetup(4);
+    const moved = new Set();
+    const discs = new Map([
+      [1, { x: 0, y: 0, xspeed: 0, yspeed: 0 }],
+      [2, { x: 10, y: 0, xspeed: 0.8, yspeed: 0 }],
+    ]);
+    room.getPlayerDiscProperties = (id) => discs.get(id);
+    const afk = createAfkTracker(room, { onFieldMove: (id) => moved.add(id) });
+    const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
+    config.afkWarnMs = 8000;
+    config.afkActionMs = 12000;
+    const t0 = 1_700_000_000_000;
+    afk.resetClocks(t0);
+    afk.noteGameTick(t0);
+    for (let i = 1; i <= 13; i++) {
+      discs.set(1, { x: 5, y: 0, xspeed: 0.9, yspeed: 0 });
+      afk.noteGameTick(t0 + i * 1000);
+    }
+    assert.equal(players.find((p) => p.id === 1).team, 0, "empurrado continua parado para o AFK");
+    assert.equal(moved.has(1), false, "empurrão não entra em movedThisMatch");
+    config.afkWarnMs = prev.warn;
+    config.afkActionMs = prev.act;
+    afk.stop();
   });
 
   it("correr em linha reta zera o AFK; parado cai", () => {

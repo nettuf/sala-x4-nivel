@@ -400,8 +400,35 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /!unban/);
     assert.match(msg, /!banauth/);
     assert.match(msg, /!unbanauth/);
+    assert.match(msg, /!banlist/);
+    assert.match(msg, /!mutelist/);
     assert.match(msg, /!unmute/);
     assert.equal(msg.includes("!provocaradm"), false, "gerente não vê comando de Chefe");
+    afk.stop();
+  });
+
+  it("!banlist e !mutelist: admin vê lista; outros não", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = {
+      admins: new Map([[1, { level: 2, title: "Mod" }]]),
+      mutes: new Map(),
+      afk,
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[2], "!banlist");
+    assert.ok(room.announcements.some((a) => /Sem permissão/i.test(a.msg)));
+
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!banlist");
+    let msg = room.announcements.find((a) => a.to === room._players[0].id)?.msg || "";
+    assert.ok(/ban|indisponível/i.test(msg));
+
+    room.announcements.length = 0;
+    await cmd.handle(room._players[0], "!mutelist");
+    msg = room.announcements.find((a) => a.to === room._players[0].id)?.msg || "";
+    assert.ok(/mute|indisponível/i.test(msg));
     afk.stop();
   });
 
@@ -666,7 +693,7 @@ describe("comandos (mock room)", () => {
     assert.ok(room.announcements.some((a) => a.to === room._players[0].id && /Espere/i.test(a.msg)));
   });
 
-  it("!gordo e !aura duram 20min e o cooldown de 15min é da sala", async () => {
+  it("!gordo e !aura duram 5min e o cooldown de 15min é da sala", async () => {
     const room = mockRoom();
     const ctx = withClock({
       admins: new Map(),
@@ -717,12 +744,28 @@ describe("comandos (mock room)", () => {
       "cooldown é da sala, não por jogador"
     );
 
-    ctx.advance(15 * 60 * 1000);
+    ctx.advance(5 * 60 * 1000);
+    cmd.formatPlayerChat(spec, "oi");
+    assert.match(cmd.formatPlayerChat(spec, "oi").line, /^\[🌱\] /);
+    assert.equal(ctx.titles.get(3).id, "novato");
+
     room.announcements.length = 0;
     await cmd.handle(red, "!gordo Spec");
     assert.ok(
-      room.announcements.some((a) => a.to === red.id && /já está com 🍔 Gordo/.test(a.msg)),
-      "cooldown passou mas o alvo ainda tem o cargo"
+      room.announcements.some((a) => a.to === red.id && /Espere/.test(a.msg)),
+      "cooldown da sala ainda ativo antes dos 15min"
+    );
+
+    ctx.advance(10 * 60 * 1000);
+    room.announcements.length = 0;
+    await cmd.handle(red, "!gordo Spec");
+    assert.ok(
+      room.announcements.some(
+        (a) =>
+          a.to == null &&
+          /RedCap invocou o CaçadorDeGordo 🍔 em Spec/.test(a.msg)
+      ),
+      "cooldown passou — pode aplicar de novo"
     );
     assert.equal(ctx.titles.get(3).id, "gordo");
 
@@ -762,11 +805,12 @@ describe("comandos (mock room)", () => {
     await cmd.handle(blue, "!aura RedCap");
     assert.ok(room.announcements.some((a) => a.to === blue.id && /Espere/.test(a.msg) && /aura/.test(a.msg)));
 
-    ctx.advance(20 * 60 * 1000);
+    ctx.advance(5 * 60 * 1000);
     cmd.formatPlayerChat(spec, "oi");
     assert.match(cmd.formatPlayerChat(spec, "oi").line, /^\[🌱\] /);
     assert.equal(ctx.titles.get(3).id, "novato");
 
+    ctx.advance(10 * 60 * 1000);
     room.announcements.length = 0;
     await cmd.handle(blue, "!gordo Spec");
     assert.ok(room.announcements.some((a) => a.to == null && /🍔/.test(a.msg)));
@@ -894,10 +938,11 @@ describe("comandos (mock room)", () => {
     assert.ok(room.announcements.some((a) => a.to === 3 && /Espere/i.test(a.msg)));
   });
 
-  it("!gols !assists !golcontra !cs mostram top 5", async () => {
+  it("!gols !assists !golcontra !cs !jogos mostram top 5", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
     const boards = {
+      games: [{ nick: "Veterano", value: 420 }],
       goals: [{ nick: "Netto", value: 12 }],
       assists: [{ nick: "Ana", value: 8 }],
       own_goals: [{ nick: "Caio", value: 3 }],
@@ -914,6 +959,7 @@ describe("comandos (mock room)", () => {
     await cmd.handle(room._players[0], "!assists");
     await cmd.handle(room._players[0], "!golcontra");
     await cmd.handle(room._players[0], "!cs");
+    await cmd.handle(room._players[0], "!jogos");
     const msg = room.announcements.map((a) => a.msg).join("\n");
     assert.match(msg, /Top 5 gols/);
     assert.match(msg, /1\. Netto — 12/);
@@ -923,6 +969,8 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /1\. Caio — 3/);
     assert.match(msg, /Top 5 clean sheets/);
     assert.match(msg, /1\. Goleiro — 5/);
+    assert.match(msg, /Top 5 jogos/);
+    assert.match(msg, /1\. Veterano — 420/);
     afk.stop();
   });
 

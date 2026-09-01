@@ -1,6 +1,6 @@
 const { getSupabase } = require("./supabase");
 const { dedupeMatchPlayers } = require("../gameLogic");
-const { pickMatchMvps, applyUnlockUpgrade, newlyUnlockedPlayerTitles } = require("../titles");
+const { pickMatchMvps, pickMatchWorst, applyUnlockUpgrade, newlyUnlockedPlayerTitles } = require("../titles");
 
 function emptyPlayerStats() {
   return {
@@ -12,6 +12,7 @@ function emptyPlayerStats() {
     assists: 0,
     own_goals: 0,
     mvps: 0,
+    woms: 0,
     cs: 0,
     selected_title: null,
   };
@@ -33,7 +34,7 @@ function formatStatusCard(name, stats, title) {
   return [
     `${emblem} ${name}  ·  ${cargo}`,
     `Jogos: ${Number(s.games) || 0}  (${Number(s.wins) || 0}V ${Number(s.draws) || 0}E ${Number(s.losses) || 0}D)  ·  WR ${wrText}%`,
-    `Gols: ${Number(s.goals) || 0}  ·  Assist: ${Number(s.assists) || 0}  ·  CS: ${Number(s.cs) || 0}  ·  MVP: ${Number(s.mvps) || 0}`,
+    `Gols: ${Number(s.goals) || 0}  ·  Assist: ${Number(s.assists) || 0}  ·  CS: ${Number(s.cs) || 0}  ·  MVP: ${Number(s.mvps) || 0}  ·  WoM: ${Number(s.woms) || 0}`,
   ].join("\n");
 }
 
@@ -60,6 +61,8 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
   const roster = dedupeMatchPlayers(players);
   const mvpList = valid ? pickMatchMvps(roster) : [];
   const mvpAuths = new Set(mvpList.map((p) => p.auth).filter(Boolean));
+  const worstList = valid ? pickMatchWorst(roster) : [];
+  const womAuths = new Set(worstList.map((p) => p.auth).filter(Boolean));
 
   const { data: match, error } = await sb
     .from("matches")
@@ -92,14 +95,15 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
       own_goals: p.own_goals || 0,
       result: p.result,
       mvp: mvpAuths.has(p.auth),
+      wom: womAuths.has(p.auth),
       clean_sheet: !!p.cleanSheet,
     }));
     const { error: pe } = await sb.from("match_players").insert(rows);
     if (pe) {
       const msg = pe.message || "";
-      if (/clean_sheet/i.test(msg)) {
+      if (/clean_sheet|wom/i.test(msg)) {
         const retry = await sb.from("match_players").insert(
-          rows.map(({ clean_sheet, ...r }) => r)
+          rows.map(({ clean_sheet, wom, ...r }) => r)
         );
         if (retry.error) console.error("[stats] match_players", retry.error.message);
       } else if (/duplicate|23505/i.test(msg)) {
@@ -130,7 +134,11 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
   if (valid && players?.length) {
     for (const p of players) {
       if (!p.auth) continue;
-      const bump = await bumpPlayerStats({ ...p, mvp: mvpAuths.has(p.auth) });
+      const bump = await bumpPlayerStats({
+        ...p,
+        mvp: mvpAuths.has(p.auth),
+        wom: womAuths.has(p.auth),
+      });
       if (bump?.unlockedTitles?.length) {
         titleUnlocks.push({
           auth: p.auth,
@@ -145,7 +153,7 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
 
   if (valid && players?.length) invalidateLeaderboards();
 
-  return { match, mvpAuths: [...mvpAuths], titleUnlocks };
+  return { match, mvpAuths: [...mvpAuths], womAuths: [...womAuths], titleUnlocks };
 }
 
 async function bumpPlayerStats(p) {
@@ -175,6 +183,7 @@ async function bumpPlayerStats(p) {
   row.assists += p.assists || 0;
   row.own_goals += p.own_goals || 0;
   if (p.mvp) row.mvps = (row.mvps || 0) + 1;
+  if (p.wom) row.woms = (row.woms || 0) + 1;
   if (p.cleanSheet) row.cs = (row.cs || 0) + 1;
   row.updated_at = new Date().toISOString();
 
@@ -184,9 +193,9 @@ async function bumpPlayerStats(p) {
 
   const { error } = await sb.from("player_stats").upsert(row);
   if (error) {
-    if (/cs/i.test(error.message || "")) {
-      const { cs: _cs, ...withoutCs } = row;
-      const retry = await sb.from("player_stats").upsert(withoutCs);
+    if (/cs|woms/i.test(error.message || "")) {
+      const { cs: _cs, woms: _woms, ...withoutOptional } = row;
+      const retry = await sb.from("player_stats").upsert(withoutOptional);
       if (retry.error) console.error("[stats] bump", retry.error.message);
     } else {
       console.error("[stats] bump", error.message);
@@ -203,7 +212,7 @@ async function bumpPlayerStats(p) {
 async function aggregateFromMatches(sb, auth) {
   const { data, error } = await sb
     .from("match_players")
-    .select("goals, assists, own_goals, result, mvp, team, clean_sheet, matches!inner(valid, score_red, score_blue)")
+    .select("goals, assists, own_goals, result, mvp, wom, team, clean_sheet, matches!inner(valid, score_red, score_blue)")
     .eq("auth", auth)
     .eq("matches.valid", true);
   if (error || !Array.isArray(data) || !data.length) return null;
@@ -218,6 +227,7 @@ async function aggregateFromMatches(sb, auth) {
     else if (row.result === "draw") acc.draws += 1;
     else if (row.result === "loss") acc.losses += 1;
     if (row.mvp) acc.mvps += 1;
+    if (row.wom) acc.woms += 1;
     if (row.clean_sheet) acc.cs += 1;
   }
   return acc;
@@ -265,7 +275,7 @@ async function setSelectedTitle(auth, titleId) {
 }
 
 function emptyBoards() {
-  return { goals: [], assists: [], own_goals: [], cs: [] };
+  return { goals: [], assists: [], own_goals: [], cs: [], woms: [], games: [] };
 }
 
 function mapLeaderboardRows(data, col, nickMap) {
@@ -328,7 +338,7 @@ function createLeaderboardStore({ ttlMs = 60_000, load } = {}) {
 }
 
 async function queryLeaderboards(sb) {
-  const cols = ["goals", "assists", "own_goals", "cs"];
+  const cols = ["games", "goals", "assists", "own_goals", "cs", "woms"];
   const results = await Promise.all(
     cols.map(async (col) => {
       const { data, error } = await sb

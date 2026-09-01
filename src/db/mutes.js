@@ -1,5 +1,47 @@
 const { getSupabase } = require("./supabase");
 
+async function purgeExpiredMutes() {
+  const sb = getSupabase();
+  if (!sb) return;
+  const now = new Date().toISOString();
+  const { error } = await sb
+    .from("mutes")
+    .update({ active: false })
+    .eq("active", true)
+    .lt("ends_at", now);
+  if (error) console.error("[mutes] purge expired", error.message);
+}
+
+async function listActiveMutes({ page = 1, pageSize = 6 } = {}) {
+  const sb = getSupabase();
+  const pg = Math.max(1, Math.floor(Number(page) || 1));
+  const size = Math.min(10, Math.max(1, Math.floor(Number(pageSize) || 6)));
+  if (!sb) return { unavailable: true, rows: [], total: 0, page: pg, pageSize: size, pages: 0 };
+  await purgeExpiredMutes();
+  const from = (pg - 1) * size;
+  const to = from + size - 1;
+  const { data, error, count } = await sb
+    .from("mutes")
+    .select("auth, nick", { count: "exact" })
+    .eq("active", true)
+    .gte("ends_at", new Date().toISOString())
+    .order("ends_at", { ascending: false })
+    .range(from, to);
+  if (error) {
+    console.error("[mutes] list active", error.message);
+    return { unavailable: true, rows: [], total: 0, page: pg, pageSize: size, pages: 0 };
+  }
+  const total = count || 0;
+  return {
+    unavailable: false,
+    rows: data || [],
+    total,
+    page: pg,
+    pageSize: size,
+    pages: total ? Math.ceil(total / size) : 0,
+  };
+}
+
 async function findActiveMute(auth) {
   const sb = getSupabase();
   if (!sb || !auth) return null;
@@ -59,4 +101,4 @@ async function unmute(auth) {
   return (data || []).length;
 }
 
-module.exports = { findActiveMute, createMute, unmute };
+module.exports = { findActiveMute, createMute, unmute, listActiveMutes, purgeExpiredMutes };

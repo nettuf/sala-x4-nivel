@@ -1,4 +1,13 @@
 const { TEAM } = require("./choose");
+const { targetTeamSize } = require("../gameLogic");
+
+/** Mesma lógica do choose: não desce 4v4→3v3 no pós-vitória se o time cheio já está em campo. */
+function effectiveTeamSize({ redCount = 0, blueCount = 0, eligibleCount = 0, maxSize = 4 } = {}) {
+  const cap = Math.max(1, Number(maxSize) || 4);
+  const held = Math.max(Number(redCount) || 0, Number(blueCount) || 0, 1);
+  const byCount = targetTeamSize(Number(eligibleCount) || 0, cap);
+  return Math.min(cap, Math.max(byCount, held));
+}
 
 function planCompetitiveRecovery({
   redCount,
@@ -168,6 +177,7 @@ module.exports = {
   planCompetitiveRecovery,
   planExactFill,
   applyExactFill,
+  effectiveTeamSize,
   isKickoffIdleAfk,
   planKickoffAfkRecovery,
   planSpecFill,

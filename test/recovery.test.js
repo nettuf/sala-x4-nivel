@@ -179,6 +179,16 @@ describe("AFK no começo da partida", () => {
 });
 
 describe("pós-vitória: preencher sem sobra ou pickar", () => {
+  it("effectiveTeamSize mantém 4v4 com vermelho cheio e 5 elegíveis (AFK no spec)", () => {
+    const { effectiveTeamSize } = require("../src/room/recovery");
+    const size = effectiveTeamSize({ redCount: 4, blueCount: 3, eligibleCount: 5, maxSize: 4 });
+    assert.equal(size, 4);
+    assert.deepEqual(
+      planExactFill({ redCount: 4, blueCount: 3, specCount: 1, teamSize: size }),
+      { action: "fill-all", redNeed: 0, blueNeed: 1 }
+    );
+  });
+
   it("4 vermelho + 1 azul + 3 spec (exatos 8) → preenche na ordem, sem pick", () => {
     assert.deepEqual(
       planExactFill({ redCount: 4, blueCount: 1, specCount: 3, teamSize: 4 }),

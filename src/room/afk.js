@@ -10,8 +10,8 @@ function shouldCountAutoAfk(players) {
   return fieldPlayerCount(players) >= 2;
 }
 
-/** Salto grande neste tick (empurrão). Jitter acumulado NÃO conta. */
-const MOVE_EPS = 1.5;
+/** Salto grande num tick (empurrão) — não zera AFK nem conta movimento na partida. */
+const BUMP_EPS = 1.5;
 /** Andar de verdade (linha reta conta). Residual da física (~0) não zera. */
 const SPEED_EPS = 0.4;
 const SPEED_EPS_SQ = SPEED_EPS * SPEED_EPS;
@@ -21,7 +21,7 @@ const WALK_DELTA_EPS = 0.35;
 const TICK_HZ = 60;
 const MS_PER_TICK = 1000 / TICK_HZ;
 
-function hasMoved(prev, next, eps = MOVE_EPS) {
+function hasMoved(prev, next, eps = BUMP_EPS) {
   if (!prev || !next) return false;
   const dx = next.x - prev.x;
   const dy = next.y - prev.y;
@@ -45,8 +45,8 @@ function afkRemainSec() {
  * AFK é um estado só, venha do !afk ou de ficar parado em campo.
  *
  * Relógio = parede (8s aviso, 12s spec). Zera se o disco ANDAR no tick
- * (delta grande ou velocidade de corrida — linha reta conta).
- * Tecla no lugar e deriva de 1s NÃO zeram.
+ * (velocidade de corrida + deslocamento — linha reta conta).
+ * Empurrão e deriva de 1s NÃO zeram.
  */
 function createAfkTracker(room, opts = {}) {
   /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number, lastPos: {x:number,y:number}|null }>} */
@@ -107,17 +107,17 @@ function createAfkTracker(room, opts = {}) {
   }
 
   /**
-   * Andou NESTE frame? Empurrão (delta ≥ 1.5) ou corrida (xspeed/yspeed).
-   * Segurar uma tecla em linha reta tem velocidade e conta; jitter parado não.
+   * Andou NESTE frame? Só corrida (xspeed/yspeed + deslocamento).
+   * Empurrão (salto ≥ BUMP_EPS num tick) não zera AFK nem movedThisMatch.
    */
   function applyMotion(p, st, wallNow) {
     const pos = playerPos(p);
     if (!pos) return false;
-    const jumped = !!(st.lastPos && hasMoved(st.lastPos, pos, MOVE_EPS));
+    const bumped = !!(st.lastPos && hasMoved(st.lastPos, pos, BUMP_EPS));
     const slid = !!(st.lastPos && hasMoved(st.lastPos, pos, WALK_DELTA_EPS));
     const walking = isWalkingSpeed(pos) && slid;
     st.lastPos = { x: pos.x, y: pos.y };
-    if (!jumped && !walking) return false;
+    if (!walking || bumped) return false;
     st.lastActive = wallNow;
     st.warned = false;
     st.idleTicks = 0;
@@ -464,7 +464,8 @@ module.exports = {
   shouldCountAutoAfk,
   hasMoved,
   isWalkingSpeed,
-  MOVE_EPS,
+  MOVE_EPS: BUMP_EPS,
+  BUMP_EPS,
   SPEED_EPS,
   WALK_DELTA_EPS,
   TICK_HZ,

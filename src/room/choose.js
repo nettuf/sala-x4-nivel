@@ -223,7 +223,7 @@ function createChooseController(room, {
     const redN = teamCount(TEAM.RED);
     const blueN = teamCount(TEAM.BLUE);
 
-    if (redN >= size && blueN > 1 && blueN < size) {
+    if (redN >= size && blueN > 1) {
       const waiting = list().specReady.slice();
       const { blue } = list();
       for (const p of eligibleOn(blue)) setTeam(p.id, TEAM.SPEC);
@@ -231,7 +231,7 @@ function createChooseController(room, {
       if (captain) setTeam(captain.id, TEAM.BLUE);
       return true;
     }
-    if (blueN >= size && redN > 1 && redN < size) {
+    if (blueN >= size && redN > 1) {
       const waiting = list().specReady.slice();
       const { red } = list();
       for (const p of eligibleOn(red)) setTeam(p.id, TEAM.SPEC);
@@ -551,18 +551,22 @@ function createChooseController(room, {
       }
     }
     if (bothFull()) {
-      // 4v4 ainda no campo + gente no spec = perdedores não saíram. Não inicia.
-      if (list().specReady.length) return;
-      deactivate();
-      onReadyToStart();
-      return;
+      // 4v4 ainda no campo: perdedores não saíram (async). Winner stays limpa antes de abortar.
+      if (winnerStays && normalizeWinnerStaysSide()) {
+        /* segue montando o choose */
+      } else if (list().specReady.length) {
+        return;
+      } else {
+        deactivate();
+        onReadyToStart();
+        return;
+      }
     }
 
     if (winnerStays) normalizeWinnerStaysSide();
 
     const redN = teamCount(TEAM.RED);
     const blueN = teamCount(TEAM.BLUE);
-    // Vencedores já no campo: não resetar o time cheio só porque o outro ainda está vazio.
     // AFK ainda no time (lista stale) não conta como “cheio”.
     if (redN >= currentTeamSize() && blueN === 0) {
       if (!promoteSpecTo(TEAM.BLUE)) {

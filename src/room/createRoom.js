@@ -14,6 +14,7 @@ const {
   planCompetitiveRecovery,
   planExactFill,
   applyExactFill,
+  effectiveTeamSize,
   isKickoffIdleAfk,
   planKickoffAfkRecovery,
 } = require("./recovery");
@@ -1531,11 +1532,18 @@ function createRoom(HBInit) {
     winnerStaysPending.filling = true;
     const eligible = room.getPlayerList().filter((p) => p.id !== 0 && !afk.isAfk(p.id));
     const specs = eligible.filter((p) => p.team === TEAM.SPEC);
+    const redCount = eligible.filter((p) => p.team === TEAM.RED).length;
+    const blueCount = eligible.filter((p) => p.team === TEAM.BLUE).length;
     const fill = planExactFill({
-      redCount: eligible.filter((p) => p.team === TEAM.RED).length,
-      blueCount: eligible.filter((p) => p.team === TEAM.BLUE).length,
+      redCount,
+      blueCount,
       specCount: specs.length,
-      teamSize: targetTeamSize(eligible.length, config.teamSize),
+      teamSize: effectiveTeamSize({
+        redCount,
+        blueCount,
+        eligibleCount: eligible.length,
+        maxSize: config.teamSize,
+      }),
     });
     winnerStaysPending = null;
     postMatchBusy = false;
@@ -1667,7 +1675,7 @@ function createRoom(HBInit) {
 
       laterForCurrentLobby(refreshLobby, 1200);
     } finally {
-      postMatchBusy = false;
+      if (!winnerStaysPending) postMatchBusy = false;
       persistMatchInBackground(result);
     }
   }

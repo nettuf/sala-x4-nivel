@@ -2,10 +2,10 @@ const config = require("../config");
 const { findPlayer, parseDurationToMs, formatDuration, connToIp, kickReason, parseWhisper } = require("../utils");
 const { resolvePlayerAuth } = require("../room/playerAuth");
 const { isRandomKitArg, parseTeamRef } = require("../room/uniforms");
-const { createBan, deactivateBan } = require("../db/bans");
+const { createBan, deactivateBan, listActiveBans } = require("../db/bans");
 const { getAdmin } = require("../db/players");
 const { notifyBan, notifyUnban } = require("../discord/webhook");
-const { createMute, unmute, findActiveMute } = require("../db/mutes");
+const { createMute, unmute, findActiveMute, listActiveMutes } = require("../db/mutes");
 const {
   getPlayerStats,
   setSelectedTitle,
@@ -48,6 +48,12 @@ const RANKING_CMDS = {
   cs: { stat: "cs", title: "🧤 Top 5 clean sheets" },
   cleansheet: { stat: "cs", title: "🧤 Top 5 clean sheets" },
   cleansheets: { stat: "cs", title: "🧤 Top 5 clean sheets" },
+  jogos: { stat: "games", title: "🎮 Top 5 jogos" },
+  jogo: { stat: "games", title: "🎮 Top 5 jogos" },
+  games: { stat: "games", title: "🎮 Top 5 jogos" },
+  wom: { stat: "woms", title: "💩 Top 5 WoM" },
+  woms: { stat: "woms", title: "💩 Top 5 WoM" },
+  worstofmatch: { stat: "woms", title: "💩 Top 5 WoM" },
 };
 
 function playerHelpLines({
@@ -102,15 +108,15 @@ function zoeiraHelpLines() {
     "!provocar [#id|nick] — zoação de quem entregou",
     "!elogiar [#id|nick] — elogio de craque",
     "!roleta <#id|nick> — 50/50: mute 3min em você ou no alvo (15min na sala)",
-    "!gordo [#id|nick] — cargo 🍔 Gordo por 20min",
-    "!aura / !ego [#id|nick] — cargo 🗿 Aura por 20min",
+    "!gordo [#id|nick] — cargo 🍔 Gordo por 5min",
+    "!aura / !ego [#id|nick] — cargo 🗿 Aura por 5min",
   ];
 }
 
 function rankingHelpLines() {
   return [
     "— Ranking —",
-    "!gols !assists !golcontra !cs — top 5",
+    "!gols !assists !golcontra !cs !jogos !wom — top 5",
     "!streak — streak atual",
     "!topstreak — recorde da sala",
   ];
@@ -140,15 +146,48 @@ function canVoluntaryAfk(player, room, ctx) {
   return false;
 }
 
+const MOD_LIST_PAGE_SIZE = 6;
+const MOD_ADMIN_CMDS = new Set([
+  "ban",
+  "banlist",
+  "unban",
+  "banauth",
+  "unbanauth",
+  "mute",
+  "mutelist",
+  "unmute",
+]);
+
+function parseModListPage(args) {
+  const n = Number(String(args[0] || "").trim());
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+}
+
+function formatNickAuthList({ label, emoji, result, nextCmd }) {
+  if (result.unavailable) return "Lista indisponível (banco fora).";
+  if (!result.total) return `Nenhum ${label} ativo.`;
+  const header = `${emoji} ${label} ${result.page}/${result.pages} (${result.total})`;
+  const lines = result.rows.map((row) => {
+    const nick = row.nick || "sem nick";
+    const auth = row.auth || row.conn || "—";
+    return `${nick} · ${auth}`;
+  });
+  const parts = [header, ...lines];
+  if (result.page < result.pages) parts.push(`${nextCmd} ${result.page + 1}`);
+  return parts.join("\n");
+}
+
 function adminHelpText(level = 0) {
   const lines = [
     "!ajudaadm — comandos de admin",
     "!ban <#id|nick> [tempo] [motivo] — tempo: 30m, 2h, 1d, perm",
     "!banauth <auth> [tempo] [motivo] — bane pela auth (mesmo fora da sala)",
+    "!banlist [pág] — bans ativos (nick · auth)",
     "!unban <auth|conn>",
     "!unbanauth <auth>",
     "Staff na sala também vê os PVs (@nick)",
     "!mute <#id|nick> <tempo> [motivo]",
+    "!mutelist [pág] — mutes ativos (nick · auth)",
     "!unmute <#id|nick|auth>",
     "!uni red|blue <kit> — troca o uniforme de um time",
     "!uni random — sorteia os dois times",
@@ -181,7 +220,7 @@ function createCommandHandler(room, ctx) {
   const FUN_ROOM_MS = config.cmdPublicRoomMs || 15000;
   const LOOKUP_MS = config.cmdLookupPlayerMs || 10000;
   const JOKE_CD_MS = config.tempTitleCooldownMs || 15 * 60 * 1000;
-  const JOKE_MS = config.tempTitleMs || 20 * 60 * 1000;
+  const JOKE_MS = config.tempTitleMs || 5 * 60 * 1000;
   const ROLETA_MS = config.roletaMuteMs || 3 * 60 * 1000;
   const ROLETA_CD_MS = config.roletaCooldownMs || 15 * 60 * 1000;
   /** @type {Map<string, { kind: string, title: object, endsAt: number, previous: object|null }>} */
@@ -558,6 +597,11 @@ function createCommandHandler(room, ctx) {
     const cmd = (parts[0] || "").toLowerCase();
     const args = parts.slice(1);
     const admin = ctx.admins.get(player.id);
+
+    if (MOD_ADMIN_CMDS.has(cmd) && !admin) {
+      room.sendAnnouncement("Sem permissão.", player.id, 0xe74c3c, "bold", 2);
+      return true;
+    }
 
     if (cmd === "help" || cmd === "comandos" || cmd === "ajuda") {
       const isAfk = !!ctx.afk?.isAfk?.(player.id);
@@ -1009,12 +1053,24 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
-    if (!admin) {
-      if (["ban", "unban", "banauth", "unbanauth", "mute", "unmute"].includes(cmd)) {
-        room.sendAnnouncement("Sem permissão.", player.id, 0xe74c3c, "bold", 2);
-        return true;
-      }
-      return false;
+    if (cmd === "banlist") {
+      const result = await listActiveBans({
+        page: parseModListPage(args),
+        pageSize: MOD_LIST_PAGE_SIZE,
+      });
+      room.sendAnnouncement(
+        formatNickAuthList({
+          label: "ban",
+          emoji: "🚫",
+          result,
+          nextCmd: "!banlist",
+        }),
+        player.id,
+        0xecf0f1,
+        "small",
+        1
+      );
+      return true;
     }
 
     if (cmd === "ban") {
@@ -1242,6 +1298,26 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
+    if (cmd === "mutelist") {
+      const result = await listActiveMutes({
+        page: parseModListPage(args),
+        pageSize: MOD_LIST_PAGE_SIZE,
+      });
+      room.sendAnnouncement(
+        formatNickAuthList({
+          label: "mute",
+          emoji: "🔇",
+          result,
+          nextCmd: "!mutelist",
+        }),
+        player.id,
+        0xecf0f1,
+        "small",
+        1
+      );
+      return true;
+    }
+
     if (cmd === "mute") {
       const target = findPlayer(room, args[0]);
       const ms = parseDurationToMs(args[1]);
@@ -1348,4 +1424,9 @@ function createCommandHandler(room, ctx) {
   };
 }
 
-module.exports = { createCommandHandler, canVoluntaryAfk };
+module.exports = {
+  createCommandHandler,
+  canVoluntaryAfk,
+  formatNickAuthList,
+  parseModListPage,
+};
