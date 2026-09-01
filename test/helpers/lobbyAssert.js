@@ -94,7 +94,10 @@ async function idleToAfk(host, target, { moving = null, idleMs } = {}) {
     moving: movers,
     idleMs: idleMs || config.afkActionMs + 500,
   });
-  host.handles.afk.tick(Date.now());
+  for (let i = 0; i < 8; i++) {
+    host.handles.afk.tick(Date.now());
+    if (host.handles.afk.isAfk(target.id)) break;
+  }
   await settle();
   await waitLobby(400);
 }

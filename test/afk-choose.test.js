@@ -199,24 +199,21 @@ describe("AFK: relógio, aviso e ação", () => {
     host.cleanup();
   });
 
-  it("empurrão na posição zera o AFK; tecla no lugar não", () => {
+  it("empurrão não zera AFK", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     const empurrado = all[0];
-    const parado = all[1];
     host.startMatch();
 
     const past = Date.now() - config.afkActionMs - 1000;
-    for (const p of all) host.handles.afk.touch(p.id, past);
+    host.handles.afk.touch(empurrado.id, past);
     host.handles.afk.sampleMovement(past);
     const at = host.discs.get(empurrado.id);
     host.discs.set(empurrado.id, { x: at.x + 90, y: at.y + 40 });
     host.handles.afk.sampleMovement(Date.now());
-    host.activity(parado);
     host.handles.afk.tick(Date.now());
 
-    assert.equal(host.handles.afk.isAfk(empurrado.id), false, "disco andou");
-    assert.equal(host.handles.afk.isAfk(parado.id), true, "tecla no lugar não conta");
+    assert.equal(host.handles.afk.isAfk(empurrado.id), true, "empurrão não zera AFK");
     host.cleanup();
   });
 

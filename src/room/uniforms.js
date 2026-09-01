@@ -118,6 +118,21 @@ const KITS = [
     text: 0x1f1f1f,
     colors: [0x00764b, 0xffffff, 0x00764b],
   },
+  {
+    id: "unimundial",
+    name: "Amigos do ✠",
+    angle: 38,
+    text: 0xffe0e0,
+    colors: [0x000000, 0x000000, 0x000000],
+    emoji: "✠",
+  },
+  {
+    id: "futx4",
+    name: "Alanzoka & amigos",
+    angle: 66,
+    text: 0x283950,
+    colors: [0x8ac7f0],
+  },
 ];
 
 function defaultKit(team) {
