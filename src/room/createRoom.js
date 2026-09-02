@@ -1,5 +1,5 @@
 const config = require("../config");
-const { connToIp, kickReason, formatDuration } = require("../utils");
+const { connToIp, kickReason, formatDuration, isModerationKickReason } = require("../utils");
 const { upsertPlayer, getAdmin } = require("../db/players");
 const { findActiveBan, createBan } = require("../db/bans");
 const { notifyJoin, notifyBan } = require("../discord/webhook");
@@ -451,8 +451,13 @@ function createRoom(HBInit) {
     laterForCurrentLobby(callback, delay);
   }
 
+  /** Placar sozinho após stop não é jogo ao vivo — no Haxball ele some depois do apito. */
+  function isGameLive() {
+    return !!(match.isRunning() && room.getScores());
+  }
+
   function startWarmupIfPossible() {
-    if (room.getScores() || match.isRunning()) return;
+    if (match.isRunning()) return;
     parkAfkOnField();
     const players = room.getPlayerList().filter((p) => p.id !== 0);
     const plan = planWarmup(players, {
@@ -667,7 +672,7 @@ function createRoom(HBInit) {
   function startFromCurrentField() {
     if (winnerStaysPending && !winnerStaysSettled(winnerStaysPending.winner)) return;
     winnerStaysPending = null;
-    if (room.getScores() || match.isRunning()) return;
+    if (match.isRunning()) return;
     parkAfkOnField();
     const eligible = room
       .getPlayerList()
@@ -1239,7 +1244,7 @@ function createRoom(HBInit) {
         ctx.selfLeaves.delete(kickedPlayer.id) || String(reason || "") === "Até mais!";
       processDeparture(pending.player, {
         kicked: !selfLeave,
-        adminKick: !!byPlayer,
+        adminKick: !!byPlayer || isModerationKickReason(reason),
         scoresAtLeave: pending.scoresAtLeave,
         chooseNotified: pending.chooseNotified,
       });
@@ -1611,10 +1616,7 @@ function createRoom(HBInit) {
   /** Campo já assentou: choose ou fill. Sem isso o 4v4 fantasma relança. */
   function tryFinishWinnerStays() {
     if (!winnerStaysPending || winnerStaysPending.filling) return false;
-    if (choose.isActive() || room.getScores() || match.isRunning()) {
-      winnerStaysPending = null;
-      return true;
-    }
+    if (isGameLive()) return false;
     const winner = winnerStaysPending.winner;
     if (!winnerStaysSettled(winner)) return false;
 
@@ -1786,7 +1788,7 @@ function createRoom(HBInit) {
       if (postMatchBusy || winnerStaysPending) return { action: "none" };
       const { red, blue, specReady } = choose.list();
       return diagnoseRoom({
-        live: !!room.getScores(),
+        live: isGameLive(),
         paused: afk.isPaused(),
         chooseActive: choose.isActive(),
         replacement: choose.isReplacement(),

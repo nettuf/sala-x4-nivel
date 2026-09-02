@@ -258,4 +258,37 @@ async function endOfficialMatch(host, { victory = true } = {}) {
   await settle();
 }
 
-module.exports = { bootRoom, fill4v4, startChoose, settle, endOfficialMatch, TEAM, config };
+/**
+ * Haxball real: onGameStop com placar ainda visível (stopGame não zerou getScores).
+ * Reproduz o bug 3 red · 3 spec após 3v3.
+ */
+async function endMatchLingeringScores(host, { redWin = true } = {}) {
+  const scores = host.live();
+  if (redWin && scores) {
+    scores.red = config.scoreLimit;
+    scores.blue = 1;
+    host.handles.match.markVictory();
+  } else if (redWin && host.handles.match?.markVictory) {
+    host.handles.match.markVictory();
+  }
+  if (host.room.onGameStop) {
+    await host.room.onGameStop();
+  }
+  await settle();
+}
+
+function clearLingeringScores(host) {
+  host.room.stopGame();
+}
+
+module.exports = {
+  bootRoom,
+  fill4v4,
+  startChoose,
+  settle,
+  endOfficialMatch,
+  endMatchLingeringScores,
+  clearLingeringScores,
+  TEAM,
+  config,
+};

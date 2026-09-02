@@ -90,11 +90,22 @@ describe("ragequit no x4 oficial", () => {
     );
   });
 
-  it("perdedor já em spec no leave ainda conta pelo lineup", () => {
+  it("perdedor no spec sem estar no campo não conta (só quem quitou do time)", () => {
+    const host = setup();
+    host.setScores({ red: 3, blue: 0 });
+    assert.equal(
+      host.match.rageQuitReason({ ...host.players[1], team: TEAM.SPEC }),
+      null
+    );
+  });
+
+  it("perdedor AFK no spec ainda conta pelo fieldTeam", () => {
     const host = setup();
     host.setScores({ red: 3, blue: 0 });
     assert.match(
-      host.match.rageQuitReason({ ...host.players[1], team: TEAM.SPEC }),
+      host.match.rageQuitReason({ ...host.players[1], team: TEAM.SPEC }, null, {
+        fieldTeam: TEAM.BLUE,
+      }),
       /abandonou perdendo 3x0/i
     );
   });

@@ -261,6 +261,18 @@ describe("diagnóstico da sala", () => {
       "none"
     );
   });
+
+  it("placar fantasma pós-stop (live=false) destrava lobby parado", () => {
+    assert.equal(
+      diagnoseRoom({
+        live: false,
+        redCount: 3,
+        blueCount: 0,
+        specReadyCount: 3,
+      }).action,
+      "refresh-lobby"
+    );
+  });
 });
 
 describe("monitor de saúde", () => {
@@ -295,6 +307,16 @@ describe("monitor de saúde", () => {
     assert.deepEqual(applied, []);
     monitor.check();
     assert.deepEqual(applied, ["unpause"]);
+  });
+
+  it("prompt-choose age na primeira checagem", () => {
+    const applied = [];
+    const monitor = createHealthMonitor({
+      diagnose: () => ({ action: "prompt-choose", reason: "pick atrasado" }),
+      apply: (r) => applied.push(r.action),
+    });
+    assert.equal(monitor.check()?.action, "prompt-choose");
+    assert.deepEqual(applied, ["prompt-choose"]);
   });
 
   it("problema que muda no meio não dispara", () => {

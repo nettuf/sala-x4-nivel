@@ -102,6 +102,15 @@ async function idleToAfk(host, target, { moving = null, idleMs } = {}) {
   await waitLobby(400);
 }
 
+function assertNotStuckWinnerStays(host, size, msg = "") {
+  const f = field(host);
+  const tag = msg || `${size}v${size}`;
+  assert.ok(
+    !(f.red >= size && f.blue === 0 && f.spec >= size),
+    `${tag}: winner stays travou (${f.red} red · ${f.blue} blue · ${f.spec} spec)`
+  );
+}
+
 module.exports = {
   waitLobby,
   settle,
@@ -116,5 +125,6 @@ module.exports = {
   specCountAll,
   touchField,
   idleToAfk,
+  assertNotStuckWinnerStays,
   TEAM,
 };

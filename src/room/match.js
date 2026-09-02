@@ -636,29 +636,21 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     return (s.red || 0) >= limit || (s.blue || 0) >= limit;
   }
 
-  function playerTeamInMatch(player) {
-    if (player.team === 1 || player.team === 2) return player.team;
-    const inList = (list) =>
-      list.some((p) => p.id === player.id || (player.auth && p.auth && p.auth === player.auth));
-    const inRed = inList(match.lineupRed);
-    const inBlue = inList(match.lineupBlue);
-    if (inRed && !inBlue) return 1;
-    if (inBlue && !inRed) return 2;
-    return 0;
-  }
-
   /**
    * Ragequit: quem saiu do time perdedor com o jogo decidido (diff 2+, placar 3, ou 1 no fim).
-   * Vale no 4v4 oficial e no warmup: 2x0 e sair tem que encerrar.
-   * Se o 4v4 virou 3v3 no meio (competitive off), ainda conta.
+   * Só conta quem estava no campo ao sair (ou AFK mandado pro spec com fieldTeam guardado).
+   * Spec exterior / rejoin não entram.
    */
   function rageQuitReason(player, scores, { fieldTeam = 0 } = {}) {
     if (!match || !player) return null;
     const resolved = scores || snapshotScores();
     if (!resolved) return null;
 
-    let team = playerTeamInMatch(player);
-    if (!team && (fieldTeam === 1 || fieldTeam === 2)) team = fieldTeam;
+    const onFieldNow = player.team === 1 || player.team === 2;
+    const onFieldViaAfk = fieldTeam === 1 || fieldTeam === 2;
+    if (!onFieldNow && !onFieldViaAfk) return null;
+
+    const team = onFieldNow ? player.team : fieldTeam;
 
     const losingTeam =
       resolved.red < resolved.blue ? 1 : resolved.blue < resolved.red ? 2 : 0;

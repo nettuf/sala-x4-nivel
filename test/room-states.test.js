@@ -604,7 +604,7 @@ describe("ações de admin", () => {
     host.cleanup();
   });
 
-  it("4v4 2x0: leave com team=0 ainda é ragequit (lineup)", async () => {
+  it("4v4 2x0: quem sai do spec (não estava no campo) não é ragequit", async () => {
     const host = bootRoom();
     const all = fill4v4(host);
     host.startMatch();
@@ -616,10 +616,10 @@ describe("ações de admin", () => {
     host.room.onPlayerLeave({ ...blue, team: TEAM.SPEC });
     await new Promise((r) => setTimeout(r, 250));
     assert.ok(
-      host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
-      `devia anunciar ragequit mesmo com team spec, got ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+      !host.announcements.some((a) => a.to == null && /Ragequit de @/.test(a.msg)),
+      `spec saindo não devia ragequit: ${JSON.stringify(host.announcements.map((a) => a.msg))}`
     );
-    assert.equal(host.live(), null);
+    assert.ok(host.live(), "partida devia continuar");
     host.cleanup();
   });
 
@@ -815,6 +815,78 @@ describe("mute no chat", () => {
     await host.room.onPlayerChat(host.find(p.id), "ainda fala");
     assert.ok(host.announcements.some((a) => a.to === p.id && /mutado/i.test(a.msg)));
     assert.equal(host.announcements.some((a) => /ainda fala/.test(a.msg)), false);
+    host.cleanup();
+  });
+});
+
+describe("ban e ragequit", () => {
+  it("4v4 2x0: spec exterior saindo não encerra a partida", async () => {
+    const host = bootRoom();
+    fill4v4(host);
+    const spec = host.addPlayer({ team: TEAM.SPEC });
+    host.startMatch();
+    Object.assign(host.live(), { red: 2, blue: 0, time: 40 });
+    host.handles.match.onTick();
+    host.quit(spec);
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(
+      !host.announcements.some((a) => /Ragequit/i.test(a.msg)),
+      `spec exterior não devia ragequit: ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.ok(host.live(), "partida devia continuar");
+    host.cleanup();
+  });
+
+  it("4v4 2x0: banido tentando reentrar não encerra a partida", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    const admin = host.addPlayer();
+    host.startMatch();
+    Object.assign(host.live(), { red: 2, blue: 0, time: 40 });
+    host.handles.match.onTick();
+    const blue = all.find((p) => p.team === TEAM.BLUE);
+    const savedAuth = blue.auth;
+
+    host.haxballKick(blue, { reason: "Ban", byPlayer: admin });
+    await new Promise((r) => setTimeout(r, 150));
+    assert.ok(host.live(), "partida segue após ban de admin");
+    assert.ok(!host.announcements.some((a) => /Ragequit/i.test(a.msg)));
+
+    const rejoin = {
+      id: 99,
+      name: blue.name,
+      team: TEAM.SPEC,
+      auth: savedAuth,
+      conn: blue.conn,
+    };
+    host.players.push(rejoin);
+    host.room.onPlayerLeave(rejoin);
+    host.room.onPlayerKicked(rejoin, "Banido (permanente): teste", false, null);
+    await new Promise((r) => setTimeout(r, 150));
+
+    assert.ok(
+      !host.announcements.some((a) => /Ragequit/i.test(a.msg)),
+      `rejoin do banido não devia ragequit: ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
+    assert.ok(host.live(), "partida devia continuar");
+    host.cleanup();
+  });
+
+  it("4v4 2x0: kick de !ban no perdedor não conta como ragequit", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch();
+    Object.assign(host.live(), { red: 2, blue: 0, time: 40 });
+    host.handles.match.onTick();
+    const blue = all.find((p) => p.team === TEAM.BLUE);
+
+    host.haxballKick(blue, { reason: "Ban (30m): spam", ban: false, byPlayer: null });
+    await new Promise((r) => setTimeout(r, 150));
+
+    assert.ok(
+      !host.announcements.some((a) => /Ragequit/i.test(a.msg)),
+      `!ban não devia virar ragequit: ${JSON.stringify(host.announcements.map((a) => a.msg))}`
+    );
     host.cleanup();
   });
 });

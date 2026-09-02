@@ -14,7 +14,7 @@
 const HEALTH_CHECK_MS = 5000;
 const HEALTH_STRIKES = 2;
 /** Pausa de admin tem corda longa: só é desfeita depois de ~30s esquecida. */
-const HEALTH_ACTION_STRIKES = { unpause: 6, pause: 1 };
+const HEALTH_ACTION_STRIKES = { unpause: 6, pause: 1, "prompt-choose": 1 };
 
 function diagnoseRoom({
   live = false,

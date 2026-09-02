@@ -2,6 +2,8 @@ const config = require("../config");
 const { pickFromSpecList, isChooseToken, targetTeamSize } = require("../gameLogic");
 
 const TEAM = { SPEC: 0, RED: 1, BLUE: 2 };
+/** Retries curtos quando o capitão/lista ainda não estão prontos (setPlayerTeam async). */
+const PICK_NUDGE_DELAYS_MS = [80, 200, 500, 1000];
 
 /**
  * Choose mode x4: capitães (1º de cada time) escolhem specs até 4v4.
@@ -27,6 +29,8 @@ function createChooseController(room, {
   let lastPickCaptainId = 0;
   /** Fim do prazo do pick (evita tratar handle de setTimeout já disparado como timer vivo). */
   let capTimeoutUntil = 0;
+  /** Retries de Specs: enquanto o choose está aberto mas a lista não saiu. */
+  let pickNudgeTimers = [];
 
   function excluded(p) {
     return typeof isExcluded === "function" ? !!isExcluded(p) : false;
@@ -108,6 +112,31 @@ function createChooseController(room, {
     return eligibleOn(team === TEAM.RED ? red : blue).length;
   }
 
+  function clearPickPromptNudge() {
+    for (const timer of pickNudgeTimers) clearTimeout(timer);
+    pickNudgeTimers = [];
+  }
+
+  function nudgePickPrompt() {
+    if (!active || lastPickCaptainId) return;
+    if (tryFinishChoose()) return;
+    if (tryFillExactHoles()) return;
+    if (!beginCaptainPickTurn()) {
+      ensureCaptain();
+      beginCaptainPickTurn();
+    }
+  }
+
+  function schedulePickPromptNudge() {
+    clearPickPromptNudge();
+    if (!active || lastPickCaptainId) return;
+    for (const delay of PICK_NUDGE_DELAYS_MS) {
+      const timer = setTimeout(nudgePickPrompt, delay);
+      if (typeof timer.unref === "function") timer.unref();
+      pickNudgeTimers.push(timer);
+    }
+  }
+
   function clearCapTimeout() {
     if (timeout) {
       clearTimeout(timeout);
@@ -147,6 +176,7 @@ function createChooseController(room, {
       "normal",
       1
     );
+    clearPickPromptNudge();
   }
 
   function pickPromptStale(maxAgeMs = 4000) {
@@ -493,6 +523,7 @@ function createChooseController(room, {
       if (!cap) abortChoose("Sem jogadores para escolher — voltando ao lobby.");
       else if (!beginCaptainPickTurn()) abortChoose("Sem jogadores para escolher — voltando ao lobby.");
     }
+    if (active && !lastPickCaptainId) schedulePickPromptNudge();
   }
 
   /**
@@ -583,6 +614,7 @@ function createChooseController(room, {
     active = false;
     lockedSize = 0;
     clearCapTimeout();
+    clearPickPromptNudge();
     replacement = null;
     lastPickPromptAt = 0;
     lastPickCaptainId = 0;

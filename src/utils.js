@@ -11,6 +11,20 @@ function kickReason(text) {
   return base ? `${base} · Dúvidas no Discord: ${url}` : `Dúvidas no Discord: ${url}`;
 }
 
+/** Kick do bot (ban, !ban, guard de entrada, AFK) — não conta como ragequit. */
+function isModerationKickReason(reason) {
+  const base = String(reason || "")
+    .trim()
+    .split(" · ")[0];
+  return (
+    /^Banido/i.test(base) ||
+    /^Ban \(/i.test(base) ||
+    /^Kick:/i.test(base) ||
+    /^AFK/i.test(base) ||
+    base === "Você já está na sala (uma conexão por vez)"
+  );
+}
+
 function connToIp(conn) {
   if (!conn) return null;
   try {
@@ -156,4 +170,5 @@ module.exports = {
   parseWhisper,
   resolveWhisper,
   kickReason,
+  isModerationKickReason,
 };
