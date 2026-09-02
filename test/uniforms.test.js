@@ -20,6 +20,10 @@ const { TEAM } = require("../src/room/choose");
 const { createCommandHandler } = require("../src/commands");
 const { createAfkTracker } = require("../src/room/afk");
 
+function testUniforms(room, opts = {}) {
+  return createUniformManager(room, { cooldownMs: 0, ...opts });
+}
+
 function mockRoom(players) {
   const announcements = [];
   const colorCalls = [];
@@ -171,7 +175,7 @@ describe("uniformes: catálogo e regras puras", () => {
 describe("uniformes: manager na sala", () => {
   it("inicia vermelho tudo preto e azul tudo branco", () => {
     const room = mockRoom(squad());
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
     assert.equal(uni.current()[TEAM.RED], "preto");
     assert.equal(uni.current()[TEAM.BLUE], "branco");
     assert.deepEqual(room.colorCalls[0].colors, [0x000000]);
@@ -185,7 +189,7 @@ describe("uniformes: manager na sala", () => {
   it("kickoffVs usa os kits atuais", () => {
     const players = squad();
     const room = mockRoom(players);
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
     assert.equal(uni.kickoffVs(), "🔴 Preto  vs  🔵 Branco");
     uni.change({ player: players[0], isAdmin: false, kitId: "vermelho" });
     uni.change({ player: players[2], isAdmin: false, kitId: "azul" });
@@ -195,7 +199,7 @@ describe("uniformes: manager na sala", () => {
   it("capitão troca e aplica setTeamColors", () => {
     const players = squad();
     const room = mockRoom(players);
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
 
     const r = uni.change({ player: players[0], isAdmin: false, kitId: "vermelho" });
     assert.equal(r.ok, true);
@@ -208,7 +212,7 @@ describe("uniformes: manager na sala", () => {
   it("azul não consegue copiar o kit do vermelho", () => {
     const players = squad();
     const room = mockRoom(players);
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
 
     uni.change({ player: players[0], isAdmin: false, kitId: "baleio" });
     const r = uni.change({ player: players[2], isAdmin: false, kitId: "baleio" });
@@ -221,7 +225,7 @@ describe("uniformes: manager na sala", () => {
   it("capitão é sempre o primeiro do time (muda quando o 1º sai)", () => {
     const players = squad();
     const room = mockRoom(players);
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
 
     assert.equal(uni.captains()[TEAM.RED], 1);
     players.shift(); // RedCap saiu
@@ -234,7 +238,7 @@ describe("uniformes: manager na sala", () => {
   it("winner stays: azul vence e o vermelho mantém o kit", () => {
     const players = squad();
     const room = mockRoom(players);
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
 
     uni.change({ player: players[0], isAdmin: false, kitId: "baleio" });
     uni.change({ player: players[2], isAdmin: false, kitId: "azul" });
@@ -248,7 +252,7 @@ describe("uniformes: manager na sala", () => {
   it("reset volta os dois times ao padrão", () => {
     const players = squad();
     const room = mockRoom(players);
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
 
     uni.change({ player: players[0], isAdmin: false, kitId: "vermelho" });
     uni.reset();
@@ -272,7 +276,7 @@ describe("uniformes: sorteio no kickoff", () => {
 
   it("prepareKickoff sorteia só o azul; o vermelho permanece", () => {
     const room = mockRoom(squad());
-    const uni = createUniformManager(room, { random: seqRandom([0, 0.99]) });
+    const uni = testUniforms(room, { random: seqRandom([0, 0.99]) });
     const redBefore = uni.current()[TEAM.RED];
     const first = uni.prepareKickoff();
     assert.equal(first.randomized, true);
@@ -292,7 +296,7 @@ describe("uniformes: sorteio no kickoff", () => {
   it("troca no intervalo cancela o sorteio do kickoff", () => {
     const players = squad();
     const room = mockRoom(players);
-    const uni = createUniformManager(room, { random: seqRandom([0.5, 0.2]) });
+    const uni = testUniforms(room, { random: seqRandom([0.5, 0.2]) });
     uni.change({ player: players[0], isAdmin: false, kitId: "baleio" });
     const r = uni.prepareKickoff();
     assert.equal(r.randomized, false);
@@ -303,7 +307,7 @@ describe("uniformes: sorteio no kickoff", () => {
   it("fim da partida sorteia só o azul; o vermelho fica", () => {
     const players = squad();
     const room = mockRoom(players);
-    const uni = createUniformManager(room, { random: seqRandom([0, 0.99, 0.4, 0.8]) });
+    const uni = testUniforms(room, { random: seqRandom([0, 0.99, 0.4, 0.8]) });
     uni.change({ player: players[0], isAdmin: false, kitId: "baleio" });
     uni.noteMatchEnd();
     const r = uni.prepareKickoff();
@@ -470,7 +474,7 @@ describe("uniformes: emoji do kit", () => {
   it("kit com emoji marca o time inteiro e deixa o resto livre", () => {
     const players = squad();
     const room = roomWithAvatar(players);
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
     room.avatarCalls.length = 0;
 
     uni.change({ player: players[0], isAdmin: false, kitId: "gordo" });
@@ -488,7 +492,7 @@ describe("uniformes: emoji do kit", () => {
   it("trocar para kit sem emoji devolve o avatar do jogador", () => {
     const players = squad();
     const room = roomWithAvatar(players);
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
 
     uni.change({ player: players[0], isAdmin: false, kitId: "gordo" });
     room.avatarCalls.length = 0;
@@ -502,7 +506,7 @@ describe("uniformes: emoji do kit", () => {
   it("quem entra no time depois pega o emoji e não reenvia para os demais", () => {
     const players = squad();
     const room = roomWithAvatar(players);
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
     uni.change({ player: players[2], isAdmin: false, kitId: "rato" });
     room.avatarCalls.length = 0;
 
@@ -515,10 +519,37 @@ describe("uniformes: emoji do kit", () => {
   it("host sem setPlayerAvatar não quebra a troca de uniforme", () => {
     const players = squad();
     const room = mockRoom(players);
-    const uni = createUniformManager(room);
+    const uni = testUniforms(room);
     const res = uni.change({ player: players[0], isAdmin: false, kitId: "baleio" });
     assert.equal(res.ok, true);
     assert.equal(uni.current()[TEAM.RED], "baleio");
+  });
+
+  it("cooldown de 5s por time bloqueia troca seguida", () => {
+    const players = squad();
+    const room = mockRoom(players);
+    let now = 10_000;
+    const uni = createUniformManager(room, {
+      cooldownMs: 5000,
+      now: () => now,
+    });
+    assert.equal(uni.change({ player: players[0], isAdmin: false, kitId: "baleio" }).ok, true);
+    now += 2000;
+    const blocked = uni.change({ player: players[0], isAdmin: false, kitId: "tigre" });
+    assert.equal(blocked.ok, false);
+    assert.match(blocked.error, /aguarde 3s/i);
+    now += 4000;
+    assert.equal(uni.change({ player: players[0], isAdmin: false, kitId: "tigre" }).ok, true);
+  });
+
+  it("cooldown é por time: azul pode trocar enquanto vermelho espera", () => {
+    const players = squad();
+    const room = mockRoom(players);
+    let now = 0;
+    const uni = testUniforms(room, { cooldownMs: 5000, now: () => now });
+    assert.equal(uni.change({ player: players[0], isAdmin: false, kitId: "baleio" }).ok, true);
+    now += 1000;
+    assert.equal(uni.change({ player: players[2], isAdmin: false, kitId: "zebrados" }).ok, true);
   });
 });
 
@@ -527,7 +558,7 @@ describe("uniformes: comando !uni", () => {
     const players = squad();
     const room = mockRoom(players);
     const afk = createAfkTracker(room);
-    const uniforms = createUniformManager(room);
+    const uniforms = testUniforms(room);
     const ctx = {
       admins: new Map(),
       mutes: new Map(),

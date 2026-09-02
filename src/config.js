@@ -62,6 +62,7 @@ const config = {
   afkWarnMs: 11000,
   afkActionMs: 15000,
   afkCommandCooldownMs: 10000,
+  uniTeamCooldownMs: Number(process.env.UNI_TEAM_COOLDOWN_MS || 5000),
   afkSpecKickAt: 28,
   afkSpecGraceMs: 5 * 60 * 1000,
   chatFloodLimit: Number(process.env.CHAT_FLOOD_LIMIT || 4),

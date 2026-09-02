@@ -1,3 +1,4 @@
+const config = require("../config");
 const { TEAM } = require("./choose");
 
 /**
@@ -347,12 +348,42 @@ function resolvePermission({ player, isAdmin, requestedTeam, captains }) {
 
 function createUniformManager(room, opts = {}) {
   const rng = typeof opts.random === "function" ? opts.random : Math.random;
+  const nowFn = typeof opts.now === "function" ? opts.now : () => Date.now();
+  const teamCooldownMs = Math.max(0, Number(opts.cooldownMs ?? config.uniTeamCooldownMs ?? 5000));
   /** @type {Record<number, string|null>} */
   const current = { [TEAM.RED]: KIT_PRETO.id, [TEAM.BLUE]: KIT_BRANCO.id };
   /** Último avatar aplicado por jogador, para não reenviar o mesmo. */
   const avatars = new Map();
   /** Próximo kickoff sorteia o azul; o vermelho permanece. */
   let pendingRandom = true;
+  /** @type {Record<number, number|null>} */
+  const lastChangeAt = { [TEAM.RED]: null, [TEAM.BLUE]: null };
+
+  function teamCooldownError(team) {
+    if (!teamCooldownMs) return null;
+    const last = lastChangeAt[team];
+    if (!last) return null;
+    const left = teamCooldownMs - (nowFn() - last);
+    if (left <= 0) return null;
+    const sec = Math.ceil(left / 1000);
+    return `${teamLabel(team)}: aguarde ${sec}s para trocar de uniforme de novo.`;
+  }
+
+  function markTeamsChanged(...teams) {
+    if (!teamCooldownMs) return;
+    const now = nowFn();
+    for (const team of teams) {
+      if (team === TEAM.RED || team === TEAM.BLUE) lastChangeAt[team] = now;
+    }
+  }
+
+  function blockedTeamsCooldown(teams) {
+    for (const team of teams) {
+      const err = teamCooldownError(team);
+      if (err) return err;
+    }
+    return null;
+  }
 
   function captains() {
     const players = room.getPlayerList().filter((p) => p.id !== 0);
@@ -429,10 +460,14 @@ function createUniformManager(room, opts = {}) {
     const valid = validateChange({ team: perm.team, kitId, current });
     if (!valid.ok) return valid;
 
+    const cd = teamCooldownError(perm.team);
+    if (cd) return { ok: false, error: cd };
+
     pendingRandom = false;
     if (!apply(perm.team, valid.kit)) {
       return { ok: false, error: "Falha ao aplicar uniforme." };
     }
+    markTeamsChanged(perm.team);
     return { ok: true, kit: valid.kit, team: perm.team };
   }
 
@@ -440,18 +475,28 @@ function createUniformManager(room, opts = {}) {
    * Sorteia um lado, ou os dois se `team` for omitido.
    * Os dois times nunca ficam com o mesmo kit.
    */
-  function randomize(team) {
+  function randomize(team, { manual = false } = {}) {
     pendingRandom = false;
     if (team === TEAM.RED || team === TEAM.BLUE) {
+      if (manual) {
+        const cd = teamCooldownError(team);
+        if (cd) return { ok: false, error: cd };
+      }
       const other = team === TEAM.RED ? TEAM.BLUE : TEAM.RED;
       const kit = pickRandomKit([current[other], current[team]], rng, kitFor(other));
       apply(team, kit);
+      if (manual) markTeamsChanged(team);
       return { ok: true, mode: "one", team, kit };
+    }
+    if (manual) {
+      const cd = blockedTeamsCooldown([TEAM.RED, TEAM.BLUE]);
+      if (cd) return { ok: false, error: cd };
     }
     const redKit = pickRandomKit([], rng);
     const blueKit = pickRandomKit([redKit.id], rng, redKit);
     apply(TEAM.RED, redKit);
     apply(TEAM.BLUE, blueKit);
+    if (manual) markTeamsChanged(TEAM.RED, TEAM.BLUE);
     return { ok: true, mode: "both", red: redKit, blue: blueKit };
   }
 
@@ -465,7 +510,7 @@ function createUniformManager(room, opts = {}) {
     }
 
     if (isAdmin && !requestedTeam) {
-      return randomize();
+      return randomize(undefined, { manual: true });
     }
 
     const perm = resolvePermission({
@@ -475,7 +520,7 @@ function createUniformManager(room, opts = {}) {
       captains: captains(),
     });
     if (!perm.ok) return perm;
-    return randomize(perm.team);
+    return randomize(perm.team, { manual: true });
   }
 
   /** Kickoff sorteia só o azul. O vermelho mantém o kit partida a partida. */
