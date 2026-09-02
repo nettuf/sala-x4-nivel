@@ -1170,7 +1170,7 @@ describe("choose: pick do capitão", () => {
     }
   });
 
-  it("saída que deixa a sala sem 8 elegíveis cancela o choose", async () => {
+  it("saída que deixa a sala sem 8 elegíveis rebalanceia o formato e segue o choose", async () => {
     const host = bootRoom();
     for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
     host.addPlayer(TEAM.BLUE);
@@ -1185,8 +1185,7 @@ describe("choose: pick do capitão", () => {
     host.quit(a);
     await settle();
 
-    assert.equal(host.handles.choose.isActive(), false);
-    assert.ok(host.said(/poucos jogadores/i));
+    assert.ok(!host.said(/poucos jogadores/i), "não cancela o choose por pouca gente");
     host.cleanup();
   });
 

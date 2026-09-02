@@ -618,6 +618,42 @@ describe("capitão e lista de pick", () => {
     assert.equal(players.find((row) => row.id === 5).team, TEAM.SPEC);
   });
 
+  it("choose 3v3: sala encolhe para 5 no meio do pick desce extra pro spec em vez de cancelar", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(11, TEAM.RED),
+      p(12, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(4),
+      p(5),
+      p(6),
+    ];
+    const { choose, announcements } = setup(players, { streak: 1 });
+    choose.continueFromField();
+    assert.equal(choose.isActive(), true);
+    const blueCap = players.find((row) => row.id === 2);
+    choose.handleCaptainChat(blueCap, "1");
+    assert.equal(choose.list().red.length, 3);
+    assert.equal(choose.list().blue.length, 2);
+
+    players.splice(
+      players.findIndex((row) => row.id === 6),
+      1
+    );
+    players.splice(
+      players.findIndex((row) => row.id === 5),
+      1
+    );
+    choose.onPlayerLeave();
+
+    assert.equal(choose.isActive(), false, "2v2 fecha após equilibrar");
+    assert.equal(choose.list().red.length, 2);
+    assert.equal(choose.list().blue.length, 2);
+    assert.equal(choose.list().spec.length, 1);
+    assert.ok(announcements.some((row) => /formato ajustado/i.test(row.msg)));
+    assert.ok(!announcements.some((row) => /poucos jogadores/i.test(row.msg)));
+  });
+
   it("4v3: timeout manda o azul AFK; com specs sobrando o próximo picka", async () => {
     const prev = config.chooseTimeSec;
     config.chooseTimeSec = 0.05;

@@ -903,6 +903,40 @@ function createChooseController(room, {
     return applyCaptainPick(player, chosen, team, token);
   }
 
+  /** Recalcula o formato e desce extra do time maior pro spec quando a sala encolhe. */
+  function rebalanceChooseFormat() {
+    const players = room.getPlayerList().filter((p) => p.id !== 0 && !excluded(p));
+    if (players.length < 2) return false;
+
+    const newSize = targetTeamSize(players.length, config.teamSize);
+    lockedSize = newSize;
+
+    let trimmed = false;
+    while (teamCount(TEAM.RED) > newSize) {
+      const side = eligibleOn(list().red);
+      if (!side.length) break;
+      setTeam(side[side.length - 1].id, TEAM.SPEC);
+      trimmed = true;
+    }
+    while (teamCount(TEAM.BLUE) > newSize) {
+      const side = eligibleOn(list().blue);
+      if (!side.length) break;
+      setTeam(side[side.length - 1].id, TEAM.SPEC);
+      trimmed = true;
+    }
+
+    if (trimmed) {
+      room.sendAnnouncement(
+        "🤖 Formato ajustado — extra do time maior foi pro spec.",
+        null,
+        0x3498db,
+        "normal",
+        1
+      );
+    }
+    return true;
+  }
+
   function onPlayerLeave({ skipId = null, allowExactFill = true } = {}) {
     if (!active) return;
     if (replacement) {
@@ -922,22 +956,30 @@ function createChooseController(room, {
     const players = room.getPlayerList().filter((p) => p.id !== 0 && !excluded(p));
     const size = currentTeamSize();
     let { red, blue, spec, specReady } = list();
-    const redN = teamCount(TEAM.RED);
-    const blueN = teamCount(TEAM.BLUE);
+    let redN = teamCount(TEAM.RED);
+    let blueN = teamCount(TEAM.BLUE);
     if (players.length < size * 2 || redN > size || blueN > size) {
-      deactivate();
-      room.sendAnnouncement("Choose cancelado — poucos jogadores.", null, 0xe67e22, "normal", 1);
-      return;
+      if (!rebalanceChooseFormat()) {
+        abortChoose("Choose cancelado — poucos jogadores.");
+        return;
+      }
+      ({ red, blue, spec, specReady } = list());
+      redN = teamCount(TEAM.RED);
+      blueN = teamCount(TEAM.BLUE);
     }
 
     // Sem streak: se ficou 2 a mais de um lado, o último escolhido volta pro spec (FC/Wazarr).
     const streakNow = typeof getStreak === "function" ? getStreak() : 0;
     if (!room.getScores() && streakNow === 0 && Math.abs(redN - blueN) === 2) {
-      const largerSide = redN > blueN ? eligibleOn(red) : eligibleOn(blue);
-      const extra = largerSide[largerSide.length - 1];
-      setTeam(extra.id, TEAM.SPEC);
-      room.sendAnnouncement("🤖 Equilibrando: último escolhido voltou pro spec.", null, 0x3498db, "normal", 1);
-      ({ red, blue, spec, specReady } = list());
+      const minN = Math.min(redN, blueN);
+      const maxN = Math.max(redN, blueN);
+      if (minN >= 2 && maxN === currentTeamSize()) {
+        const largerSide = redN > blueN ? eligibleOn(red) : eligibleOn(blue);
+        const extra = largerSide[largerSide.length - 1];
+        setTeam(extra.id, TEAM.SPEC);
+        room.sendAnnouncement("🤖 Equilibrando: último escolhido voltou pro spec.", null, 0x3498db, "normal", 1);
+        ({ red, blue, spec, specReady } = list());
+      }
     }
 
     // Time vazio → sobe o 1º do spec pronto (AFK não sobe). Nunca aborta se ainda há gente.
