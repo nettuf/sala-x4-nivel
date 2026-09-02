@@ -24,6 +24,7 @@ function diagnoseRoom({
   holdingPause = false,
   hasCaptain = false,
   pickPromptStale = false,
+  capTimeoutLive = false,
   competitive = false,
   winnerStaysPending = false,
   redCount = 0,
@@ -57,6 +58,9 @@ function diagnoseRoom({
       if (!chooseActive) {
         return { action: "recover", reason: `reposição caiu (${redCount}v${blueCount})` };
       }
+      if (hasCaptain && specReadyCount > 0 && (!capTimeoutLive || pickPromptStale)) {
+        return { action: "prompt-choose", reason: "pick sem timer ativo" };
+      }
       if (!paused) {
         return { action: "pause", reason: "reposição despausou cedo" };
       }
@@ -79,8 +83,8 @@ function diagnoseRoom({
     if (!hasCaptain) {
       return { action: "prompt-choose", reason: "choose sem capitão" };
     }
-    if (specReadyCount > 0 && pickPromptStale) {
-      return { action: "prompt-choose", reason: "choose sem lista ao capitão" };
+    if (specReadyCount > 0 && (!capTimeoutLive || pickPromptStale)) {
+      return { action: "prompt-choose", reason: "choose sem timer ativo" };
     }
     return { action: "none" };
   }

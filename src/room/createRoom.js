@@ -1793,6 +1793,7 @@ function createRoom(HBInit) {
         holdingPause: replacementPauseActive || holdUntilPick,
         hasCaptain: !!choose.currentCaptain(),
         pickPromptStale: choose.isActive() && choose.pickPromptStale(),
+        capTimeoutLive: choose.isActive() && choose.isCapTimeoutLive(),
         competitive: match.isCompetitive(),
         winnerStaysPending: !!winnerStaysPending,
         redCount: red.filter((p) => !afk.isAfk(p.id)).length,

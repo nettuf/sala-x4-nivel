@@ -25,6 +25,8 @@ function createChooseController(room, {
   /** Última lista/timer enviados ao capitão (health + refresh). */
   let lastPickPromptAt = 0;
   let lastPickCaptainId = 0;
+  /** Fim do prazo do pick (evita tratar handle de setTimeout já disparado como timer vivo). */
+  let capTimeoutUntil = 0;
 
   function excluded(p) {
     return typeof isExcluded === "function" ? !!isExcluded(p) : false;
@@ -111,6 +113,11 @@ function createChooseController(room, {
       clearTimeout(timeout);
       timeout = null;
     }
+    capTimeoutUntil = 0;
+  }
+
+  function isCapTimeoutLive() {
+    return capTimeoutUntil > Date.now();
   }
 
   /** Nunca cai no chat geral: id inválido / 0 (host) = não manda. */
@@ -150,6 +157,7 @@ function createChooseController(room, {
   function scheduleCaptainTimeouts(cap) {
     const chooseTime = config.chooseTimeSec;
     const capId = cap.id;
+    capTimeoutUntil = Date.now() + chooseTime * 1000;
     timeout = setTimeout(() => {
       if (!active || currentCaptain()?.id !== capId) {
         promptCaptain();
@@ -483,6 +491,7 @@ function createChooseController(room, {
     if (!beginCaptainPickTurn()) {
       const cap = ensureCaptain();
       if (!cap) abortChoose("Sem jogadores para escolher — voltando ao lobby.");
+      else if (!beginCaptainPickTurn()) abortChoose("Sem jogadores para escolher — voltando ao lobby.");
     }
   }
 
@@ -699,8 +708,8 @@ function createChooseController(room, {
       return;
     }
 
-    // refreshLobby batendo de novo: não reinicia os 20s de escolha.
-    if (timeout) {
+    // refreshLobby batendo de novo: só atualiza a lista se o timer ainda está no prazo.
+    if (isCapTimeoutLive()) {
       beginCaptainPickTurn({ refreshOnly: true });
       return;
     }
@@ -963,6 +972,7 @@ function createChooseController(room, {
     promptCaptain,
     currentCaptain,
     pickPromptStale,
+    isCapTimeoutLive,
     beginCaptainPickTurn,
   };
 }

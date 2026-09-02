@@ -34,6 +34,7 @@ describe("diagnóstico da sala", () => {
       chooseActive: true,
       replacement: false,
       hasCaptain: true,
+      capTimeoutLive: true,
       redCount: 4,
       blueCount: 1,
       specReadyCount: 3,
@@ -49,6 +50,7 @@ describe("diagnóstico da sala", () => {
       chooseActive: true,
       replacement: true,
       hasCaptain: true,
+      capTimeoutLive: true,
       redCount: 3,
       blueCount: 4,
       specReadyCount: 2,
@@ -147,6 +149,8 @@ describe("diagnóstico da sala", () => {
       chooseActive: true,
       replacement: true,
       holdingPause: true,
+      hasCaptain: true,
+      capTimeoutLive: true,
       redCount: 3,
       blueCount: 4,
       specReadyCount: 2,
@@ -212,8 +216,21 @@ describe("diagnóstico da sala", () => {
         blueCount: 1,
         specReadyCount: 2,
         pickPromptStale: false,
+        capTimeoutLive: true,
       }).action,
       "none"
+    );
+    assert.equal(
+      diagnoseRoom({
+        chooseActive: true,
+        hasCaptain: true,
+        redCount: 4,
+        blueCount: 1,
+        specReadyCount: 2,
+        pickPromptStale: false,
+        capTimeoutLive: false,
+      }).action,
+      "prompt-choose"
     );
     assert.equal(
       diagnoseRoom({
