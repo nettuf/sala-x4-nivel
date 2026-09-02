@@ -230,7 +230,7 @@ describe("diagnóstico da sala", () => {
         pickPromptStale: false,
         capTimeoutLive: false,
       }).action,
-      "prompt-choose"
+      "none"
     );
     assert.equal(
       diagnoseRoom({
@@ -240,6 +240,20 @@ describe("diagnóstico da sala", () => {
         blueCount: 1,
         specReadyCount: 2,
         pickPromptStale: true,
+        capTimeoutLive: true,
+      }).action,
+      "none",
+      "timer do pick ativo: health não reenvia lista nem zera o relógio"
+    );
+    assert.equal(
+      diagnoseRoom({
+        chooseActive: true,
+        hasCaptain: true,
+        redCount: 4,
+        blueCount: 1,
+        specReadyCount: 2,
+        pickPromptStale: true,
+        capTimeoutLive: false,
       }).action,
       "prompt-choose"
     );

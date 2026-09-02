@@ -58,7 +58,7 @@ function diagnoseRoom({
       if (!chooseActive) {
         return { action: "recover", reason: `reposição caiu (${redCount}v${blueCount})` };
       }
-      if (hasCaptain && specReadyCount > 0 && (!capTimeoutLive || pickPromptStale)) {
+      if (hasCaptain && specReadyCount > 0 && !capTimeoutLive && pickPromptStale) {
         return { action: "prompt-choose", reason: "pick sem timer ativo" };
       }
       if (!paused) {
@@ -83,7 +83,7 @@ function diagnoseRoom({
     if (!hasCaptain) {
       return { action: "prompt-choose", reason: "choose sem capitão" };
     }
-    if (specReadyCount > 0 && (!capTimeoutLive || pickPromptStale)) {
+    if (specReadyCount > 0 && !capTimeoutLive && pickPromptStale) {
       return { action: "prompt-choose", reason: "choose sem timer ativo" };
     }
     return { action: "none" };
