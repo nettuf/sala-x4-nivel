@@ -10,35 +10,9 @@ function shouldCountAutoAfk(players) {
   return fieldPlayerCount(players) >= 2;
 }
 
-/** Salto grande num tick (empurrão) — não zera AFK nem conta movimento na partida. */
-const BUMP_EPS = 1.5;
-/** Andar de verdade (linha reta conta). Residual da física (~0) não zera. */
-const SPEED_EPS = 0.4;
-const SPEED_EPS_SQ = SPEED_EPS * SPEED_EPS;
-/** Deslocamento mínimo junto da velocidade: xspeed sujo com disco parado não conta. */
-const WALK_DELTA_EPS = 0.35;
-/** Tecla recente: empurrão com xspeed fantasma não zera AFK de quem estava parado. */
-const INPUT_WINDOW_MS = 2000;
-/** Parado há isso + deslize sem tecla = empurrão gradual. */
-const IDLE_BEFORE_PUSH_MS = 500;
-/** Haxball: onGameTick = 60 Hz. Apex incrementa ACT nesse loop. */
+/** Haxball: onGameTick = 60 Hz. */
 const TICK_HZ = 60;
 const MS_PER_TICK = 1000 / TICK_HZ;
-
-function hasMoved(prev, next, eps = BUMP_EPS) {
-  if (!prev || !next) return false;
-  const dx = next.x - prev.x;
-  const dy = next.y - prev.y;
-  return dx * dx + dy * dy >= eps * eps;
-}
-
-function isWalkingSpeed(pos) {
-  if (!pos) return false;
-  const xs = Number(pos.xspeed);
-  const ys = Number(pos.yspeed);
-  if (!Number.isFinite(xs) && !Number.isFinite(ys)) return false;
-  return (xs || 0) ** 2 + (ys || 0) ** 2 >= SPEED_EPS_SQ;
-}
 
 function afkRemainSec() {
   const remain = Number(config.afkActionMs) - Number(config.afkWarnMs);
@@ -46,25 +20,17 @@ function afkRemainSec() {
 }
 
 /**
- * AFK é um estado só, venha do !afk ou de ficar parado em campo.
- *
- * Relógio = parede (12s aviso, 16s spec). Zera se o disco ANDAR no tick
- * (velocidade de corrida + deslocamento — linha reta conta).
- * Empurrão, xspeed fantasma em parado e deriva de 1s NÃO zeram.
+ * AFK: estilo haxballx7 — incrementa no tick, zera só com onPlayerActivity (tecla).
+ * 11s aviso, 15s spec. Pausa congela; spec não auto-AFK; !afk voluntário.
  */
 function createAfkTracker(room, opts = {}) {
-  /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number, lastPos: {x:number,y:number}|null }>} */
+  /** @type {Map<number, { lastActive: number, warned: boolean, idleTicks: number }>} */
   const state = new Map();
   /** @type {Map<number, { since: number, fieldTeam: number }>} */
   const afks = new Map();
   let paused = false;
-  /** Início da pausa atual (relógio de parede). */
   let pauseAt = 0;
-  /** Depois de despausar: não pune até o jogo “aquecer” de novo. */
   let unpauseGraceUntil = 0;
-  /** Último onGameTick — se recente, o setInterval não conta de novo. */
-  let lastSimTickAt = 0;
-  /** Kick de AFK por vaga não precisa de 60 Hz. */
   let reserveCheckTicks = 0;
   let onStateChange = null;
   const shouldAutoAfk = typeof opts.shouldAutoAfk === "function" ? opts.shouldAutoAfk : () => true;
@@ -76,7 +42,7 @@ function createAfkTracker(room, opts = {}) {
   }
 
   function blankState(now) {
-    return { lastActive: now, warned: false, idleTicks: 0, lastPos: null, walkStreak: 0, lastInputAt: 0 };
+    return { lastActive: now, warned: false, idleTicks: 0 };
   }
 
   function touch(playerId, wallNow = Date.now()) {
@@ -85,97 +51,7 @@ function createAfkTracker(room, opts = {}) {
     cur.lastActive = wallNow;
     cur.warned = false;
     cur.idleTicks = 0;
-    cur.lastPos = null;
-    cur.walkStreak = 0;
-    cur.lastInputAt = 0;
     state.set(playerId, cur);
-  }
-
-  function readDisc(p) {
-    try {
-      if (typeof room.getPlayerDiscProperties !== "function") return null;
-      return room.getPlayerDiscProperties(p.id) || null;
-    } catch {
-      return null;
-    }
-  }
-
-  function playerPos(p) {
-    const disc = readDisc(p);
-    if (disc && Number.isFinite(disc.x) && Number.isFinite(disc.y)) {
-      return { x: disc.x, y: disc.y, xspeed: disc.xspeed, yspeed: disc.yspeed };
-    }
-    const pos = p.position;
-    if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
-      return { x: pos.x, y: pos.y };
-    }
-    return null;
-  }
-
-  function hadRecentInput(st, wallNow) {
-    return !!(st.lastInputAt && wallNow - st.lastInputAt < INPUT_WINDOW_MS);
-  }
-
-  function idleForPush(st, wallNow) {
-    const tickIdle = (Number(st.idleTicks) || 0) * MS_PER_TICK;
-    const wallIdle = wallNow - st.lastActive;
-    return Math.max(tickIdle, wallIdle);
-  }
-
-  /**
-   * Salto grande ou empurrão gradual em quem estava parado (sem tecla).
-   * Corrida própria em linha reta não entra aqui.
-   */
-  function isExternalPush(prev, pos, st, wallNow) {
-    if (hadRecentInput(st, wallNow)) return false;
-    const dx = pos.x - prev.x;
-    const dy = pos.y - prev.y;
-    const distSq = dx * dx + dy * dy;
-    if (distSq < WALK_DELTA_EPS * WALK_DELTA_EPS) return false;
-    if (distSq >= BUMP_EPS * BUMP_EPS) return true;
-    if (!isWalkingSpeed(pos)) return false;
-    const streak = Number(st.walkStreak) || 0;
-    if (streak >= 2) return false;
-    const dist = Math.sqrt(distSq);
-    // Empurrão gradual: passo ≥1.0 sem tecla em quem já estava parado (corrida ~0.8/tick não entra).
-    return (
-      dist >= 1.0 &&
-      idleForPush(st, wallNow) >= IDLE_BEFORE_PUSH_MS &&
-      !hadRecentInput(st, wallNow)
-    );
-  }
-
-  /**
-   * Andou NESTE frame? Corrida (xspeed/yspeed + deslocamento contínuo).
-   * Empurrão não zera AFK nem movedThisMatch; linha reta conta.
-   */
-  function applyMotion(p, st, wallNow) {
-    const pos = playerPos(p);
-    if (!pos) return false;
-    const prev = st.lastPos;
-    const external = !!(prev && isExternalPush(prev, pos, st, wallNow));
-    const slid = !!(prev && hasMoved(prev, pos, WALK_DELTA_EPS));
-    const hasSpeed = isWalkingSpeed(pos);
-
-    if (!external && slid) {
-      st.walkStreak = (Number(st.walkStreak) || 0) + 1;
-    } else if (external || !slid) {
-      st.walkStreak = 0;
-    }
-
-    st.lastPos = { x: pos.x, y: pos.y };
-
-    const walking =
-      !external &&
-      slid &&
-      ((hasSpeed && (Number(st.walkStreak) || 0) >= 1) || (Number(st.walkStreak) || 0) >= 2);
-
-    if (!walking) return false;
-    st.lastActive = wallNow;
-    st.warned = false;
-    st.idleTicks = 0;
-    onFieldMove?.(p.id);
-    return true;
   }
 
   function remove(playerId) {
@@ -197,9 +73,6 @@ function createAfkTracker(room, opts = {}) {
     return afks.get(playerId)?.fieldTeam || 0;
   }
 
-  /**
-   * Não pausa/despausa o jogo: o wrap antigo soltava a pausa da reposição.
-   */
   function sendToSpec(playerId) {
     try {
       room.setPlayerTeam(playerId, 0);
@@ -306,12 +179,7 @@ function createAfkTracker(room, opts = {}) {
       }
       if (p.team === 0) continue;
       if (!state.has(p.id)) touch(p.id, wallNow);
-      try {
-        onEach(p, state.get(p.id));
-      } catch {
-        const st = state.get(p.id);
-        if (st) punishIdle(p, idleMs(st, wallNow));
-      }
+      onEach(p, state.get(p.id));
     }
   }
 
@@ -319,16 +187,12 @@ function createAfkTracker(room, opts = {}) {
     for (const st of state.values()) {
       st.lastActive = wallNow;
       st.idleTicks = 0;
-      st.lastPos = null;
       st.warned = false;
-      st.walkStreak = 0;
     }
   }
 
-  /** Só no início de partida: todo mundo começa o relógio do zero. */
   function resetClocks(wallNow = Date.now()) {
     pauseAt = 0;
-    lastSimTickAt = 0;
     unpauseGraceUntil = 0;
     for (const p of room.getPlayerList()) {
       if (p.id === 0 || afks.has(p.id)) continue;
@@ -340,17 +204,13 @@ function createAfkTracker(room, opts = {}) {
     if (on) {
       if (!paused) {
         pauseAt = wallNow;
-        // Descarta idle acumulado com o jogo já parado (flag atrasada / dessync).
         for (const st of state.values()) {
           st.idleTicks = 0;
-          st.lastPos = null;
         }
       }
       paused = true;
       return;
     }
-    // Só zera/graça se realmente estava pausado. setPaused(false) no onGameStart
-    // (já despausado) não pode apagar idle nem criar grace de 2.5s.
     if (paused) {
       softResetIdle(wallNow);
       unpauseGraceUntil = wallNow + 2500;
@@ -370,40 +230,23 @@ function createAfkTracker(room, opts = {}) {
     return typeof room.getScores !== "function" || !!room.getScores();
   }
 
-  function idleMs(st, wallNow) {
-    const tickIdle = (Number(st.idleTicks) || 0) * MS_PER_TICK;
-    const wallIdle = wallNow - st.lastActive;
-    return Math.max(tickIdle, wallIdle);
+  function idleMsFromTicks(st) {
+    return (Number(st.idleTicks) || 0) * MS_PER_TICK;
   }
 
-  /**
-   * Física rodando. Inatividade = disco parado neste tick.
-   * Conta ticks E relógio de parede — o host não entrega 60 Hz estável.
-   * Respeita paused (reposição/choose/admin): senão todo mundo cai AFK junto.
-   * No máx. 1 auto-AFK por frame: o 1º pausa a reposição e zera o idle dos outros.
-   */
-  function noteGameTick(wallNow = Date.now()) {
-    lastSimTickAt = wallNow;
-    if (!shouldAutoAfk() || !scoresLive()) {
-      maybeReserveSlots(wallNow);
-      return;
-    }
-    if (paused) {
-      maybeReserveSlots(wallNow);
-      return;
-    }
-    if (wallNow < unpauseGraceUntil) {
-      forEachFieldPlayer(wallNow, (p, st) => {
-        applyMotion(p, st, wallNow);
-      });
-      maybeReserveSlots(wallNow);
-      return;
-    }
+  function idleMsFromWall(st, wallNow) {
+    return wallNow - st.lastActive;
+  }
+
+  function idleMsForGameTick(st, wallNow) {
+    return Math.max(idleMsFromTicks(st), idleMsFromWall(st, wallNow));
+  }
+
+  function processFieldIdle(wallNow) {
     let punished = false;
     forEachFieldPlayer(wallNow, (p, st) => {
-      if (applyMotion(p, st, wallNow)) return;
       st.idleTicks = (Number(st.idleTicks) || 0) + 1;
-      const idle = idleMs(st, wallNow);
+      const idle = idleMsForGameTick(st, wallNow);
       if (punished) {
         if (idle >= config.afkWarnMs && !st.warned) {
           st.warned = true;
@@ -419,14 +262,26 @@ function createAfkTracker(room, opts = {}) {
       }
       if (punishIdle(p, idle)) punished = true;
     });
+  }
+
+  function noteGameTick(wallNow = Date.now()) {
+    if (!shouldAutoAfk() || !scoresLive()) {
+      maybeReserveSlots(wallNow);
+      return;
+    }
+    if (paused) {
+      maybeReserveSlots(wallNow);
+      return;
+    }
+    if (wallNow < unpauseGraceUntil) {
+      maybeReserveSlots(wallNow);
+      return;
+    }
+    processFieldIdle(wallNow);
     maybeReserveSlots(wallNow);
   }
 
-  /**
-   * Fallback de 1s: só olha o relógio. NÃO compara posição —
-   * 1s de deriva do disco passava de 1.5 e zerava o AFK na VM.
-   * No máx. 1 auto-AFK por chamada (evita cascata).
-   */
+  /** Fallback de 1s quando o host não entrega ticks estáveis. */
   function tick(wallNow = Date.now()) {
     if (paused) {
       ensureReserveSlots(wallNow);
@@ -443,8 +298,7 @@ function createAfkTracker(room, opts = {}) {
 
     let punished = false;
     forEachFieldPlayer(wallNow, (p, st) => {
-      applyMotion(p, st, wallNow);
-      const idle = idleMs(st, wallNow);
+      const idle = idleMsFromWall(st, wallNow);
       if (punished) {
         if (idle >= config.afkWarnMs && !st.warned) {
           st.warned = true;
@@ -463,18 +317,7 @@ function createAfkTracker(room, opts = {}) {
     ensureReserveSlots(wallNow);
   }
 
-  function sampleMovement(wallNow = Date.now()) {
-    forEachFieldPlayer(wallNow, (p, st) => {
-      applyMotion(p, st, wallNow);
-    });
-  }
-
-  /** Gol/kickoff teleporta o disco: não conta como ter andado. */
-  function notePositionsReset() {
-    for (const st of state.values()) {
-      st.lastPos = null;
-    }
-  }
+  function notePositionsReset() {}
 
   const interval = setInterval(tick, 1000);
   if (typeof interval.unref === "function") interval.unref();
@@ -489,7 +332,7 @@ function createAfkTracker(room, opts = {}) {
     },
     setAfk,
     ensureReserveSlots,
-    sampleMovement,
+    sampleMovement() {},
     notePositionsReset,
     resetClocks,
     setOnStateChange(handler) {
@@ -497,17 +340,14 @@ function createAfkTracker(room, opts = {}) {
     },
     setPaused,
     isPaused: () => paused,
-    /** Exposto para testes do relógio congelado na pausa. */
     effectiveNow,
     tick,
     noteGameTick,
-    /** Tecla: só zera AFK se o disco estiver andando (linha reta conta). */
     noteActivity(player, wallNow = Date.now()) {
       if (!player?.id || afks.has(player.id)) return;
       if (!state.has(player.id)) touch(player.id, wallNow);
-      const st = state.get(player.id);
-      st.lastInputAt = wallNow;
-      applyMotion(player, st, wallNow);
+      else touch(player.id, wallNow);
+      if (player.team !== 0) onFieldMove?.(player.id);
     },
     stop() {
       clearInterval(interval);
@@ -519,13 +359,5 @@ module.exports = {
   createAfkTracker,
   fieldPlayerCount,
   shouldCountAutoAfk,
-  hasMoved,
-  isWalkingSpeed,
-  INPUT_WINDOW_MS,
-  IDLE_BEFORE_PUSH_MS,
-  MOVE_EPS: BUMP_EPS,
-  BUMP_EPS,
-  SPEED_EPS,
-  WALK_DELTA_EPS,
   TICK_HZ,
 };

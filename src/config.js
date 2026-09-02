@@ -59,8 +59,8 @@ const config = {
   teamSize: Number(process.env.TEAM_SIZE || 4),
   chooseTimeSec: Number(process.env.CHOOSE_TIME_SEC || 20),
   // AFK em campo: 12s aviso, 16s spec. Spec: infinito abaixo de 28; 5 min depois kicka o mais antigo.
-  afkWarnMs: 12000,
-  afkActionMs: 16000,
+  afkWarnMs: 11000,
+  afkActionMs: 15000,
   afkCommandCooldownMs: 10000,
   afkSpecKickAt: 28,
   afkSpecGraceMs: 5 * 60 * 1000,

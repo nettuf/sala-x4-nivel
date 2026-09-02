@@ -1,5 +1,5 @@
 const config = require("../../src/config");
-const { createAfkTracker, TICK_HZ, BUMP_EPS } = require("../../src/room/afk");
+const { createAfkTracker, TICK_HZ } = require("../../src/room/afk");
 
 function mockAfkRoom(playerCount = 4) {
   const players = [];
@@ -34,8 +34,8 @@ function runPhysicsTicks(afk, discs, { t0, ticks, msPerTick = 1000 / TICK_HZ, on
 
 function withAfkTimes(fn) {
   const prev = { warn: config.afkWarnMs, act: config.afkActionMs };
-  config.afkWarnMs = 12000;
-  config.afkActionMs = 16000;
+  config.afkWarnMs = 11000;
+  config.afkActionMs = 15000;
   try {
     return fn();
   } finally {
@@ -49,5 +49,4 @@ module.exports = {
   runPhysicsTicks,
   withAfkTimes,
   TICK_HZ,
-  BUMP_EPS,
 };

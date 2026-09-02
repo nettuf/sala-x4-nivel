@@ -207,17 +207,15 @@ describe("AFK: relógio, aviso e ação", () => {
 
     const past = Date.now() - config.afkActionMs - 1000;
     host.handles.afk.touch(empurrado.id, past);
-    host.handles.afk.sampleMovement(past);
     const at = host.discs.get(empurrado.id);
     host.discs.set(empurrado.id, { x: at.x + 90, y: at.y + 40 });
-    host.handles.afk.sampleMovement(Date.now());
     host.handles.afk.tick(Date.now());
 
     assert.equal(host.handles.afk.isAfk(empurrado.id), true, "empurrão não zera AFK");
     host.cleanup();
   });
 
-  it("tecla no lugar não zera o AFK com o disco parado", () => {
+  it("tecla no lugar zera o AFK (haxballx7)", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     const parado = all[0];
@@ -229,11 +227,11 @@ describe("AFK: relógio, aviso e ação", () => {
     host.activity(parado);
     host.handles.afk.tick(Date.now());
 
-    assert.equal(host.handles.afk.isAfk(parado.id), true, "map.txt: tecla sem andar é AFK");
+    assert.equal(host.handles.afk.isAfk(parado.id), false, "tecla zera mesmo parado");
     host.cleanup();
   });
 
-  it("digitar no chat ou chutar sem andar também conta como inativo", () => {
+  it("chat ou chute sem tecla não salvam do AFK", () => {
     const host = bootRoom();
     const all = fill4v4(host);
     const parado = all[0];
@@ -241,13 +239,12 @@ describe("AFK: relógio, aviso e ação", () => {
 
     const past = Date.now() - config.afkActionMs - 1000;
     for (const p of all) host.handles.afk.touch(p.id, past);
-    host.activity(parado);
     host.chat(parado, "to aqui");
     host.room.onPlayerBallKick(host.find(parado.id));
     host.handles.afk.tick(Date.now());
 
-    assert.equal(host.find(parado.id).team, TEAM.SPEC, "12s parado → spec");
-    assert.equal(host.handles.afk.isAfk(parado.id), true, "chat/tecla/chute sem andar não salvam");
+    assert.equal(host.find(parado.id).team, TEAM.SPEC, "11s parado → spec");
+    assert.equal(host.handles.afk.isAfk(parado.id), true, "chat/chute sem tecla não salvam");
     host.cleanup();
   });
 

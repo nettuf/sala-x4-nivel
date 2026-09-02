@@ -186,24 +186,16 @@ function bootRoom({ deferTeamChanges = false } = {}) {
       return room.onPlayerChat(snapshot(live), message);
     },
     /**
-     * Deixa os jogadores parados há `idleMs`. `moving` anda o disco
-     * (único jeito de zerar o relógio). Chat/tecla/chute não entram aqui.
+     * Deixa jogadores ociosos há `idleMs`. `moving` recebe noteActivity (tecla).
+     * Não chama tick — o teste decide quando punir.
      */
     idle(all, { moving = [], idleMs = config.afkActionMs + 1000 } = {}) {
       const past = Date.now() - idleMs;
       const movingIds = new Set(moving.map((p) => p.id));
       for (const p of all) {
-        if (!movingIds.has(p.id)) handles.afk.touch(p.id, past);
+        if (movingIds.has(p.id)) this.activity(p);
+        else handles.afk.touch(p.id, past);
       }
-      handles.afk.sampleMovement(past);
-      const stepAt = Date.now() - 16;
-      for (const p of moving) {
-        const d = discs.get(p.id) || { x: 0, y: 0, xspeed: 0, yspeed: 0 };
-        discs.set(p.id, { x: (d.x || 0) + 0.5, y: d.y || 0, xspeed: 0.5, yspeed: 0 });
-        handles.afk.sampleMovement(stepAt);
-        discs.set(p.id, { x: (d.x || 0) + 1.0, y: d.y || 0, xspeed: 0.5, yspeed: 0 });
-      }
-      handles.afk.sampleMovement(Date.now());
     },
     /** Simula o jogador apertando tecla (onPlayerActivity). */
     activity(target) {
