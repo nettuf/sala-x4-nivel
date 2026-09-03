@@ -1177,7 +1177,8 @@ describe("choose: pick do capitão", () => {
     const a = host.addPlayer(TEAM.SPEC);
     host.addPlayer(TEAM.SPEC);
     const afkOne = host.addPlayer(TEAM.SPEC);
-    host.handles.afk.setAfk(afkOne, true);
+    // Marca AFK sem refreshLobby: !afk no spec dispararia o warmup e desmontaria o 4v1.
+    host.handles.afk.noteAfk(afkOne.id);
 
     host.handles.choose.continueFromField();
     assert.equal(host.handles.choose.isActive(), true);

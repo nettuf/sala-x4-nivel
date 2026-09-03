@@ -1,0 +1,18 @@
+---
+description: Fluxo da Futzera X4 — treino, 1v1–3v3 no x3, 4v4 no x4. Times iguais, RR só na troca de mapa.
+globs: src/room/**/*.js,test/**/*.js
+alwaysApply: false
+---
+
+# Fluxo X4
+
+Ver a regra `salas.mdc` na raiz `haxbooksalas`. Resumo que o código tem que cumprir:
+
+- 1 pessoa = treino. Último sai do treino = **para o jogo**; o próximo entra no vermelho. Resto: times **iguais**, máx 4 (1v1 2v2 3v3 4v4).
+- 1 spec no 1v1/2v2/3v3 = espera. 2º spec no x3 = **puxa o par sem RR**.
+- Saiu no x3 sem spec = extra vai pro spec (desce o formato, sem RR). Saiu com spec = puxa o spec.
+- 3v3 + 2º spec (8) = **RR para 4v4**. 4v4 com spec = puxa sem RR. `!afk` no spec **não pausa**. Em campo no 4v4 ao vivo **não** usa `!afk` (só ocioso).
+
+`refreshLobby` no x3/x4 não pode `return` cedo se times estão desiguais, se tem par para subir (também no x4 após queda 4v4→2v2/1v1), se o campo está 0v0 (treino fantasma), ou se já deu 8 para o x4. 4v4 parado com spec e sem winner stays inicia o 4v4; a fila espera.
+
+4v4 ao vivo completo (4 e 4 no campo) nunca passa pelo warmup: marca competitivo, solta pausa, não abre choose e não dá RR. 3v3 no x4 + 2 specs volta ao 4v4 no mesmo mapa, sem RR.

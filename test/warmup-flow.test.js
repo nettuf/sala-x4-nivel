@@ -246,7 +246,7 @@ describe("máquina de estados do treino/warmup", () => {
     assert.equal(teams.spec.length, 1);
   });
 
-  it("4 vencedores + extras abaixo de 8 → os 4 ficam juntos", () => {
+  it("4 vencedores + 2 specs abaixo de 8 → 3v3 (não trava 4v0)", () => {
     const players = [
       p(1, TEAM.RED),
       p(2, TEAM.RED),
@@ -256,12 +256,46 @@ describe("máquina de estados do treino/warmup", () => {
       p(6),
     ];
     const plan = planWarmup(players);
+    assert.equal(plan.shouldStart, true);
+    const teams = finalTeams(players, plan);
+    assert.equal(teams.red.length, 3);
+    assert.equal(teams.blue.length, 3);
+    assert.equal(teams.spec.length, 0);
+  });
+
+  it("4 vencedores + 1 spec abaixo de 8 → 2v1 e choose (não trava 4v0)", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.RED),
+      p(3, TEAM.RED),
+      p(4, TEAM.RED),
+      p(5),
+    ];
+    const plan = planWarmup(players);
     assert.equal(plan.shouldStart, false);
-    assert.deepEqual(finalTeams(players, plan), {
-      red: [1, 2, 3, 4],
-      blue: [],
-      spec: [5, 6],
-    });
+    assert.equal(plan.replacementTeam, TEAM.BLUE);
+    const teams = finalTeams(players, plan);
+    assert.equal(teams.red.length, 2);
+    assert.equal(teams.blue.length, 1);
+    assert.equal(teams.spec.length, 2);
+  });
+
+  it("4 vencedores + 3 specs abaixo de 8 → 3v3 + 1 spec", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(2, TEAM.RED),
+      p(3, TEAM.RED),
+      p(4, TEAM.RED),
+      p(5),
+      p(6),
+      p(7),
+    ];
+    const plan = planWarmup(players);
+    assert.equal(plan.shouldStart, true);
+    const teams = finalTeams(players, plan);
+    assert.equal(teams.red.length, 3);
+    assert.equal(teams.blue.length, 3);
+    assert.equal(teams.spec.length, 1);
   });
 
   it("4 vencedores sem spec ativo → 2v2 (não fica 4v0)", () => {

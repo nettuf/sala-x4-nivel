@@ -49,21 +49,11 @@ const COMMUNITY_KITS = [
   { id: "gh", name: "GH FC", angle: 80, text: 0x03050a, colors: [0x757575, 0xf0f6ff, 0x7e8b8f], emoji: "><" },
   { id: "cyq", name: "Amigos do Cyq", angle: 60, text: 0x02ccc5, colors: [0x800066, 0x800066, 0x02a6a0] },
   { id: "cacadores", name: "Caçadores de Gordos", angle: 63, text: 0x27b050, colors: [0x043d00, 0x065206, 0x043b00], emoji: "🏹" },
-  { id: "zebrados", name: "Zebrados FC", angle: 60, text: 0x000000, colors: [0xffffff, 0x000000], emoji: "🦓" },
   { id: "gigachads", name: "Gigachads", angle: 60, text: 0x000000, colors: [0xb8ff4d, 0xaeffab, 0x61ff30], emoji: "🗿" },
   { id: "moggadores", name: "Moggadores", angle: 601, text: 0x2d0dff, colors: [0x4a6eff, 0x5ca8ff], emoji: "🤫" },
   { id: "pedro", name: "Amigos do Pedro", angle: 32, text: 0xffffff, colors: [0x221930, 0x32294f], emoji: "🥀" },
-  { id: "tulio", name: "Amigos do Tulio", angle: 601, text: 0x851575, colors: [0xc420ae, 0xff29e2], emoji: "🏳️‍🌈" },
+  { id: "tulio", name: "Amigos do Tulio", angle: 601, text: 0x851575, colors: [0xc420ae, 0xff29e2], emoji: "💅" },
   { id: "marconhados", name: "Marconhados", angle: 33, text: 0x1be329, colors: [0x108518, 0x14a81e], emoji: "☘️" },
-  { id: "rosinha", name: "Rosinha", angle: 0, text: 0xffffff, colors: [0xffbadd] },
-  {
-    id: "zebrafamily",
-    name: "Zebra Family",
-    angle: 90,
-    text: 0xffffff,
-    colors: [0x21d3ff, 0xff00cc, 0x21d3ff],
-    emoji: "🦓",
-  },
   {
     id: "olympusguardians",
     name: "Olympus Guardians",
@@ -87,13 +77,6 @@ const COMMUNITY_KITS = [
     text: 0xffffff,
     colors: [0x73ff98, 0x27752c, 0x000000],
     emoji: "﷼",
-  },
-  {
-    id: "dezena",
-    name: "Dezena Impopular",
-    angle: 60,
-    text: 0xfcfcfc,
-    colors: [0xf0303d, 0xe32d3a, 0xcf2935],
   },
   {
     id: "nickname",
@@ -162,6 +145,13 @@ const COMMUNITY_KITS = [
     text: 0xffa649,
     colors: [0x0f0f0f, 0xffffff, 0x000000],
     emoji: "🪵",
+  },
+  {
+    id: "cmagomedov",
+    name: "Daguestão do çmagomedov",
+    angle: 60,
+    text: 0xff0000,
+    colors: [0x18165c, 0xffffff, 0xffffff],
   },
 ];
 

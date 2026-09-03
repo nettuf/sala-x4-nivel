@@ -118,9 +118,10 @@ function createChooseController(room, {
   }
 
   function nudgePickPrompt() {
-    if (!active || lastPickCaptainId) return;
+    if (!active) return;
     if (tryFinishChoose()) return;
     if (tryFillExactHoles()) return;
+    if (lastPickCaptainId && !pickPromptStale(2000)) return;
     if (!beginCaptainPickTurn()) {
       ensureCaptain();
       beginCaptainPickTurn();
@@ -185,31 +186,35 @@ function createChooseController(room, {
   }
 
   function scheduleCaptainTimeouts(cap) {
-    const chooseTime = config.chooseTimeSec;
+    const chooseTime = Number(config.chooseTimeSec) || 24;
     const capId = cap.id;
     capTimeoutUntil = Date.now() + chooseTime * 1000;
+    const halfMs = (chooseTime / 2) * 1000;
+    const quarterMs = (chooseTime / 4) * 1000;
     timeout = setTimeout(() => {
       if (!active || currentCaptain()?.id !== capId) {
         promptCaptain();
         return;
       }
-      tell(
-        cap.id,
-        `${cap.name}, ${Math.floor(chooseTime / 2)}s restantes!`,
-        0xf1c40f,
-        "bold",
-        2
-      );
+      beginCaptainPickTurn({ refreshOnly: true });
       timeout = setTimeout(() => {
         if (!active || currentCaptain()?.id !== capId) {
           promptCaptain();
           return;
         }
-        if (tryFinishChoose()) return;
-        parkTimedOutCaptain(cap);
-      }, (chooseTime / 2) * 1000);
+        beginCaptainPickTurn({ refreshOnly: true });
+        timeout = setTimeout(() => {
+          if (!active || currentCaptain()?.id !== capId) {
+            promptCaptain();
+            return;
+          }
+          if (tryFinishChoose()) return;
+          parkTimedOutCaptain(cap);
+        }, quarterMs);
+        if (typeof timeout.unref === "function") timeout.unref();
+      }, quarterMs);
       if (typeof timeout.unref === "function") timeout.unref();
-    }, (chooseTime / 2) * 1000);
+    }, halfMs);
     if (typeof timeout.unref === "function") timeout.unref();
   }
 
@@ -785,7 +790,8 @@ function createChooseController(room, {
    * Com vencedores (um lado já em 4), o outro time é montado no choose.
    */
   function tryStartChoose() {
-    if (room.getScores()) return;
+    // Placar residual pós-stop não é jogo ao vivo: o refreshLobby já abortou
+    // se a partida está andando. Bloquear aqui deixava o choose morto.
     if (active) {
       promptCaptain();
       return;

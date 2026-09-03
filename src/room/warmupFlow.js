@@ -48,32 +48,9 @@ function planWarmup(players, { isExcluded, teamSize = 4 } = {}) {
     };
   }
 
-  // Time vencedor completo (4) e o outro vazio: espera spec pickar. Sem spec ativo,
-  // desce gente do vermelho pro azul (2v2/3v3) — não fica 4v0 sem capitão.
-  const redN = list(TEAM.RED).length;
-  const blueN = list(TEAM.BLUE).length;
-  const specReady = list(TEAM.SPEC).length;
+  // Abaixo de 8: não segura 4v0/4v1 esperando pick (não há choose nesse ramo).
+  // Sem spec, parte o time cheio (4→2v2). Com spec, o fluxo de baixo equilibra.
   if (eligible.length < teamSize * 2) {
-    if (redN >= teamSize && blueN <= 1 && specReady > 0) {
-      for (const p of [...list(TEAM.BLUE)]) move(p, TEAM.SPEC);
-      while (list(TEAM.RED).length > teamSize) move(list(TEAM.RED).at(-1), TEAM.SPEC);
-      return {
-        eligibleCount: eligible.length,
-        moves,
-        replacementTeam: null,
-        shouldStart: false,
-      };
-    }
-    if (blueN >= teamSize && redN <= 1 && specReady > 0) {
-      for (const p of [...list(TEAM.RED)]) move(p, TEAM.SPEC);
-      while (list(TEAM.BLUE).length > teamSize) move(list(TEAM.BLUE).at(-1), TEAM.SPEC);
-      return {
-        eligibleCount: eligible.length,
-        moves,
-        replacementTeam: null,
-        shouldStart: false,
-      };
-    }
     const forced = planBalanceNoPick(eligible, {
       moves,
       list,

@@ -37,6 +37,15 @@ async function bootWith(n) {
   return host;
 }
 
+async function bootOfficial4v4() {
+  const host = await bootWith(6);
+  enter(host);
+  enter(host);
+  await waitLobby();
+  assertHealthy4v4(host);
+  return host;
+}
+
 function assertNvN(host, n, extraSpec = 0, msg = "") {
   const f = field(host);
   const tag = msg || `${n}v${n}` + (extraSpec ? ` +${extraSpec} spec` : "");
@@ -72,6 +81,29 @@ async function pickReplacement(host) {
   assert.ok(cap, "capitão da reposição");
   await host.chat(cap, "1");
   await settle();
+}
+
+/** 4v4 oficial → NvN no x4 (extra do park vai embora). */
+async function dropOfficialTo(host, size) {
+  for (let i = 0; i < 12; i++) {
+    const f = field(host);
+    if (f.red === size && f.blue === size && f.spec === 0) return;
+    if (f.spec > 0) {
+      const spec = host.players.find((p) => p.team === TEAM.SPEC && !host.handles.afk.isAfk(p.id));
+      if (spec) {
+        host.quit(spec);
+        await settle();
+        continue;
+      }
+    }
+    const victim = host.players.find(
+      (p) => (p.team === TEAM.RED || p.team === TEAM.BLUE) && !host.handles.afk.isAfk(p.id)
+    );
+    if (!victim) return;
+    host.quit(victim);
+    await settle();
+  }
+  assert.fail(`não chegou em ${size}v${size} no x4: ${JSON.stringify(field(host))}`);
 }
 
 describe("x4 e2e: crescimento treino → 4v4", () => {
@@ -449,6 +481,73 @@ describe("x4 e2e: 4v4 saída, AFK e pick", () => {
     await settle();
     assertHealthy4v4(host, "par voltou ao 4v4");
     assert.equal(host.live(), scores, "mesmo jogo no x4");
+    host.cleanup();
+  });
+
+  it("2v2 no x4 + 2 specs sobe 3v3 sem RR", async () => {
+    const host = await bootOfficial4v4();
+    const scores = host.live();
+    await dropOfficialTo(host, 2);
+    assertNvN(host, 2);
+    assert.equal(host.live(), scores);
+
+    enter(host);
+    assertNvN(host, 2, 1, "5º espera no x4");
+    enter(host);
+    await settle();
+    assertNvN(host, 3);
+    assert.equal(host.live(), scores, "3v3 no mesmo jogo x4");
+    assert.equal(host.handles.choose.isActive(), false);
+    host.cleanup();
+  });
+
+  it("1v1 no x4 + 2 specs sobe 2v2 sem RR", async () => {
+    const host = await bootOfficial4v4();
+    const scores = host.live();
+    await dropOfficialTo(host, 1);
+    assertNvN(host, 1);
+    assert.equal(host.live(), scores);
+
+    enter(host);
+    assertNvN(host, 1, 1, "3º espera no x4");
+    enter(host);
+    await settle();
+    assertNvN(host, 2);
+    assert.equal(host.live(), scores, "2v2 no mesmo jogo x4");
+    host.cleanup();
+  });
+
+  it("2v2 no x4: dois AFK voltam e sobem o par", async () => {
+    const host = await bootOfficial4v4();
+    const scores = host.live();
+    await dropOfficialTo(host, 2);
+
+    const a = host.addPlayer(TEAM.SPEC);
+    host.handles.afk.setAfk(a, true);
+    const b = host.addPlayer(TEAM.SPEC);
+    host.handles.afk.setAfk(b, true);
+    host.handles.refreshLobby();
+    await settle();
+    assertNvN(host, 2, 0, "AFK no spec não sobe");
+
+    host.handles.afk.setAfk(a, false);
+    await settle();
+    assertNvN(host, 2, 1, "1º que voltou espera");
+    host.handles.afk.setAfk(b, false);
+    await settle();
+    assertNvN(host, 3);
+    assert.equal(host.live(), scores);
+    host.cleanup();
+  });
+
+  it("3v3 + 3º spec: 4v4 inicia e o extra espera", async () => {
+    const host = await bootWith(6);
+    enter(host);
+    enter(host);
+    enter(host);
+    await waitLobby();
+    assertHealthy4v4(host, "promo com sobra");
+    assert.equal(field(host).spec, 1);
     host.cleanup();
   });
 });

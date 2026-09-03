@@ -325,7 +325,7 @@ describe("uniformes: emoji do kit", () => {
     return room;
   }
 
-  it("kits com emoji fixo: baleio, cacadores, copas, gh, gigachads, gordo, jalin, marconhados, mdr, moggadores, nickname, olympus guardians, palhacada, pedro, rafaela, rato, skdreams, tigre, tulio, zebra family e zebrados", () => {
+  it("kits com emoji fixo: baleio, cacadores, copas, gh, gigachads, gordo, jalin, marconhados, mdr, moggadores, nickname, olympus guardians, palhacada, pedro, rafaela, rato, skdreams, tigre e tulio", () => {
     const comEmoji = KITS.filter((k) => k.emoji).map((k) => k.id).sort();
     assert.deepEqual(comEmoji, [
       "amigosvasco",
@@ -350,8 +350,6 @@ describe("uniformes: emoji do kit", () => {
       "skdreams",
       "tigre",
       "tulio",
-      "zebrados",
-      "zebrafamily",
     ]);
     assert.equal(findKit("baleio").emoji, "🐋");
     assert.equal(findKit("artemis").name, "Artemis FC");
@@ -420,11 +418,6 @@ describe("uniformes: emoji do kit", () => {
     assert.equal(findKit("cacadores").text, 0x27b050);
     assert.deepEqual(findKit("cacadores").colors, [0x043d00, 0x065206, 0x043b00]);
     assert.equal(findKit("cacadores").emoji, "🏹");
-    assert.equal(findKit("zebrados").name, "Zebrados FC");
-    assert.equal(findKit("zebrados").angle, 60);
-    assert.equal(findKit("zebrados").text, 0x000000);
-    assert.deepEqual(findKit("zebrados").colors, [0xffffff, 0x000000]);
-    assert.equal(findKit("zebrados").emoji, "🦓");
     assert.equal(findKit("gigachads").name, "Gigachads");
     assert.equal(findKit("gigachads").angle, 60);
     assert.equal(findKit("gigachads").text, 0x000000);
@@ -444,23 +437,12 @@ describe("uniformes: emoji do kit", () => {
     assert.equal(findKit("tulio").angle, 601);
     assert.equal(findKit("tulio").text, 0x851575);
     assert.deepEqual(findKit("tulio").colors, [0xc420ae, 0xff29e2]);
-    assert.equal(findKit("tulio").emoji, "🏳️‍🌈");
+    assert.equal(findKit("tulio").emoji, "💅");
     assert.equal(findKit("marconhados").name, "Marconhados");
     assert.equal(findKit("marconhados").angle, 33);
     assert.equal(findKit("marconhados").text, 0x1be329);
     assert.deepEqual(findKit("marconhados").colors, [0x108518, 0x14a81e]);
     assert.equal(findKit("marconhados").emoji, "☘️");
-    assert.equal(findKit("rosinha").name, "Rosinha");
-    assert.equal(findKit("rosinha").angle, 0);
-    assert.equal(findKit("rosinha").text, 0xffffff);
-    assert.deepEqual(findKit("rosinha").colors, [0xffbadd]);
-    assert.equal(findKit("rosinha").emoji, undefined);
-    assert.equal(findKit("zebrafamily").name, "Zebra Family");
-    assert.equal(findKit("zebra family").name, "Zebra Family");
-    assert.equal(findKit("zebrafamily").angle, 90);
-    assert.equal(findKit("zebrafamily").text, 0xffffff);
-    assert.deepEqual(findKit("zebrafamily").colors, [0x21d3ff, 0xff00cc, 0x21d3ff]);
-    assert.equal(findKit("zebrafamily").emoji, "🦓");
     assert.equal(findKit("olympusguardians").name, "Olympus Guardians");
     assert.equal(findKit("olympus guardians").name, "Olympus Guardians");
     assert.equal(findKit("olympusguardians").angle, 120);
@@ -549,7 +531,7 @@ describe("uniformes: emoji do kit", () => {
     const uni = testUniforms(room, { cooldownMs: 5000, now: () => now });
     assert.equal(uni.change({ player: players[0], isAdmin: false, kitId: "baleio" }).ok, true);
     now += 1000;
-    assert.equal(uni.change({ player: players[2], isAdmin: false, kitId: "zebrados" }).ok, true);
+    assert.equal(uni.change({ player: players[2], isAdmin: false, kitId: "tigre" }).ok, true);
   });
 });
 

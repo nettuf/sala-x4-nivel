@@ -206,8 +206,9 @@ function createRoom(HBInit) {
       } catch {
         /* ignore */
       }
-      // Admin fechou o 4v4 numa reposição pausada: só despausa, não reinicia.
-      if (room.getScores()) return;
+      // Jogo ao vivo (reposição / admin fechou o 4v4): só despausa.
+      // Placar residual pós-stop não é jogo ao vivo — senão o próximo nunca começa.
+      if (isGameLive()) return;
       startFromCurrentField();
     },
   });
@@ -517,10 +518,10 @@ function createRoom(HBInit) {
     // No x3/x4: desigual equilibra; 2 specs sobem o par sem RR; 8 gente no x3 RR para o x4.
     // Treino ↔ x3 precisa parar (Haxball não troca mapa ao vivo).
     // 0v0 (treino fantasma) também segue: warmupNeedsLiveFill manda parar / puxar.
+    // Queda 4v4 → 2v2/1v1 fica no x4: o par ainda sobe no mesmo mapa (nextKind seria x3).
     if (live) {
       const nextKind = stadiumKindForCount(eligibleCount);
-      const growOnSameMap =
-        nextKind === stadiumKind && (stadiumKind === "x3" || stadiumKind === "x4");
+      const growOnSameMap = stadiumKind === "x3" || stadiumKind === "x4";
       const promoteToX4 = stadiumKind !== "x4" && eligibleCount >= config.teamSize * 2;
       if (
         !needsTrainingX3Swap(stadiumKind, nextKind) &&
@@ -556,8 +557,9 @@ function createRoom(HBInit) {
           return;
         }
         setLobbyStadium(config.teamSize * 2);
-        // Pós-stop com fila: o winner stays monta o choose; não relança 4v4 por cima.
-        if (specReadyCount() > 0) return;
+        // Winner stays (vitória oficial) já abriu choose / winnerStaysPending.
+        // Stop sem vitória, promo 3v3→4v4 com sobra no spec, ou 9º no meio do start:
+        // inicia o 4v4; a fila espera. Return seco aqui cancelava o start e travava.
         scheduleLobbyStart(startCompetitiveFromCurrentField);
         return;
       }
@@ -628,7 +630,9 @@ function createRoom(HBInit) {
       } else {
         if (live) pauseForReplacement();
         choose.deactivate();
-        const formatSize = Math.min(config.teamSize, Math.max(redN, blueN, 1));
+        const afterRed = players.filter((p) => p.team === TEAM.RED && !afk.isAfk(p.id)).length;
+        const afterBlue = players.filter((p) => p.team === TEAM.BLUE && !afk.isAfk(p.id)).length;
+        const formatSize = Math.min(config.teamSize, Math.max(afterRed, afterBlue, 1));
         choose.startReplacement(
           plan.replacementTeam,
           () => {
@@ -845,6 +849,10 @@ function createRoom(HBInit) {
     }
 
     if (plan.action === "park-larger") {
+      if (recoverSoonTimer) {
+        clearTimeout(recoverSoonTimer);
+        recoverSoonTimer = null;
+      }
       holdUntilPick = false;
       const largerTeam = plan.targetTeam;
       const larger = room
@@ -865,12 +873,21 @@ function createRoom(HBInit) {
     }
 
     if (plan.action === "keep-play") {
+      if (recoverSoonTimer) {
+        clearTimeout(recoverSoonTimer);
+        recoverSoonTimer = null;
+      }
       holdUntilPick = false;
       match.setCompetitive(false, { breakFormat: true });
       if (live) releaseReplacementPause();
       return;
     }
 
+    if (recoverSoonTimer) {
+      clearTimeout(recoverSoonTimer);
+      recoverSoonTimer = null;
+    }
+    releaseReplacementPause({ force: !!live });
     if (live) {
       lobbyRevision += 1;
       stopCurrentGame({ lobbyTransition: true });

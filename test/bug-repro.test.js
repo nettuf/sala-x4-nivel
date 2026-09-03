@@ -122,7 +122,7 @@ describe("repro bugs reportados", () => {
     host.cleanup();
   });
 
-  it("4v4 para sem vitória + spec → não relança por cima da fila", async () => {
+  it("4v4 para sem vitória + spec → inicia o 4v4 e a fila espera", async () => {
     const host = await boot4v4WithSpec(1);
     host.room.stopGame();
     await host.room.onGameStop();
@@ -132,7 +132,14 @@ describe("repro bugs reportados", () => {
     assert.equal(field(host).blue, 4);
     assert.equal(field(host).spec, 1);
     assert.equal(host.handles.choose.isActive(), false);
-    assert.equal(host.live(), null, "não reinicia 4v4 ignorando o spec");
+    assert.ok(host.live(), "4v4 recomeça; spec continua na fila");
+    assert.equal(host.handles.match.isCompetitive(), true);
+
+    host.handles.refreshLobby();
+    host.handles.refreshLobby();
+    await settle();
+    assert.ok(host.live(), "refresh extra não mata o 4v4 já iniciado");
+    assert.equal(field(host).spec, 1);
     host.cleanup();
   });
 
