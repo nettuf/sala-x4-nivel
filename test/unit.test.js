@@ -446,6 +446,16 @@ describe("titles / cargos", () => {
     assert.equal(isUnlocked({ goals: 200 }, "artilheiro"), true);
   });
 
+  it("cargos de CS: Catador / Muralha / Invencível", () => {
+    assert.equal(isUnlocked({ cs: 99 }, "catador"), false);
+    assert.equal(isUnlocked({ cs: 100 }, "catador"), true);
+    assert.equal(isUnlocked({ cs: 299 }, "muralha"), false);
+    assert.equal(isUnlocked({ cs: 300 }, "muralha"), true);
+    assert.equal(isUnlocked({ cs: 999 }, "invencivel"), false);
+    assert.equal(isUnlocked({ cs: 1000 }, "invencivel"), true);
+    assert.match(reqLabel({ cs: 100 }), /100CS/);
+  });
+
   it("Negativo: 10 jogos e WR abaixo de 50%", () => {
     assert.equal(isUnlocked({ games: 9, wins: 0 }, "negativo"), false);
     assert.equal(isUnlocked({ games: 10, wins: 5 }, "negativo"), false);

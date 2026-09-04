@@ -1,6 +1,6 @@
 /**
  * Cargos/emblemas desbloqueáveis por stats + cargos de staff.
- * Só um cargo ativo por vez. req: { games?, goals?, assists?, mvps?, maxWinrate? }.
+ * Só um cargo ativo por vez. req: { games?, goals?, assists?, mvps?, cs?, maxWinrate? }.
  */
 const config = require("./config");
 
@@ -83,6 +83,28 @@ const TITLES = [
     req: { mvps: 400 },
   },
   {
+    id: "catador",
+    name: "Catador",
+    emblem: "🧤",
+    color: 0x1abc9c,
+    req: { cs: 100 },
+  },
+  {
+    id: "muralha",
+    name: "Muralha",
+    emblem: "🧱",
+    color: 0x16a085,
+    req: { cs: 300 },
+  },
+  {
+    id: "invencivel",
+    name: "Invencível",
+    emblem: "🧿",
+    color: 0x0e6655,
+    chatHighlight: true,
+    req: { cs: 1000 },
+  },
+  {
     id: "dupla",
     name: "Dupla Letal",
     emblem: "⚔️",
@@ -124,6 +146,7 @@ function statsBag(stats) {
     goals: Number(stats?.goals) || 0,
     assists: Number(stats?.assists) || 0,
     mvps: Number(stats?.mvps) || 0,
+    cs: Number(stats?.cs) || 0,
     winrate: games > 0 ? (wins / games) * 100 : 0,
   };
 }
@@ -445,7 +468,7 @@ function pickMatchWorst(players) {
 function reqLabel(req, title) {
   if (title?.kind === "staff") return `adm nv.${title.level}`;
   if (!req || !Object.keys(req).length) return "livre";
-  const map = { games: "J", goals: "G", assists: "A", mvps: "MVP" };
+  const map = { games: "J", goals: "G", assists: "A", mvps: "MVP", cs: "CS" };
   return Object.entries(req)
     .map(([k, v]) => (k === "maxWinrate" ? `WR < ${v}%` : `${v}${map[k] || k}`))
     .join(" + ");
@@ -459,6 +482,7 @@ function reqLabelLong(req, title) {
     goals: (v) => `${v} gols`,
     assists: (v) => `${v} assists`,
     mvps: (v) => `${v} MVP`,
+    cs: (v) => `${v} CS`,
   };
   return Object.entries(req)
     .map(([k, v]) => (k === "maxWinrate" ? `WR < ${v}%` : map[k] ? map[k](v) : `${v}${k}`))
