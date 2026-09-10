@@ -640,3 +640,31 @@ describe("x4 e2e: filme 1→4v4 com AFK, saída e pick", () => {
     host.cleanup();
   });
 });
+
+describe("x4 e2e: refreshLobby não aborta par/buraco", () => {
+  it("4v4 oficial incompleto: segundo refreshLobby não abre warmup", async () => {
+    const host = await bootOfficial4v4();
+    const scores = host.live();
+    host.quit(host.players.find((p) => p.team === TEAM.RED));
+    await settle();
+    assertNvN(host, 3, 1);
+    assert.equal(host.handles.choose.isActive(), false);
+    host.handles.refreshLobby();
+    await settle();
+    assertNvN(host, 3, 1, "continua 3v3 no x4");
+    assert.equal(host.live(), scores, "mesmo jogo");
+    assert.equal(host.handles.choose.isActive(), false);
+    host.cleanup();
+  });
+
+  it("3v3 ao vivo + 2º spec ainda RR para o x4 (não early-abort)", async () => {
+    const host = await bootWith(6);
+    enter(host);
+    assertNvN(host, 3, 1, "7º espera");
+    assert.ok(host.live());
+    enter(host);
+    await waitLobby();
+    assertHealthy4v4(host, "par do x4 mesmo ao vivo");
+    host.cleanup();
+  });
+});

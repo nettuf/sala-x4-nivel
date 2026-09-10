@@ -11,6 +11,8 @@ const { STREAK_TITLE_MIN } = require("../titles");
 
 const STREAK_MILESTONE_EVERY = 5;
 const STREAK_BREAK_MIN = 5;
+/** Streak só conta / segue se ≥2 vencedores (elegíveis) permanecerem. */
+const MIN_STREAK_HOLDERS = 2;
 
 /** Frases de efeito a cada 5 vitórias seguidas (5, 10, 15, 20…). */
 const MILESTONE_LINES = {
@@ -143,10 +145,23 @@ function sanitizeHolders(holders) {
   return out;
 }
 
+function uniqIds(ids) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of ids || []) {
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
   let streak = 0;
   let bestStreak = Math.max(0, Math.floor(Number(best) || 0));
   let bestStreakHolders = sanitizeHolders(bestHolders);
+  let holderIds = [];
 
   function get() {
     return streak;
@@ -158,6 +173,10 @@ function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
 
   function getBestHolders() {
     return [...bestStreakHolders];
+  }
+
+  function getHolderIds() {
+    return [...holderIds];
   }
 
   function hydrateBest(n, holders) {
@@ -172,6 +191,7 @@ function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
 
   function reset() {
     streak = 0;
+    holderIds = [];
   }
 
   function maybeRecordBest(holders) {
@@ -182,13 +202,14 @@ function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
   }
 
   /**
-   * Só 4v4 com vencedor. Empate / abort / RR não zera.
+   * Só partida com vencedor. Empate / abort / RR não zera.
    * Azul ganhar é derrota de quem segura: streak recomeça em 1.
    * @param {1|2|0} winner
    * @param {string[]} [holders] nicks do time que segura o streak
+   * @param {number[]} [ids] ids dos vencedores que ficaram
    * @returns {number} streak atual após update
    */
-  function recordWin(winner, holders = []) {
+  function recordWin(winner, holders = [], ids = []) {
     if (winner === TEAM.RED) {
       streak += 1;
     } else if (winner === TEAM.BLUE) {
@@ -196,6 +217,7 @@ function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
     } else {
       return streak;
     }
+    holderIds = uniqIds(ids);
     maybeRecordBest(holders);
     return streak;
   }
@@ -205,7 +227,7 @@ function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
     return `streak ${streak}`;
   }
 
-  return { get, getBest, getBestHolders, hydrateBest, reset, recordWin, label };
+  return { get, getBest, getBestHolders, getHolderIds, hydrateBest, reset, recordWin, label };
 }
 
 function formatCurrentStreak(n) {
@@ -246,11 +268,35 @@ function applyWinnerStays(
     return { mode: "keep", streak: streakTracker.get() };
   }
 
-  const holders = (winner === TEAM.RED ? red : blue).map((p) => p.name);
+  const winnerSide = winner === TEAM.RED ? red : blue;
+  const kept = winnerSide.filter(eligible);
+  const holders = kept.map((p) => p.name);
   const fallenHolders = winner === TEAM.BLUE ? red.map((p) => p.name) : [];
   const prevStreak = streakTracker.get();
-  const nextStreak = recordStreak ? streakTracker.recordWin(winner, holders) : streakTracker.get();
-  const streakBit = recordStreak ? ` · ${streakTracker.label()}` : "";
+  const prevHolderIds = new Set(
+    typeof streakTracker.getHolderIds === "function" ? streakTracker.getHolderIds() : []
+  );
+  const continuing = prevStreak > 0 && winner === TEAM.RED && prevHolderIds.size > 0;
+  const keptCount = continuing
+    ? kept.filter((p) => prevHolderIds.has(p.id)).length
+    : kept.length;
+  const enoughHolders = keptCount >= MIN_STREAK_HOLDERS;
+  if (recordStreak && !enoughHolders) {
+    streakTracker.reset();
+  }
+    const nextStreak = recordStreak && enoughHolders
+      ? streakTracker.recordWin(winner, holders, kept.map((p) => p.id))
+      : streakTracker.get();
+  const streakBit = recordStreak && enoughHolders ? ` · ${streakTracker.label()}` : "";
+  if (!quiet && recordStreak && !enoughHolders && prevStreak > 0) {
+    room.sendAnnouncement(
+      "🔁 Streak encerrada — menos de 2 vencedores no campo.",
+      null,
+      0xe67e22,
+      "bold",
+      1
+    );
+  }
 
   if (winner === TEAM.RED) {
     for (const p of blue) room.setPlayerTeam(p.id, TEAM.SPEC);
@@ -298,6 +344,22 @@ function applyWinnerStays(
   return { mode: "choose", streak: nextStreak };
 }
 
+function pruneStreakIfTooFewHolders(room, streakTracker, { isExcluded } = {}) {
+  if (!streakTracker || streakTracker.get() <= 0) return false;
+  const ids = new Set(
+    typeof streakTracker.getHolderIds === "function" ? streakTracker.getHolderIds() : []
+  );
+  if (!ids.size) return false;
+  const eligible = (p) =>
+    p && p.id !== 0 && !(typeof isExcluded === "function" && isExcluded(p));
+  const still = room
+    .getPlayerList()
+    .filter((p) => p.team === TEAM.RED && eligible(p) && ids.has(p.id));
+  if (still.length >= MIN_STREAK_HOLDERS) return false;
+  streakTracker.reset();
+  return true;
+}
+
 function shouldUseWinnerStays(playerCount, valid, winner) {
   if (winner !== TEAM.RED && winner !== TEAM.BLUE) return false;
   if (playerCount < 2) return false;
@@ -311,6 +373,7 @@ function shouldUseWinnerStays(playerCount, valid, winner) {
 module.exports = {
   createStreakTracker,
   applyWinnerStays,
+  pruneStreakIfTooFewHolders,
   shouldUseWinnerStays,
   formatCurrentStreak,
   formatBestStreak,
@@ -321,4 +384,5 @@ module.exports = {
   announceStreakFlavor,
   STREAK_MILESTONE_EVERY,
   STREAK_BREAK_MIN,
+  MIN_STREAK_HOLDERS,
 };

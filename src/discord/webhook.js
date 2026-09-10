@@ -120,4 +120,12 @@ async function notifyUnban({
   return postWebhook(url, content);
 }
 
-module.exports = { notifyJoin, notifyBan, notifyUnban, lookupGeo, postWebhook };
+async function notifyStaffAudit({ title, lines, webhookUrl } = {}) {
+  const url = webhookUrl || config.discordBanWebhookUrl;
+  if (!url) return false;
+  if (!webhookUrl && process.env.NODE_TEST_CONTEXT) return false;
+  const content = [title, ...(lines || [])].filter(Boolean).join("\n");
+  return postWebhook(url, content);
+}
+
+module.exports = { notifyJoin, notifyBan, notifyUnban, notifyStaffAudit, lookupGeo, postWebhook };

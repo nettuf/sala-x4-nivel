@@ -426,6 +426,51 @@ describe("streak / winner stays", () => {
     assert.equal(players.find((p) => p.id === 5).team, TEAM.SPEC);
     assert.equal(players.find((p) => p.id === 6).team, TEAM.SPEC);
   });
+
+  it("1 vencedor só não inicia streak (precisa de 2 mantidos)", () => {
+    const players = [
+      { id: 1, name: "R1", team: TEAM.RED },
+      { id: 2, name: "B1", team: TEAM.BLUE },
+      { id: 3, name: "S1", team: TEAM.SPEC },
+    ];
+    const room = {
+      getPlayerList: () => players,
+      setPlayerTeam: (id, team) => {
+        const p = players.find((x) => x.id === id);
+        if (p) p.team = team;
+      },
+      sendAnnouncement: () => {},
+    };
+    const streak = createStreakTracker();
+    applyWinnerStays(room, TEAM.RED, streak);
+    assert.equal(streak.get(), 0);
+  });
+
+  it("2 vencedores mantidos começam e seguem a streak; 1 original restante zera", () => {
+    const players = [
+      { id: 1, name: "R1", team: TEAM.RED },
+      { id: 2, name: "R2", team: TEAM.RED },
+      { id: 3, name: "B1", team: TEAM.BLUE },
+      { id: 4, name: "B2", team: TEAM.BLUE },
+      { id: 5, name: "S1", team: TEAM.SPEC },
+    ];
+    const room = {
+      getPlayerList: () => players,
+      setPlayerTeam: (id, team) => {
+        const p = players.find((x) => x.id === id);
+        if (p) p.team = team;
+      },
+      sendAnnouncement: () => {},
+    };
+    const streak = createStreakTracker();
+    applyWinnerStays(room, TEAM.RED, streak);
+    assert.equal(streak.get(), 1);
+    assert.deepEqual(streak.getHolderIds().sort(), [1, 2]);
+
+    players.find((p) => p.id === 2).team = TEAM.SPEC;
+    applyWinnerStays(room, TEAM.RED, streak);
+    assert.equal(streak.get(), 0, "1 original no vermelho não mantém a streak");
+  });
 });
 
 describe("titles / cargos", () => {
@@ -492,7 +537,18 @@ describe("titles / cargos", () => {
     assert.match(text, /Lenda — 1600 jogos \+ 1200 gols \+ 800 assists \+ 500 MVP/);
     assert.match(text, /Craque — 600 jogos/);
     assert.match(text, /Chefe/);
+    assert.match(text, /Parça do Baleia/);
     assert.ok(!/Gordo/.test(text), "piada não entra no catálogo");
+  });
+
+  it("Parça do Baleia só com gift do Chefe", () => {
+    assert.equal(isUnlocked({}, "parca"), false);
+    assert.equal(isUnlocked({ gifted_titles: ["parca"] }, "parca"), true);
+    assert.ok(listUnlocked({ gifted_titles: ["parca"] }).some((t) => t.id === "parca"));
+    assert.equal(
+      listUnlocked({}).some((t) => t.id === "parca"),
+      false
+    );
   });
 
   it("pickMatchMvps por gols*2+assists só no time que ganhou", () => {

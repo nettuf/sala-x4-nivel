@@ -1,7 +1,7 @@
 const { describe, it, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { notifyBan, notifyUnban } = require("../src/discord/webhook");
+const { notifyBan, notifyUnban, notifyStaffAudit } = require("../src/discord/webhook");
 const { createChatLogger, formatChatLine } = require("../src/discord/chatLog");
 
 describe("webhook de ban", () => {
@@ -79,6 +79,33 @@ describe("webhook de ban", () => {
     const ok = await notifyBan({ nick: "X", reason: "x", webhookUrl: "" });
     assert.equal(ok, false);
     assert.equal(called, 0);
+  });
+
+  it("staff audit usa o mesmo canal de ban e não manda a senha", async () => {
+    const posts = [];
+    globalThis.fetch = async (url, opts) => {
+      posts.push({ url, body: JSON.parse(opts.body) });
+      return { ok: true };
+    };
+
+    const hook = "https://discord.example/hook";
+    const ok = await notifyStaffAudit({
+      title: "🔑 **Login gerado**",
+      lines: [
+        "Por: Chefe `auth1`",
+        "Nível: 2 Moderador",
+        "Origem: !gerlogin",
+      ],
+      webhookUrl: hook,
+    });
+
+    assert.equal(ok, true);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].url, hook);
+    assert.match(posts[0].body.content, /Login gerado/);
+    assert.match(posts[0].body.content, /Chefe/);
+    assert.match(posts[0].body.content, /!gerlogin/);
+    assert.equal(/!login [A-Z0-9]{6,}/.test(posts[0].body.content), false);
   });
 });
 

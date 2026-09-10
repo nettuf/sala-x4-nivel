@@ -195,6 +195,18 @@ const STREAK_TITLE = {
   kind: "streak",
 };
 
+/** Cargo fixo concedido pelo Chefe (nível 4). A pessoa escolhe se quer usar. */
+const GIFT_TITLES = [
+  {
+    id: "parca",
+    name: "Parça do Baleia",
+    emblem: "🐋",
+    color: 0x5dade2,
+    kind: "gift",
+    req: {},
+  },
+];
+
 /**
  * Cargo temporário de streak: só no vermelho, streak ≥ 3, sem AFK.
  * Spec / azul / sair / AFK / streak quebrada → perde.
@@ -227,7 +239,32 @@ function isStaffTitle(titleOrId) {
 
 function getTitleById(id) {
   if (!id) return null;
-  return TITLES.find((t) => t.id === id) || STAFF_TITLES.find((t) => t.id === id) || null;
+  return (
+    TITLES.find((t) => t.id === id) ||
+    STAFF_TITLES.find((t) => t.id === id) ||
+    GIFT_TITLES.find((t) => t.id === id) ||
+    null
+  );
+}
+
+function giftedTitleIds(stats) {
+  const raw = stats?.gifted_titles;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((id) => String(id || "").trim()).filter(Boolean);
+}
+
+function hasGiftedTitle(stats, titleId) {
+  return giftedTitleIds(stats).includes(String(titleId));
+}
+
+function isGiftTitle(titleOrId) {
+  const id = typeof titleOrId === "string" ? titleOrId : titleOrId?.id;
+  return GIFT_TITLES.some((t) => t.id === id);
+}
+
+function listUnlockedGift(stats) {
+  const ids = new Set(giftedTitleIds(stats));
+  return GIFT_TITLES.filter((t) => ids.has(t.id));
 }
 
 function listUnlockedPlayer(stats) {
@@ -240,13 +277,14 @@ function listUnlockedStaff(adminLevel = 0) {
 }
 
 function listUnlocked(stats, adminLevel = 0) {
-  return [...listUnlockedStaff(adminLevel), ...listUnlockedPlayer(stats)];
+  return [...listUnlockedStaff(adminLevel), ...listUnlockedGift(stats), ...listUnlockedPlayer(stats)];
 }
 
 function isUnlocked(stats, titleId, adminLevel = 0) {
   const t = getTitleById(titleId);
   if (!t) return false;
   if (t.kind === "staff") return (Number(adminLevel) || 0) >= t.level;
+  if (t.kind === "gift") return hasGiftedTitle(stats, t.id);
   return meetsReq(stats, t.req);
 }
 
@@ -281,6 +319,9 @@ function newlyUnlockedPlayerTitles(prevStats, nextStats) {
  */
 function applyUnlockUpgrade(selectedId, prevStats, nextStats) {
   if (selectedId && isStaffTitle(selectedId)) return selectedId;
+  if (selectedId && isGiftTitle(selectedId)) {
+    return hasGiftedTitle(nextStats, selectedId) ? selectedId : bestPlayerTitle(nextStats).id;
+  }
   if (selectedId && !isUnlocked(nextStats, selectedId)) {
     return bestPlayerTitle(nextStats).id;
   }
@@ -467,6 +508,7 @@ function pickMatchWorst(players) {
 
 function reqLabel(req, title) {
   if (title?.kind === "staff") return `adm nv.${title.level}`;
+  if (title?.kind === "gift") return "Chefe";
   if (!req || !Object.keys(req).length) return "livre";
   const map = { games: "J", goals: "G", assists: "A", mvps: "MVP", cs: "CS" };
   return Object.entries(req)
@@ -476,6 +518,7 @@ function reqLabel(req, title) {
 
 function reqLabelLong(req, title) {
   if (title?.kind === "staff") return "só staff";
+  if (title?.kind === "gift") return "Chefe concede (!parca)";
   if (!req || !Object.keys(req).length) return "livre";
   const map = {
     games: (v) => `${v} jogos`,
@@ -492,13 +535,15 @@ function reqLabelLong(req, title) {
 /** Catálogo completo (mesmo os bloqueados) + condição. Cabe em 1–2 anúncios. */
 function formatTitleCatalog() {
   const playerLines = TITLES.map((t) => `${t.emblem} ${t.name} — ${reqLabelLong(t.req, t)}`);
+  const gifts = GIFT_TITLES.map((t) => `${t.emblem} ${t.name} — ${reqLabelLong(t.req, t)}`);
   const staff = STAFF_TITLES.map((t) => `${t.emblem} ${t.name}`).join(" · ");
-  return [`Cargos e como desbloquear:`, ...playerLines, `Staff (não se desbloqueia): ${staff}`].join("\n");
+  return [`Cargos e como desbloquear:`, ...playerLines, ...gifts, `Staff (não se desbloqueia): ${staff}`].join("\n");
 }
 
 module.exports = {
   TITLES,
   STAFF_TITLES,
+  GIFT_TITLES,
   JOKE_TITLES,
   STREAK_TITLE,
   STREAK_TITLE_MIN,
@@ -510,8 +555,12 @@ module.exports = {
   isStaffTitle,
   listUnlockedPlayer,
   listUnlockedStaff,
+  listUnlockedGift,
   listUnlocked,
   isUnlocked,
+  hasGiftedTitle,
+  isGiftTitle,
+  giftedTitleIds,
   resolveTitle,
   newlyUnlockedPlayerTitles,
   applyUnlockUpgrade,

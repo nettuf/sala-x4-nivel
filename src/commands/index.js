@@ -3,12 +3,15 @@ const { findPlayer, parseDurationToMs, formatDuration, connToIp, kickReason, res
 const { resolvePlayerAuth } = require("../room/playerAuth");
 const { isRandomKitArg, parseTeamRef, isColorKit, listColorPage } = require("../room/uniforms");
 const { createBan, deactivateBan, listActiveBans } = require("../db/bans");
-const { getAdmin } = require("../db/players");
-const { notifyBan, notifyUnban } = require("../discord/webhook");
+const { getAdmin, setAdmin, removeAdmin, generateLoginCode, createRoleCode, consumeRoleCode, peekRoleCode } = require("../db/players");
+const { notifyBan, notifyUnban, notifyStaffAudit } = require("../discord/webhook");
 const { createMute, unmute, findActiveMute, listActiveMutes } = require("../db/mutes");
 const {
   getPlayerStats,
   setSelectedTitle,
+  grantGiftedTitle,
+  revokeGiftedTitle,
+  transferPlayerStats,
   formatStatusCard,
   emptyPlayerStats,
   getLeaderboard,
@@ -20,6 +23,7 @@ const {
   TITLES,
   STAFF_TITLES,
   listUnlocked,
+  listUnlockedGift,
   isUnlocked,
   resolveTitle,
   getTitleById,
@@ -31,6 +35,7 @@ const {
   JOKE_TITLES,
   STREAK_TITLE,
   wearsStreakTitle,
+  hasGiftedTitle,
 } = require("../titles");
 
 const RANKING_CMDS = {
@@ -68,36 +73,25 @@ function playerHelpLines({
 } = {}) {
   const lines = [
     "— Sala —",
-    "!bb — sair da sala",
-    "!discord — convite do Discord",
-    "!site — stats e rankings no Haxbook",
+    "!bb · !discord · !site · !ids",
   ];
   if (isAfk) lines.push("!voltar — sair do AFK");
   else if (canAfk) lines.push("!afk — ficar AFK / voltar");
-  lines.push("!afks — ver quem está AFK");
-  lines.push("!ids — lista id dos jogadores");
-  lines.push("@nick msg — mensagem privada (nick com espaço: @nome completo msg)");
+  lines.push("!afks — quem está AFK");
+  lines.push("@nick msg — mensagem privada");
   if (onField) lines.push("t <msg> — chat do time");
   if (isAdmin) lines.push("% <msg> — chat só de staff");
   lines.push(
-    "— Stats —",
-    "!status / !stats — jogos, gols, CS, MVP, WR, cargo",
-    "!cargos — emblemas desbloqueados",
-    "!listacargos — todos os emblemas e como desbloquear",
-    "!cargo <id|n> — escolher emblema",
-    "— Uniforme —",
-    "!cores1 / !cores2 — cores básicas",
-    "!unis — times e comunidades"
-  );
-  if (canChangeUni) {
-    lines.push("!uni <kit> — troca o uniforme do time");
-    lines.push("!uni random — sorteia o uniforme do time");
-  }
-  lines.push(
     "— Categorias —",
+    "!status / !stats — jogos, gols, CS, MVP, WR",
+    "!cargos · !listacargos · !cargo — emblemas",
+    "!unis — uniformes · !cores1 · !cores2",
     "!zoeira — zoeiras da sala",
     "!ranking — tops e streak"
   );
+  if (canChangeUni) {
+    lines.push("!uni <kit> — uniforme do time (capitão/admin)");
+  }
   if (canChoose) lines.push("Pick: número | top | random | bottom");
   if (isAdmin) lines.push("!ajudaadm — comandos de admin");
   return lines;
@@ -183,25 +177,36 @@ function formatNickAuthList({ label, emoji, result, nextCmd }) {
 
 function adminHelpText(level = 0) {
   const lines = [
-    "!ajudaadm — comandos de admin",
-    "!ban <#id|nick> [tempo] [motivo] — tempo: 30m, 2h, 1d, perm",
-    "!banauth <auth> [tempo] [motivo] — bane pela auth (mesmo fora da sala)",
-    "!banlist [pág] — bans ativos (nick · auth)",
-    "!unban <auth|conn>",
-    "!unbanauth <auth>",
-    "Staff na sala também vê os PVs (@nick)",
+    "— Admin —",
+    "!ajudaadm — este menu",
+    "— Ban —",
+    "!ban <#id|nick> [tempo] [motivo] — 30m, 2h, 1d, perm",
+    "!banauth <auth> [tempo] [motivo]",
+    "!banlist [pág] · !unban <auth|conn> · !unbanauth <auth>",
+    "— Mute —",
     "!mute <#id|nick> <tempo> [motivo]",
-    "!mutelist [pág] — mutes ativos (nick · auth)",
-    "!unmute <#id|nick|auth>",
-    "!verstats <#id|nick> — stats de outro jogador (veja !ids)",
-    "!uni red|blue <kit> — troca o uniforme de um time",
-    "!uni random — sorteia os dois times",
-    "!uni red|blue random — sorteia um lado",
-    "!uni reset — volta os uniformes ao padrão",
-    "% <msg> — chat só de staff",
+    "!mutelist [pág] · !unmute <#id|nick|auth>",
+    "— Uni / Stats —",
+    "!uni red|blue <kit|random> · !uni random · !uni reset",
+    "!verstats <#id|nick>",
+    "% <msg> — chat de staff · staff vê os PVs",
   ];
+  if ((level || 0) >= 3) {
+    lines.push(
+      "— Staff sênior —",
+      "!gerlogin <1-3> — senha de cargo de uso único",
+      "!login <senha> — ativa o cargo",
+      "!revoke <#id|nick|auth> — tira o cargo de staff",
+      "!moverstats <authAlvo> <authAntiga> — soma stats da conta antiga na atual"
+    );
+  }
   if ((level || 0) >= 4) {
-    lines.push("!provocaradm <texto> — provoca com texto livre (só Chefe)");
+    lines.push(
+      "— Chefe —",
+      "!parca <#id|nick> — dá 🐋 Parça do Baleia (fixo)",
+      "!tirarparca <#id|nick> — remove o cargo",
+      "!provocaradm <texto> — provoca com texto livre"
+    );
   }
   return lines.join("\n");
 }
@@ -536,14 +541,14 @@ function createCommandHandler(room, ctx) {
       `📩 PV de @${player.name}: ${parsed.body}`,
       target.id,
       color,
-      "bold",
+      "normal",
       1
     );
     room.sendAnnouncement(
       `📩 PV para @${target.name}: ${parsed.body}`,
       player.id,
       color,
-      "bold",
+      "normal",
       1
     );
     ctx.chatLog?.push({
@@ -557,7 +562,7 @@ function createCommandHandler(room, ctx) {
     const online = new Set(room.getPlayerList().map((p) => p.id));
     for (const adminId of ctx.admins?.keys?.() || []) {
       if (adminId === player.id || adminId === target.id || !online.has(adminId)) continue;
-      room.sendAnnouncement(spy, adminId, color, "bold", 1);
+      room.sendAnnouncement(spy, adminId, color, "normal", 1);
     }
     return true;
   }
@@ -589,7 +594,7 @@ function createCommandHandler(room, ctx) {
     const color = player.team === 1 ? 0xe74c3c : 0x3498db;
     for (const p of room.getPlayerList()) {
       if (p.team === player.team) {
-        room.sendAnnouncement(`${emoji} [TEAM] ${chatNick(player)}: ${body}`, p.id, color, "bold", 1);
+        room.sendAnnouncement(`${emoji} [TEAM] ${chatNick(player)}: ${body}`, p.id, color, "normal", 1);
       }
     }
     ctx.chatLog?.push({ nick: player.name, text: body, kind: "team" });
@@ -624,7 +629,7 @@ function createCommandHandler(room, ctx) {
     const online = new Set(room.getPlayerList().map((p) => p.id));
     for (const adminId of ctx.admins.keys()) {
       if (!online.has(adminId)) continue;
-      room.sendAnnouncement(line, adminId, 0x9b59b6, "bold", 1);
+      room.sendAnnouncement(line, adminId, 0x9b59b6, "normal", 1);
     }
     ctx.chatLog?.push({ nick: player.name, text: body, kind: "staff" });
     return true;
@@ -663,25 +668,25 @@ function createCommandHandler(room, ctx) {
         }),
         player.id,
         0xecf0f1,
-        "small",
+        "normal",
         1
       );
       return true;
     }
 
     if (cmd === "zoeira" || cmd === "zoeiras" || cmd === "zoera" || cmd === "zueira") {
-      room.sendAnnouncement(zoeiraHelpText(), player.id, 0xecf0f1, "small", 1);
+      room.sendAnnouncement(zoeiraHelpText(), player.id, 0xecf0f1, "normal", 1);
       return true;
     }
 
     if (cmd === "ranking" || cmd === "rankings" || cmd === "tops") {
-      room.sendAnnouncement(rankingHelpText(), player.id, 0xecf0f1, "small", 1);
+      room.sendAnnouncement(rankingHelpText(), player.id, 0xecf0f1, "normal", 1);
       return true;
     }
 
     if (cmd === "ajudaadm" || cmd === "helpadm" || cmd === "comandosadm") {
       if (!admin) return true;
-      room.sendAnnouncement(adminHelpText(admin.level), player.id, 0xecf0f1, "small", 1);
+      room.sendAnnouncement(adminHelpText(admin.level), player.id, 0xecf0f1, "normal", 1);
       return true;
     }
 
@@ -963,6 +968,93 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
+    if (cmd === "parca" || cmd === "parcado" || cmd === "parcadobaleia") {
+      if ((admin?.level || 0) < 4) {
+        room.sendAnnouncement("Só o Chefe pode dar o cargo Parça do Baleia.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const target = findPlayer(room, args.join(" "));
+      if (!target) {
+        room.sendAnnouncement("Uso: !parca <#id|nick>", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const auth = resolveAuth(target);
+      if (!auth) {
+        room.sendAnnouncement(noAuthMsg, player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const stats = (await getPlayerStats(auth)) || {};
+      if (hasGiftedTitle(stats, "parca")) {
+        room.sendAnnouncement(`${target.name} já tem 🐋 Parça do Baleia.`, player.id, 0xf1c40f, "normal", 1);
+        return true;
+      }
+      const ok = await grantGiftedTitle(auth, "parca");
+      if (!ok) {
+        room.sendAnnouncement("Não deu para salvar o cargo.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      await loadTitleForPlayer(target);
+      room.sendAnnouncement(
+        `${target.name} ganhou 🐋 Parça do Baleia. Use !cargo parca se quiser usar.`,
+        target.id,
+        0x5dade2,
+        "normal",
+        1
+      );
+      if (target.id !== player.id) {
+        room.sendAnnouncement(
+          `🐋 Parça do Baleia concedido a ${target.name}. Não equipa sozinho — a pessoa usa !cargo parca.`,
+          player.id,
+          0x5dade2,
+          "normal",
+          1
+        );
+      }
+      return true;
+    }
+
+    if (cmd === "tirarparca" || cmd === "removerparca") {
+      if ((admin?.level || 0) < 4) {
+        room.sendAnnouncement("Só o Chefe pode tirar o cargo Parça do Baleia.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const target = findPlayer(room, args.join(" "));
+      if (!target) {
+        room.sendAnnouncement("Uso: !tirarparca <#id|nick>", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const auth = resolveAuth(target);
+      if (!auth) {
+        room.sendAnnouncement(noAuthMsg, player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const stats = (await getPlayerStats(auth)) || {};
+      if (!hasGiftedTitle(stats, "parca")) {
+        room.sendAnnouncement(`${target.name} não tem Parça do Baleia.`, player.id, 0xf1c40f, "normal", 1);
+        return true;
+      }
+      const ok = await revokeGiftedTitle(auth, "parca");
+      if (!ok) {
+        room.sendAnnouncement("Não deu para remover o cargo.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      if (stats.selected_title === "parca") {
+        await setSelectedTitle(auth, null);
+      }
+      await loadTitleForPlayer(target);
+      room.sendAnnouncement(
+        `🐋 Parça do Baleia removido de ${target.name}.`,
+        player.id,
+        0x5dade2,
+        "normal",
+        1
+      );
+      if (target.id !== player.id) {
+        room.sendAnnouncement("Seu cargo 🐋 Parça do Baleia foi removido.", target.id, 0x5dade2, "normal", 1);
+      }
+      return true;
+    }
+
     if (cmd === "roleta" || cmd === "roletar") {
       return applyRoleta(player, args);
     }
@@ -1051,7 +1143,7 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "listacargos" || cmd === "todososcargos" || cmd === "cargoslista") {
       if (blockLookup(player, "catalog")) return true;
-      room.sendAnnouncement(formatTitleCatalog(), player.id, 0xecf0f1, "small", 1);
+      room.sendAnnouncement(formatTitleCatalog(), player.id, 0xecf0f1, "normal", 1);
       return true;
     }
 
@@ -1069,12 +1161,12 @@ function createCommandHandler(room, ctx) {
         const mark = t.id === activeId ? "✓" : "·";
         return `${mark} ${i + 1}. ${t.emblem} ${t.name} (${t.id}) [${reqLabel(t.req, t)}]`;
       });
-      const total = TITLES.length + STAFF_TITLES.filter((t) => adminLevel >= t.level).length;
+      const total = TITLES.length + STAFF_TITLES.filter((t) => adminLevel >= t.level).length + listUnlockedGift(stats).length;
       room.sendAnnouncement(
         `Seus cargos (${unlocked.length}/${total}):\n${lines.join("\n")}\nUse !cargo <id|n> — só um ativo`,
         player.id,
         0xecf0f1,
-        "small",
+        "normal",
         1
       );
       return true;
@@ -1453,6 +1545,234 @@ function createCommandHandler(room, ctx) {
         "normal",
         1
       );
+      return true;
+    }
+
+    if (cmd === "gerlogin" || cmd === "criarlogin" || cmd === "novologin") {
+      if ((admin?.level || 0) < 3) {
+        room.sendAnnouncement("Só Gerente e Chefe podem gerar login.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const grantLevel = Math.floor(Number(args[0]));
+      if (!Number.isInteger(grantLevel) || grantLevel < 1 || grantLevel > 4) {
+        room.sendAnnouncement(
+          "Uso: !gerlogin <nível> — 1 Estagiário, 2 Moderador, 3 Gerente",
+          player.id,
+          0xe74c3c,
+          "normal",
+          1
+        );
+        return true;
+      }
+      if (grantLevel >= admin.level) {
+        room.sendAnnouncement(
+          `Você só pode gerar login abaixo do seu cargo (até nv.${admin.level - 1}).`,
+          player.id,
+          0xe74c3c,
+          "normal",
+          1
+        );
+        return true;
+      }
+      const meta = config.adminLevels[grantLevel] || { title: `nv.${grantLevel}`, emblem: "🛠️" };
+      const createdBy = resolveAuth(player) || player.name;
+      let created = null;
+      for (let i = 0; i < 6 && !created; i++) {
+        created = await createRoleCode({
+          code: generateLoginCode(),
+          level: grantLevel,
+          title: meta.title,
+          createdBy,
+        });
+      }
+      if (!created) {
+        room.sendAnnouncement("Não deu para gerar a senha.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      room.sendAnnouncement(
+        `Senha de uso único (nv.${grantLevel} ${meta.title}): ${created.code}\nA pessoa usa: !login ${created.code}`,
+        player.id,
+        0x2ecc71,
+        "normal",
+        1
+      );
+      notifyStaffAudit({
+        title: "🔑 **Login gerado**",
+        lines: [
+          `Por: ${player.name} \`${createdBy}\``,
+          `Nível: ${grantLevel} ${meta.title}`,
+          `Origem: !gerlogin`,
+        ],
+      });
+      return true;
+    }
+
+    if (cmd === "login") {
+      const auth = resolveAuth(player);
+      if (!auth) {
+        room.sendAnnouncement(noAuthMsg, player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const senha = args[0];
+      if (!senha) {
+        room.sendAnnouncement("Uso: !login <senha>", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const peeked = await peekRoleCode(senha);
+      if (!peeked || peeked.used_by) {
+        room.sendAnnouncement("Senha inválida ou já usada.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const current = ctx.admins.get(player.id) || (await getAdmin(auth));
+      if (current && (current.level || 0) >= peeked.level) {
+        room.sendAnnouncement(`Você já tem cargo nv.${current.level}.`, player.id, 0xf1c40f, "normal", 1);
+        return true;
+      }
+      const used = await consumeRoleCode(senha, auth);
+      if (!used) {
+        room.sendAnnouncement("Senha inválida ou já usada.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const meta = config.adminLevels[used.level] || { title: used.title, emblem: "🛠️" };
+      const row = await setAdmin(auth, used.level, used.title || meta.title, used.created_by);
+      if (!row) {
+        room.sendAnnouncement("Não deu para salvar o cargo.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      ctx.admins.set(player.id, row);
+      applyAdminLook(player, row);
+      await loadTitleForPlayer(player);
+      room.sendAnnouncement(
+        `Cargo ativo: ${meta.emblem || ""} ${row.title} (nv.${used.level})`.replace(/\s+/g, " ").trim(),
+        player.id,
+        0x2ecc71,
+        "normal",
+        1
+      );
+      notifyStaffAudit({
+        title: "✅ **Login usado**",
+        lines: [
+          `Usou: ${player.name} \`${auth}\``,
+          `Nível: ${used.level} ${row.title}`,
+          `Gerado por: \`${used.created_by || "—"}\``,
+          `Origem: !login`,
+        ],
+      });
+      return true;
+    }
+
+    if (cmd === "revoke" || cmd === "tiraradm" || cmd === "removeradm") {
+      if ((admin?.level || 0) < 3) {
+        room.sendAnnouncement("Só Gerente e Chefe podem tirar cargo de staff.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const ref = args.join(" ").trim();
+      if (!ref) {
+        room.sendAnnouncement("Uso: !revoke <#id|nick|auth>", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const target = findPlayer(room, ref);
+      const targetAuth = (target && resolveAuth(target)) || ref;
+      if (!targetAuth) {
+        room.sendAnnouncement("Jogador/auth não encontrado.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const targetRow = (target && ctx.admins.get(target.id)) || (await getAdmin(targetAuth));
+      if (!targetRow) {
+        room.sendAnnouncement("Essa pessoa não é staff.", player.id, 0xf1c40f, "normal", 1);
+        return true;
+      }
+      if ((targetRow.level || 0) >= admin.level) {
+        room.sendAnnouncement("Você não pode tirar um cargo igual ou maior que o seu.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const ok = await removeAdmin(targetAuth);
+      if (!ok) {
+        room.sendAnnouncement("Não deu para remover o cargo.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const live =
+        target ||
+        room.getPlayerList().find((p) => p.id !== 0 && resolveAuth(p) === targetAuth) ||
+        null;
+      if (live) {
+        ctx.admins.delete(live.id);
+        try {
+          room.setPlayerAdmin(live.id, false);
+        } catch {
+          /* ignore */
+        }
+        await loadTitleForPlayer(live);
+      }
+      const who = target?.name || targetAuth;
+      room.sendAnnouncement(`Cargo de staff removido: ${who}.`, player.id, 0x2ecc71, "normal", 1);
+      notifyStaffAudit({
+        title: "🚫 **Revoke de staff**",
+        lines: [
+          `Alvo: ${who} \`${targetAuth}\``,
+          `Cargo antigo: nv.${targetRow.level} ${targetRow.title || ""}`,
+          `Por: ${player.name} \`${resolveAuth(player) || player.name}\``,
+          `Origem: !revoke`,
+        ],
+      });
+      return true;
+    }
+
+    if (cmd === "moverstats" || cmd === "transferirstats" || cmd === "somarstats") {
+      if ((admin?.level || 0) < 3) {
+        room.sendAnnouncement("Só Gerente e Chefe podem transferir stats.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const targetAuth = String(args[0] || "").trim();
+      const sourceAuth = String(args[1] || "").trim();
+      if (!targetAuth || !sourceAuth) {
+        room.sendAnnouncement(
+          "Uso: !moverstats <authAlvo> <authAntiga> — soma a conta antiga na atual",
+          player.id,
+          0xe74c3c,
+          "normal",
+          1
+        );
+        return true;
+      }
+      const result = await transferPlayerStats(targetAuth, sourceAuth);
+      if (!result.ok) {
+        const why =
+          result.reason === "same"
+            ? "Auth alvo e antiga são iguais."
+            : "Não deu para transferir as stats.";
+        room.sendAnnouncement(why, player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const a = result.before.target;
+      const s = result.before.source;
+      const n = result.after;
+      for (const p of room.getPlayerList()) {
+        if (p.id === 0) continue;
+        const pa = resolveAuth(p);
+        if (pa === targetAuth || pa === sourceAuth) await loadTitleForPlayer(p);
+      }
+      room.sendAnnouncement(
+        [
+          `Stats somadas na auth atual.`,
+          `Jogos ${Number(a.games) || 0}+${Number(s.games) || 0}=${n.games} · Gols ${Number(a.goals) || 0}+${Number(s.goals) || 0}=${n.goals} · Assist ${Number(a.assists) || 0}+${Number(s.assists) || 0}=${n.assists} · CS ${Number(a.cs) || 0}+${Number(s.cs) || 0}=${n.cs} · MVP ${Number(a.mvps) || 0}+${Number(s.mvps) || 0}=${n.mvps}`,
+        ].join("\n"),
+        player.id,
+        0x2ecc71,
+        "normal",
+        1
+      );
+      notifyStaffAudit({
+        title: "📊 **Stats transferidas**",
+        lines: [
+          `Alvo: \`${targetAuth}\``,
+          `Antiga: \`${sourceAuth}\``,
+          `Jogos: ${Number(a.games) || 0}+${Number(s.games) || 0}=${n.games}`,
+          `Gols: ${Number(a.goals) || 0}+${Number(s.goals) || 0}=${n.goals}`,
+          `Por: ${player.name} \`${resolveAuth(player) || player.name}\``,
+          `Origem: !moverstats`,
+        ],
+      });
       return true;
     }
 

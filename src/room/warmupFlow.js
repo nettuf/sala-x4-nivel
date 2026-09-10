@@ -123,7 +123,7 @@ function planWarmup(players, { isExcluded, teamSize = 4 } = {}) {
   red = list(TEAM.RED);
   blue = list(TEAM.BLUE);
   specs = list(TEAM.SPEC);
-  while (red.length === blue.length && specs.length >= 2) {
+  while (red.length === blue.length && red.length < teamSize && specs.length >= 2) {
     move(specs[0], TEAM.RED);
     move(specs[1], TEAM.BLUE);
     red = list(TEAM.RED);

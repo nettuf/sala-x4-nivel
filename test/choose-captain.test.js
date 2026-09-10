@@ -35,6 +35,14 @@ function lastSpecs(announcements) {
   return [...announcements].reverse().find((row) => /^Specs:/.test(row.msg));
 }
 
+async function waitUntil(check, { tries = 25, ms = 20 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    if (check()) return true;
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+  return check();
+}
+
 /** Winner stays: 4 vermelho + 1 azul + specs extras. O azul picka; o vermelho fica. */
 function winnersAndSpecs(extra = 4) {
   const players = [
@@ -673,7 +681,7 @@ describe("capitão e lista de pick", () => {
     ];
     const { choose, kicks, excluded } = setup(players);
     choose.continueFromField();
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await waitUntil(() => players.find((row) => row.id === 2).team === TEAM.SPEC);
     assert.equal(kicks.length, 0, "timeout não kicka");
     assert.equal(players.find((row) => row.id === 2).team, TEAM.SPEC);
     assert.equal(excluded.has(2), true);
@@ -705,7 +713,7 @@ describe("capitão e lista de pick", () => {
     choose.startReplacement(TEAM.RED, (result) => ready.push(result));
     assert.equal(choose.currentCaptain().id, 1);
 
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await waitUntil(() => players.find((row) => row.id === 1).team === TEAM.SPEC);
     assert.equal(players.find((row) => row.id === 1).team, TEAM.SPEC);
     assert.equal(choose.isActive(), true);
     assert.equal(choose.isReplacement(), true);

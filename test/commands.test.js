@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 const { createCommandHandler } = require("../src/commands");
 const { createAfkTracker } = require("../src/room/afk");
 const { TEASE_LINES, PRAISE_LINES, pickTeaseLine, pickPraiseLine } = require("../src/room/bet");
+const { resetStatsMemory, persistPlayerStatsRow, getPlayerStats } = require("../src/db/stats");
+const { resetStaffMemory, setAdmin } = require("../src/db/players");
 
 function mockRoom() {
   const players = [
@@ -408,6 +410,9 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /!mutelist/);
     assert.match(msg, /!unmute/);
     assert.equal(msg.includes("!provocaradm"), false, "gerente não vê comando de Chefe");
+    assert.match(msg, /!gerlogin/);
+    assert.match(msg, /!revoke/);
+    assert.match(msg, /!moverstats/);
     afk.stop();
   });
 
@@ -683,6 +688,55 @@ describe("comandos (mock room)", () => {
 
     await cmd.handle(room._players[0], "!ajudaadm");
     assert.ok(room.announcements.some((a) => /!provocaradm/.test(a.msg)));
+    assert.ok(room.announcements.some((a) => /!parca/.test(a.msg)));
+    assert.ok(room.announcements.some((a) => /!tirarparca/.test(a.msg)));
+    assert.ok(room.announcements.some((a) => /!gerlogin/.test(a.msg)));
+  });
+
+  it("!parca: só o Chefe concede; fica fixo até !tirarparca; a pessoa escolhe", async () => {
+    resetStatsMemory();
+    const room = mockRoom();
+    const ctx = {
+      admins: new Map([
+        [1, { level: 4, title: "Chefe" }],
+        [2, { level: 3, title: "Gerente" }],
+      ]),
+      mutes: new Map(),
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    const chefe = room._players[0];
+    const gerente = room._players[1];
+    const spec = room._players[2];
+
+    await cmd.handle(gerente, "!parca Spec");
+    assert.ok(room.announcements.some((a) => a.to === 2 && /Só o Chefe/i.test(a.msg)));
+
+    room.announcements.length = 0;
+    await cmd.handle(chefe, "!parca Spec");
+    assert.ok(room.announcements.some((a) => /Parça do Baleia/.test(a.msg) && /!cargo parca/.test(a.msg)));
+    assert.notEqual(ctx.titles.get(3)?.id, "parca", "não equipa sozinho");
+
+    room.announcements.length = 0;
+    await cmd.handle(spec, "!cargos");
+    const cargos = room.announcements.find((a) => a.to === 3)?.msg || "";
+    assert.match(cargos, /Parça do Baleia/);
+    assert.match(cargos, /parca/);
+
+    room.announcements.length = 0;
+    await cmd.handle(spec, "!cargo parca");
+    assert.equal(ctx.titles.get(3)?.id, "parca");
+    assert.ok(room.announcements.some((a) => a.to === 3 && /Cargo ativo/.test(a.msg)));
+
+    room.announcements.length = 0;
+    await cmd.handle(chefe, "!tirarparca Spec");
+    assert.ok(room.announcements.some((a) => /removido/.test(a.msg)));
+    assert.notEqual(ctx.titles.get(3)?.id, "parca");
+
+    room.announcements.length = 0;
+    await cmd.handle(spec, "!cargo parca");
+    assert.ok(room.announcements.some((a) => a.to === 3 && /Bloqueado/i.test(a.msg)));
+    resetStatsMemory();
   });
 
   it("!elogiar elogia o alvo em público e respeita cooldown", async () => {
@@ -1130,5 +1184,141 @@ describe("comandos (mock room)", () => {
     assert.ok(room.announcements.some((a) => /mutado/i.test(a.msg)));
     assert.equal(room.announcements.some((a) => /\[TEAM\]/.test(a.msg)), false);
     afk.stop();
+  });
+
+  it("!gerlogin: Gerente gera nv.2, Chefe gera nv.3; Mod não gera; senha só no PV e !login uma vez", async () => {
+    resetStaffMemory();
+    resetStatsMemory();
+    const room = mockRoom();
+    const ctx = {
+      admins: new Map([
+        [1, { level: 4, title: "Chefe" }],
+        [2, { level: 3, title: "Gerente" }],
+      ]),
+      mutes: new Map(),
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    const chefe = room._players[0];
+    const gerente = room._players[1];
+    const spec = room._players[2];
+
+    await cmd.handle(spec, "!gerlogin 2");
+    assert.ok(room.announcements.some((a) => a.to === 3 && /Só Gerente e Chefe/i.test(a.msg)));
+
+    room.announcements.length = 0;
+    await cmd.handle(gerente, "!gerlogin 3");
+    assert.ok(room.announcements.some((a) => a.to === 2 && /abaixo do seu cargo/i.test(a.msg)));
+
+    room.announcements.length = 0;
+    await cmd.handle(gerente, "!gerlogin 2");
+    const pvGerente = room.announcements.find((a) => a.to === 2 && /!login /.test(a.msg))?.msg || "";
+    const code2 = (pvGerente.match(/!login ([A-Z0-9]+)/) || [])[1];
+    assert.ok(code2);
+    assert.equal(room.announcements.some((a) => a.to == null && String(a.msg).includes(code2)), false);
+
+    room.announcements.length = 0;
+    await cmd.handle(chefe, "!gerlogin 3");
+    const pvChefe = room.announcements.find((a) => a.to === 1 && /nv\.3/.test(a.msg))?.msg || "";
+    assert.match(pvChefe, /!login /);
+
+    room.announcements.length = 0;
+    await cmd.handle(spec, `!login ${code2}`);
+    assert.equal(ctx.admins.get(3)?.level, 2);
+    assert.ok(room.announcements.some((a) => a.to === 3 && /Cargo ativo/.test(a.msg)));
+    assert.ok(room.adminFlags.some((f) => f.id === 3 && f.value === true));
+
+    room.announcements.length = 0;
+    await cmd.handle(spec, `!login ${code2}`);
+    assert.ok(room.announcements.some((a) => a.to === 3 && /já usada|já tem cargo/i.test(a.msg)));
+    resetStaffMemory();
+    resetStatsMemory();
+  });
+
+  it("!revoke: só 3 e 4; Gerente tira Mod, não tira Chefe", async () => {
+    resetStaffMemory();
+    await setAdmin("auth3", 2, "Moderador", "auth1");
+    const room = mockRoom();
+    const ctx = {
+      admins: new Map([
+        [1, { level: 4, title: "Chefe" }],
+        [2, { level: 3, title: "Gerente" }],
+        [3, { level: 2, title: "Moderador" }],
+      ]),
+      mutes: new Map(),
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    const gerente = room._players[1];
+    const spec = room._players[2];
+
+    await cmd.handle(spec, "!revoke Blue1");
+    assert.ok(room.announcements.some((a) => a.to === 3 && /Só Gerente e Chefe/i.test(a.msg)));
+
+    room.announcements.length = 0;
+    await cmd.handle(gerente, "!revoke RedCap");
+    assert.ok(room.announcements.some((a) => a.to === 2 && /igual ou maior/i.test(a.msg)));
+    assert.equal(ctx.admins.get(1)?.level, 4);
+
+    room.announcements.length = 0;
+    await cmd.handle(gerente, "!revoke Spec");
+    assert.ok(room.announcements.some((a) => /removido/.test(a.msg)));
+    assert.equal(ctx.admins.has(3), false);
+    assert.ok(room.adminFlags.some((f) => f.id === 3 && f.value === false));
+    resetStaffMemory();
+  });
+
+  it("!moverstats soma a conta antiga na atual e zera a antiga", async () => {
+    resetStaffMemory();
+    resetStatsMemory();
+    await persistPlayerStatsRow("auth-atual", {
+      games: 5,
+      wins: 2,
+      goals: 3,
+      assists: 1,
+      cs: 1,
+      mvps: 1,
+    });
+    await persistPlayerStatsRow("auth-old", {
+      games: 20,
+      wins: 10,
+      goals: 8,
+      assists: 4,
+      cs: 2,
+      mvps: 3,
+    });
+    const room = mockRoom();
+    const ctx = {
+      admins: new Map([
+        [1, { level: 4, title: "Chefe" }],
+        [2, { level: 3, title: "Gerente" }],
+        [3, { level: 2, title: "Moderador" }],
+      ]),
+      mutes: new Map(),
+      titles: new Map(),
+    };
+    const cmd = createCommandHandler(room, ctx);
+
+    await cmd.handle(room._players[2], "!moverstats auth-atual auth-old");
+    assert.ok(room.announcements.some((a) => a.to === 3 && /Só Gerente e Chefe/i.test(a.msg)));
+
+    room.announcements.length = 0;
+    await cmd.handle(room._players[1], "!moverstats auth-atual auth-old");
+    const msg = room.announcements.find((a) => a.to === 2)?.msg || "";
+    assert.match(msg, /5\+20=25/);
+    assert.match(msg, /3\+8=11/);
+
+    const now = await getPlayerStats("auth-atual");
+    const old = await getPlayerStats("auth-old");
+    assert.equal(now.games, 25);
+    assert.equal(now.goals, 11);
+    assert.equal(old.games, 0);
+    assert.equal(old.goals, 0);
+
+    room.announcements.length = 0;
+    await cmd.handle(room._players[1], "!moverstats auth-atual auth-atual");
+    assert.ok(room.announcements.some((a) => /iguais/i.test(a.msg)));
+    resetStaffMemory();
+    resetStatsMemory();
   });
 });

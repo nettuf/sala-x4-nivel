@@ -24,7 +24,7 @@ const { createRoomStats } = require("./roomStats");
 const { createCarousel, buildCarouselSlides } = require("./carousel");
 const { applyJoinGuards } = require("./joinGuards");
 const { createUniformManager } = require("./uniforms");
-const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays } = require("./streak");
+const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays, pruneStreakIfTooFewHolders } = require("./streak");
 const { createCommandHandler } = require("../commands");
 const { detectRageQuit, isChooseToken, rageQuitMessages, targetTeamSize } = require("../gameLogic");
 const { rememberIdentity, withIdentity } = require("./playerAuth");
@@ -463,6 +463,7 @@ function createRoom(HBInit) {
     const players = room.getPlayerList().filter((p) => p.id !== 0);
     const plan = planWarmup(players, {
       isExcluded: (p) => afk.isAfk(p.id),
+      teamSize: config.teamSize,
     });
     if (!plan.shouldStart || plan.replacementTeam) return;
     match.start({ competitive: false });
@@ -608,6 +609,7 @@ function createRoom(HBInit) {
 
     const plan = planWarmup(players, {
       isExcluded: (p) => afk.isAfk(p.id),
+      teamSize: config.teamSize,
     });
 
     if (!plan.eligibleCount) {
@@ -678,6 +680,7 @@ function createRoom(HBInit) {
     winnerStaysPending = null;
     if (match.isRunning()) return;
     parkAfkOnField();
+    pruneStreakIfTooFewHolders(room, streak, { isExcluded: (p) => afk.isAfk(p.id) });
     const eligible = room
       .getPlayerList()
       .filter((p) => p.id !== 0 && !afk.isAfk(p.id));
@@ -1528,7 +1531,7 @@ function createRoom(HBInit) {
     }
 
     const { line, color } = commands.formatPlayerChat(who, message);
-    room.sendAnnouncement(line, null, color, "bold", 1);
+    room.sendAnnouncement(line, null, color, "normal", 1);
     chatLog.push({ nick: who.name, text: message, kind: "chat" });
     return false;
   };

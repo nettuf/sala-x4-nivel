@@ -66,7 +66,7 @@ function createChooseController(room, {
   function setTeam(playerId, team) {
     pendingTeams.set(playerId, team);
     room.setPlayerTeam(playerId, team);
-    const timer = setTimeout(() => pendingTeams.delete(playerId), 250);
+    const timer = setTimeout(() => pendingTeams.delete(playerId), 1000);
     if (typeof timer.unref === "function") timer.unref();
   }
 
@@ -121,16 +121,24 @@ function createChooseController(room, {
     if (!active) return;
     if (tryFinishChoose()) return;
     if (tryFillExactHoles()) return;
-    if (lastPickCaptainId && !pickPromptStale(2000)) return;
-    if (!beginCaptainPickTurn()) {
+    const cap = currentCaptain();
+    if (
+      isCapTimeoutLive() &&
+      cap &&
+      lastPickCaptainId === cap.id &&
+      !pickPromptStale(1500)
+    ) {
+      return;
+    }
+    if (!beginCaptainPickTurn({ refreshOnly: isCapTimeoutLive() })) {
       ensureCaptain();
-      beginCaptainPickTurn();
+      beginCaptainPickTurn({ refreshOnly: isCapTimeoutLive() });
     }
   }
 
   function schedulePickPromptNudge() {
     clearPickPromptNudge();
-    if (!active || lastPickCaptainId) return;
+    if (!active) return;
     for (const delay of PICK_NUDGE_DELAYS_MS) {
       const timer = setTimeout(nudgePickPrompt, delay);
       if (typeof timer.unref === "function") timer.unref();
@@ -249,6 +257,27 @@ function createChooseController(room, {
       scheduleCaptainTimeouts(cap);
     }
     return true;
+  }
+
+  /** Lista + timer na hora. O defer só renumera depois do Haxball confirmar o time. */
+  function continuePickNow() {
+    if (!active) return;
+    if (tryFinishChoose()) return;
+    if (tryFillExactHoles()) return;
+    if (!beginCaptainPickTurn()) {
+      ensureCaptain();
+      if (!beginCaptainPickTurn()) {
+        afterTeamChange(() => promptCaptain({ allowExactFill: true }));
+        return;
+      }
+    }
+    schedulePickPromptNudge();
+    afterTeamChange(() => {
+      if (!active) return;
+      if (tryFinishChoose()) return;
+      if (tryFillExactHoles()) return;
+      beginCaptainPickTurn({ refreshOnly: true });
+    });
   }
 
   /** Time que precisa pickar: nunca o que já está completo. */
@@ -463,11 +492,7 @@ function createChooseController(room, {
       afterTeamChange(onReadyToStart);
       return true;
     }
-    if (!beginCaptainPickTurn()) {
-      afterTeamChange(() => promptCaptain({ allowExactFill: true }));
-    } else {
-      afterTeamChange(() => beginCaptainPickTurn({ refreshOnly: true }));
-    }
+    continuePickNow();
     return true;
   }
 
@@ -528,7 +553,7 @@ function createChooseController(room, {
       if (!cap) abortChoose("Sem jogadores para escolher — voltando ao lobby.");
       else if (!beginCaptainPickTurn()) abortChoose("Sem jogadores para escolher — voltando ao lobby.");
     }
-    if (active && !lastPickCaptainId) schedulePickPromptNudge();
+    if (active) schedulePickPromptNudge();
   }
 
   /**
@@ -860,11 +885,7 @@ function createChooseController(room, {
         afterTeamChange(() => onReady?.({ chosen }));
         return true;
       }
-      if (!beginCaptainPickTurn()) {
-        afterTeamChange(() => promptCaptain({ allowExactFill: true }));
-      } else {
-        afterTeamChange(() => beginCaptainPickTurn({ refreshOnly: true }));
-      }
+      continuePickNow();
       return true;
     }
 
@@ -874,12 +895,7 @@ function createChooseController(room, {
       return true;
     }
 
-    // Lista + timer na hora; depois do defer só renumera (times async do Haxball).
-    if (!beginCaptainPickTurn()) {
-      afterTeamChange(() => promptCaptain({ allowExactFill: true }));
-    } else {
-      afterTeamChange(() => beginCaptainPickTurn({ refreshOnly: true }));
-    }
+    continuePickNow();
     return true;
   }
 

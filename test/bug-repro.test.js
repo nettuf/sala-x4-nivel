@@ -143,6 +143,65 @@ describe("repro bugs reportados", () => {
     host.cleanup();
   });
 
+  it("4v4 acaba com spec só AFK → não fica 4v0; sobe capitão ou remonta", async () => {
+    const host = await boot4v4WithSpec(3);
+    for (const p of host.players.filter((x) => x.team === TEAM.SPEC)) {
+      host.handles.afk.setAfk(p, true);
+    }
+    await settle();
+    assert.equal(field(host).red, 4);
+    assert.equal(field(host).blue, 4);
+    assert.equal(field(host).spec, 0);
+
+    finishWithRedWin(host);
+    host.room.stopGame();
+    await host.room.onGameStop();
+    await waitLobby();
+
+    const f = field(host);
+    assert.notEqual(f.blue, 0, "não pode ficar sem azul");
+    assert.ok(f.red === f.blue, `times iguais, got ${f.red}v${f.blue}`);
+    assert.ok(
+      host.live() || host.handles.choose.isActive(),
+      "inicia o jogo ou abre choose"
+    );
+    host.cleanup();
+  });
+
+  it("4 vermelhos + spec AFK (ninguém no azul) → parte 2v2 e inicia", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+    for (let i = 0; i < 4; i++) {
+      const p = host.addPlayer(TEAM.SPEC);
+      host.handles.afk.setAfk(p, true);
+    }
+    host.handles.refreshLobby();
+    await waitLobby();
+
+    const f = field(host);
+    assert.equal(f.red, 2, "puxa 2 do vermelho pro azul");
+    assert.equal(f.blue, 2);
+    assert.equal(f.spec, 0);
+    assert.ok(host.live(), "2v2 começa");
+    assert.equal(host.handles.choose.isActive(), false);
+    host.cleanup();
+  });
+
+  it("4 vermelhos + 2 specs ativos → 3v3, não trava 4v0", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+    host.addPlayer(TEAM.SPEC);
+    host.addPlayer(TEAM.SPEC);
+    host.handles.refreshLobby();
+    await waitLobby();
+
+    const f = field(host);
+    assert.equal(f.red, 3);
+    assert.equal(f.blue, 3);
+    assert.ok(host.live() || host.handles.choose.isActive());
+    host.cleanup();
+  });
+
   it("3v3 acaba com 7 (1 spec) → winner stays + capitão", async () => {
     const host = await boot3v3(1);
     finishWithRedWin(host);

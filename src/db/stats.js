@@ -15,7 +15,56 @@ function emptyPlayerStats() {
     woms: 0,
     cs: 0,
     selected_title: null,
+    gifted_titles: [],
   };
+}
+
+/** Overlay em memória: testes, sala sem banco, ou coluna ainda não migrada. */
+const statsMemory = new Map();
+
+const STAT_SUM_KEYS = ["games", "wins", "draws", "losses", "goals", "assists", "own_goals", "mvps", "woms", "cs"];
+
+function normalizeGiftedIds(raw) {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((id) => String(id || "").trim()).filter(Boolean))];
+}
+
+function readStatsMemory(auth) {
+  return statsMemory.get(auth) || {};
+}
+
+function patchStatsMemory(auth, patch) {
+  const cur = readStatsMemory(auth);
+  const next = { ...cur, ...patch };
+  if (Object.prototype.hasOwnProperty.call(patch, "gifted_titles")) {
+    next.gifted_titles = normalizeGiftedIds(patch.gifted_titles);
+  }
+  statsMemory.set(auth, next);
+  return next;
+}
+
+function mergeGiftedTitles(auth, fromDb) {
+  const fromMem = normalizeGiftedIds(readStatsMemory(auth).gifted_titles);
+  return [...new Set([...normalizeGiftedIds(fromDb), ...fromMem])];
+}
+
+function overlayMemory(auth, row) {
+  if (!auth) return { ...emptyPlayerStats(), ...row, gifted_titles: normalizeGiftedIds(row?.gifted_titles) };
+  const mem = readStatsMemory(auth);
+  const gifted_titles = mergeGiftedTitles(auth, row?.gifted_titles);
+  const selected_title = Object.prototype.hasOwnProperty.call(mem, "selected_title")
+    ? mem.selected_title
+    : row?.selected_title;
+  const merged = { ...emptyPlayerStats(), ...row, gifted_titles, selected_title };
+  const rowEmpty = !Number(row?.games) && !Number(row?.goals) && !Number(row?.wins);
+  if (mem._full && rowEmpty) {
+    for (const k of STAT_SUM_KEYS) merged[k] = Number(mem[k]) || 0;
+  }
+  return merged;
+}
+
+function resetStatsMemory() {
+  statsMemory.clear();
 }
 
 function winratePct(stats) {
@@ -161,10 +210,10 @@ async function bumpPlayerStats(p) {
   if (!sb || !p.auth) return;
 
   const { data: cur } = await sb.from("player_stats").select("*").eq("auth", p.auth).maybeSingle();
-  const row = cur || {
+  const row = overlayMemory(p.auth, cur || {
     auth: p.auth,
     ...emptyPlayerStats(),
-  };
+  });
 
   const prev = {
     games: row.games,
@@ -173,6 +222,7 @@ async function bumpPlayerStats(p) {
     assists: row.assists,
     mvps: row.mvps || 0,
     selected_title: row.selected_title || null,
+    gifted_titles: row.gifted_titles,
   };
 
   row.games += 1;
@@ -193,8 +243,8 @@ async function bumpPlayerStats(p) {
 
   const { error } = await sb.from("player_stats").upsert(row);
   if (error) {
-    if (/cs|woms/i.test(error.message || "")) {
-      const { cs: _cs, woms: _woms, ...withoutOptional } = row;
+    if (/cs|woms|gifted_titles/i.test(error.message || "")) {
+      const { cs: _cs, woms: _woms, gifted_titles: _g, ...withoutOptional } = row;
       const retry = await sb.from("player_stats").upsert(withoutOptional);
       if (retry.error) console.error("[stats] bump", retry.error.message);
     } else {
@@ -235,10 +285,11 @@ async function aggregateFromMatches(sb, auth) {
 
 async function getPlayerStats(auth) {
   const sb = getSupabase();
-  if (!sb || !auth) return emptyPlayerStats();
+  if (!auth) return emptyPlayerStats();
+  if (!sb) return overlayMemory(auth, emptyPlayerStats());
   const { data, error } = await sb.from("player_stats").select("*").eq("auth", auth).maybeSingle();
   if (error) console.error("[stats] get", error.message);
-  const row = { ...emptyPlayerStats(), ...(data || {}) };
+  const row = overlayMemory(auth, { ...emptyPlayerStats(), ...(data || {}) });
   // A coluna cs é mantida no fim de cada partida. Só recontamos (query pesada)
   // quando a migração 004 ainda não rodou nesse banco.
   if (data && data.cs === undefined) {
@@ -250,24 +301,78 @@ async function getPlayerStats(auth) {
   // Sem linha em player_stats = jogador novo. Não varrer match_players no join.
   if (data && emptyTotals) {
     const fromMatches = await aggregateFromMatches(sb, auth);
-    if (fromMatches) return { ...row, ...fromMatches, selected_title: row.selected_title };
+    if (fromMatches) {
+      return overlayMemory(auth, {
+        ...row,
+        ...fromMatches,
+        selected_title: row.selected_title,
+        gifted_titles: row.gifted_titles,
+      });
+    }
   }
   return row;
 }
 
-async function setSelectedTitle(auth, titleId) {
+async function persistGiftedTitles(auth, ids) {
+  const list = normalizeGiftedIds(ids);
+  patchStatsMemory(auth, { gifted_titles: list });
   const sb = getSupabase();
-  if (!sb || !auth) return false;
+  if (!sb || !auth) return true;
   await ensurePlayer(auth, null);
   const { data: cur } = await sb.from("player_stats").select("*").eq("auth", auth).maybeSingle();
-  const row = cur || {
-    auth,
-    ...emptyPlayerStats(),
-  };
-  row.selected_title = titleId;
+  const row = overlayMemory(auth, cur || { auth, ...emptyPlayerStats() });
+  row.auth = auth;
+  row.gifted_titles = list;
   row.updated_at = new Date().toISOString();
   const { error } = await sb.from("player_stats").upsert(row);
   if (error) {
+    if (/gifted_titles/i.test(error.message || "")) return true;
+    console.error("[stats] gifted", error.message);
+    return false;
+  }
+  return true;
+}
+
+async function grantGiftedTitle(auth, titleId) {
+  if (!auth || !titleId) return false;
+  const id = String(titleId);
+  const current = mergeGiftedTitles(auth, (await getPlayerStats(auth)).gifted_titles);
+  if (!current.includes(id)) current.push(id);
+  return persistGiftedTitles(auth, current);
+}
+
+async function revokeGiftedTitle(auth, titleId) {
+  if (!auth || !titleId) return false;
+  const id = String(titleId);
+  const current = mergeGiftedTitles(auth, (await getPlayerStats(auth)).gifted_titles).filter((x) => x !== id);
+  return persistGiftedTitles(auth, current);
+}
+
+async function setSelectedTitle(auth, titleId) {
+  if (!auth) return false;
+  patchStatsMemory(auth, { selected_title: titleId ?? null });
+  const sb = getSupabase();
+  if (!sb) return true;
+  await ensurePlayer(auth, null);
+  const { data: cur } = await sb.from("player_stats").select("*").eq("auth", auth).maybeSingle();
+  const row = overlayMemory(auth, cur || {
+    auth,
+    ...emptyPlayerStats(),
+  });
+  row.auth = auth;
+  row.selected_title = titleId ?? null;
+  row.updated_at = new Date().toISOString();
+  const { error } = await sb.from("player_stats").upsert(row);
+  if (error) {
+    if (/gifted_titles/i.test(error.message || "")) {
+      const { gifted_titles: _g, ...withoutGift } = row;
+      const retry = await sb.from("player_stats").upsert(withoutGift);
+      if (retry.error) {
+        console.error("[stats] set title", retry.error.message);
+        return false;
+      }
+      return true;
+    }
     console.error("[stats] set title", error.message);
     return false;
   }
@@ -389,11 +494,68 @@ function getLeaderboard(stat) {
   return leaderboardStore.get(stat);
 }
 
+async function persistPlayerStatsRow(auth, row) {
+  if (!auth) return false;
+  const next = { ...emptyPlayerStats(), ...row, gifted_titles: normalizeGiftedIds(row?.gifted_titles) };
+  next.selected_title = row?.selected_title ?? null;
+  patchStatsMemory(auth, { ...next, _full: true });
+  const sb = getSupabase();
+  if (!sb) return true;
+  await ensurePlayer(auth, null);
+  const { data: cur } = await sb.from("player_stats").select("*").eq("auth", auth).maybeSingle();
+  const saved = overlayMemory(auth, cur || { auth, ...emptyPlayerStats() });
+  Object.assign(saved, next);
+  saved.auth = auth;
+  saved.updated_at = new Date().toISOString();
+  const { error } = await sb.from("player_stats").upsert(saved);
+  if (error) {
+    if (/gifted_titles/i.test(error.message || "")) {
+      const { gifted_titles: _g, ...withoutGift } = saved;
+      const retry = await sb.from("player_stats").upsert(withoutGift);
+      if (retry.error) {
+        console.error("[stats] persist", retry.error.message);
+        return false;
+      }
+      return true;
+    }
+    console.error("[stats] persist", error.message);
+    return false;
+  }
+  return true;
+}
+
+async function transferPlayerStats(targetAuth, sourceAuth) {
+  const targetId = String(targetAuth || "").trim();
+  const sourceId = String(sourceAuth || "").trim();
+  if (!targetId || !sourceId) return { ok: false, reason: "invalid" };
+  if (targetId === sourceId) return { ok: false, reason: "same" };
+  const target = await getPlayerStats(targetId);
+  const source = await getPlayerStats(sourceId);
+  const summed = emptyPlayerStats();
+  for (const k of STAT_SUM_KEYS) {
+    summed[k] = (Number(target[k]) || 0) + (Number(source[k]) || 0);
+  }
+  summed.gifted_titles = [
+    ...new Set([...normalizeGiftedIds(target.gifted_titles), ...normalizeGiftedIds(source.gifted_titles)]),
+  ];
+  summed.selected_title = target.selected_title || source.selected_title || null;
+  const zeroed = { ...emptyPlayerStats(), gifted_titles: [], selected_title: null };
+  const okT = await persistPlayerStatsRow(targetId, summed);
+  const okS = await persistPlayerStatsRow(sourceId, zeroed);
+  if (okT && okS) invalidateLeaderboards();
+  return { ok: okT && okS, before: { target, source }, after: summed };
+}
+
 module.exports = {
   saveMatch,
   getPlayerStats,
   bumpPlayerStats,
   setSelectedTitle,
+  grantGiftedTitle,
+  revokeGiftedTitle,
+  resetStatsMemory,
+  persistPlayerStatsRow,
+  transferPlayerStats,
   pickMatchMvps,
   emptyPlayerStats,
   formatStatusCard,
