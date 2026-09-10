@@ -58,6 +58,12 @@ const RANKING_CMDS = {
   jogos: { stat: "games", title: "🎮 Top 5 jogos" },
   jogo: { stat: "games", title: "🎮 Top 5 jogos" },
   games: { stat: "games", title: "🎮 Top 5 jogos" },
+  vitorias: { stat: "wins", title: "🏆 Top 5 vitórias" },
+  vitoria: { stat: "wins", title: "🏆 Top 5 vitórias" },
+  wins: { stat: "wins", title: "🏆 Top 5 vitórias" },
+  hattricks: { stat: "hat_tricks", title: "⚽⚽⚽ Top 5 hat-tricks" },
+  hattrick: { stat: "hat_tricks", title: "⚽⚽⚽ Top 5 hat-tricks" },
+  ht: { stat: "hat_tricks", title: "⚽⚽⚽ Top 5 hat-tricks" },
   wom: { stat: "woms", title: "💩 Top 5 WoM" },
   woms: { stat: "woms", title: "💩 Top 5 WoM" },
   worstofmatch: { stat: "woms", title: "💩 Top 5 WoM" },
@@ -83,7 +89,7 @@ function playerHelpLines({
   if (isAdmin) lines.push("% <msg> — chat só de staff");
   lines.push(
     "— Categorias —",
-    "!status / !stats — jogos, gols, CS, MVP, WR",
+    "!status / !stats — vitórias, gols, hat-tricks, CS, MVP, WR",
     "!cargos · !listacargos · !cargo — emblemas",
     "!unis — uniformes · !cores1 · !cores2",
     "!zoeira — zoeiras da sala",
@@ -113,7 +119,8 @@ function zoeiraHelpLines() {
 function rankingHelpLines() {
   return [
     "— Ranking —",
-    "!gols !assists !golcontra !cs !jogos !mvp !wom — top 5",
+    "!gols !assists !vitorias !hattricks — top 5",
+    "!golcontra !cs !jogos !mvp !wom — top 5",
     "!streak — streak atual",
     "!topstreak — recorde da sala",
   ];

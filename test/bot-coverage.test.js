@@ -497,7 +497,9 @@ describe("stats e cargos", () => {
     const card = formatStatusCard("Netto", { games: 10, wins: 4, losses: 6, goals: 3, assists: 1, cs: 2, mvps: 1 }, { emblem: "📉", name: "Negativo", color: 1 });
     assert.match(card, /Netto/);
     assert.match(card, /Negativo/);
-    assert.match(card, /4V 0E 6D/);
+    assert.match(card, /Vitórias: 4/);
+    assert.match(card, /Empates: 0/);
+    assert.match(card, /Derrotas: 6/);
     assert.match(card, /CS: 2/);
   });
 

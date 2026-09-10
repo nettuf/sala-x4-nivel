@@ -350,11 +350,28 @@ describe("finish 4v4 → payload do site", () => {
     assert.equal(result.persistPayload.haxbook.participants.length, 8);
   });
 
+  it("admin fecha 4v4 ao vivo e abre o mercado oficial", async () => {
+    const players = eightOnField();
+    players[3].team = TEAM.SPEC;
+    players[7].team = TEAM.SPEC;
+    const scores = finishScores();
+    const { room } = roomWith(players, scores);
+    const match = createMatchController(room);
+    match.start({ competitive: false });
+    players[3].team = TEAM.RED;
+    players[7].team = TEAM.BLUE;
+    match.setCompetitive(true);
+    match.markVictory();
+    const result = await match.finish(scores, { persist: false });
+    assert.ok(result.persistPayload.haxbook);
+    assert.match(result.persistPayload.haxbook.matchId, /^\d+-/);
+  });
+
   it("persistMatch dispara POST quando há payload haxbook e API key", async () => {
     const posts = [];
     globalThis.fetch = async (url, opts) => {
-      posts.push({ url, headers: opts.headers, body: JSON.parse(opts.body) });
-      return { ok: true };
+      posts.push({ url, headers: opts.headers, body: opts.body ? JSON.parse(opts.body) : null });
+      return { ok: true, json: async () => ({ status: "CLOSED" }) };
     };
     const config = require("../src/config");
     const prevKey = config.haxbookApiKey;
@@ -365,18 +382,32 @@ describe("finish 4v4 → payload do site", () => {
     const { room } = roomWith(players, scores);
     const match = createMatchController(room);
     match.start({ competitive: true });
+    match.onBallKick(players[0]);
+    match.onTeamGoal(TEAM.RED);
+    match.onBallKick(players[4]);
+    match.onTeamGoal(TEAM.RED);
     match.markVictory();
     const result = await match.finish(scores, { persist: false });
     assert.ok(result.persistPayload?.haxbook);
 
     await match.persistMatch(result.persistPayload);
+    await new Promise((resolve) => setImmediate(resolve));
 
     config.haxbookApiKey = prevKey;
-    assert.equal(posts.length, 1);
-    assert.equal(posts[0].headers["X-API-Key"], "test-persist-key");
-    assert.equal(posts[0].body.redScore, 3);
-    assert.equal(posts[0].body.participants.length, 8);
-    assert.match(posts[0].url, /haxbook\.com\.br/);
+    const statsPost = posts.find((p) => /\/stats$/.test(p.url));
+    const marketStart = posts.find((p) => /\/haxbooket\/markets\/start$/.test(p.url));
+    const marketFinished = posts.find((p) => p.body?.type === "FINISHED");
+    assert.ok(statsPost);
+    assert.ok(marketStart);
+    assert.ok(marketFinished);
+    assert.equal(statsPost.headers["X-API-Key"], "test-persist-key");
+    assert.equal(statsPost.body.redScore, 3);
+    assert.equal(statsPost.body.participants.length, 8);
+    assert.equal(marketStart.body.participants[0].auth, "auth-r1");
+    assert.equal(marketStart.body.matchId, statsPost.body.matchId);
+    assert.equal(Object.hasOwn(marketStart.body.participants[0], "goals"), false);
+    assert.equal(marketFinished.body.participants.find((p) => p.auth === "auth-r1").goals, 1);
+    assert.equal(marketFinished.body.participants.find((p) => p.auth === "auth-b5").goals, 0);
   });
 
   it("terminou 4v3 no apito não manda", async () => {

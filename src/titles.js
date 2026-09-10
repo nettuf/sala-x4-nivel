@@ -105,6 +105,29 @@ const TITLES = [
     req: { cs: 1000 },
   },
   {
+    id: "chapeleiro",
+    name: "Chapeleiro",
+    emblem: "🎩",
+    color: 0x9b59b6,
+    req: { hat_tricks: 50 },
+  },
+  {
+    id: "rei-hattrick",
+    name: "Rei do Hat-Trick",
+    emblem: "👑",
+    color: 0xf1c40f,
+    chatHighlight: true,
+    req: { hat_tricks: 200 },
+  },
+  {
+    id: "imortal-hattrick",
+    name: "Imortal do Hat-Trick",
+    emblem: "🐐",
+    color: 0xffc04d,
+    chatHighlight: true,
+    req: { hat_tricks: 500 },
+  },
+  {
     id: "dupla",
     name: "Dupla Letal",
     emblem: "⚔️",
@@ -147,6 +170,7 @@ function statsBag(stats) {
     assists: Number(stats?.assists) || 0,
     mvps: Number(stats?.mvps) || 0,
     cs: Number(stats?.cs) || 0,
+    hat_tricks: Number(stats?.hat_tricks) || 0,
     winrate: games > 0 ? (wins / games) * 100 : 0,
   };
 }
@@ -510,7 +534,7 @@ function reqLabel(req, title) {
   if (title?.kind === "staff") return `adm nv.${title.level}`;
   if (title?.kind === "gift") return "Chefe";
   if (!req || !Object.keys(req).length) return "livre";
-  const map = { games: "J", goals: "G", assists: "A", mvps: "MVP", cs: "CS" };
+  const map = { games: "J", goals: "G", assists: "A", mvps: "MVP", cs: "CS", hat_tricks: "HT" };
   return Object.entries(req)
     .map(([k, v]) => (k === "maxWinrate" ? `WR < ${v}%` : `${v}${map[k] || k}`))
     .join(" + ");
@@ -526,6 +550,7 @@ function reqLabelLong(req, title) {
     assists: (v) => `${v} assists`,
     mvps: (v) => `${v} MVP`,
     cs: (v) => `${v} CS`,
+    hat_tricks: (v) => `${v} hat-tricks`,
   };
   return Object.entries(req)
     .map(([k, v]) => (k === "maxWinrate" ? `WR < ${v}%` : map[k] ? map[k](v) : `${v}${k}`))

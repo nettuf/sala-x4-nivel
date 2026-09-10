@@ -21,11 +21,16 @@ const {
   buildStatsBody,
   postMatchStats,
 } = require("../haxbook/statsWebhook");
+const { createHaxbooket, marketParticipants } = require("../haxbook/haxbooket");
 
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
  */
 function createMatchController(room, { identify, onCompletedMatch } = {}) {
+  const haxbooket = createHaxbooket(room, {
+    statsUrl: config.haxbookStatsUrl,
+    apiKey: config.haxbookApiKey,
+  });
   /** @type {null | {
    *   recordingStarted: boolean,
    *   touches: object[],
@@ -159,10 +164,13 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     gkSamples = new Map();
     const redN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 1).length;
     const blueN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 2).length;
+    const startedFourOnFour = !!competitive && redN >= 4 && blueN >= 4;
+    const matchId = startedFourOnFour ? makeMatchId() : null;
     match = {
       competitive,
       everCompetitive: !!competitive,
-      startedFourOnFour: !!competitive && redN >= 4 && blueN >= 4,
+      startedFourOnFour,
+      matchId,
       formatBroken: false,
       recordingStarted: false,
       touches: [],
@@ -171,6 +179,12 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       lineupRed: playersOf(1).map((p) => ({ id: p.id, name: p.name, auth: p.auth || null })),
       lineupBlue: playersOf(2).map((p) => ({ id: p.id, name: p.name, auth: p.auth || null })),
     };
+    if (matchId) {
+      haxbooket.open({
+        matchId,
+        participants: room.getPlayerList().map((p) => who(p)),
+      });
+    }
     try {
       room.startRecording();
       match.recordingStarted = true;
@@ -246,6 +260,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
 
   function onTeamGoal(team) {
     if (!match) return;
+    haxbooket.goal(team);
     activePlay = false;
     const scores = rememberScores(room.getScores());
     const time = scores?.time ?? 0;
@@ -501,7 +516,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       : null;
     const haxbook = siteEligible
       ? buildStatsBody({
-          matchId: makeMatchId(),
+          matchId: match.matchId,
           redScore: scoreRed,
           blueScore: scoreBlue,
           winner,
@@ -516,6 +531,14 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
           }),
         })
       : null;
+    const marketFinalists = marketParticipants(room.getPlayerList().map((p) => {
+      const player = who(p);
+      return { ...player, goals: tallyForPlayer(player).goals };
+    }));
+    if (match.matchId) {
+      if (valid && decided && !match.formatBroken) haxbooket.finish(winner, marketFinalists);
+      else haxbooket.void(match.formatBroken ? "format-broken" : "stop-invalido");
+    }
     const mvps = valid ? pickMatchMvps(playersForTitles) : [];
     const worst = valid ? pickMatchWorst(playersForTitles) : [];
     const poss = possessionPercents(redPoss, bluePoss);
@@ -660,7 +683,8 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     return `abandonou perdendo ${resolved.red}x${resolved.blue}`;
   }
 
-  function cancelRecordingOnly() {
+  function cancelRecordingOnly(reason = "rr-ou-desmontagem") {
+    if (match?.matchId) haxbooket.void(reason);
     if (match?.recordingStarted) {
       try {
         room.stopRecording();
@@ -686,10 +710,13 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
     if (match) return;
     const redN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 1).length;
     const blueN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 2).length;
+    const startedFourOnFour = !!state.startedFourOnFour || (!!state.competitive && redN >= 4 && blueN >= 4);
+    const matchId = startedFourOnFour ? makeMatchId() : null;
     match = {
       competitive: !!state.competitive,
       everCompetitive: !!state.everCompetitive,
-      startedFourOnFour: !!state.startedFourOnFour,
+      startedFourOnFour,
+      matchId,
       formatBroken: !!state.formatBroken,
       recordingStarted: false,
       touches: [],
@@ -698,6 +725,9 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       lineupRed: playersOf(1).map((p) => ({ id: p.id, name: p.name, auth: p.auth || null })),
       lineupBlue: playersOf(2).map((p) => ({ id: p.id, name: p.name, auth: p.auth || null })),
     };
+    if (matchId) {
+      haxbooket.open({ matchId, participants: room.getPlayerList().map((p) => who(p)) });
+    }
     try {
       room.startRecording();
       match.recordingStarted = true;
@@ -733,13 +763,29 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       match.competitive = !!value;
       if (value) {
         match.everCompetitive = true;
+        if (!match.matchId && !match.formatBroken) {
+          const redN = playersOf(1).length;
+          const blueN = playersOf(2).length;
+          if (redN >= 4 && blueN >= 4) {
+            match.startedFourOnFour = true;
+            match.matchId = makeMatchId();
+            haxbooket.open({
+              matchId: match.matchId,
+              participants: room.getPlayerList().map((p) => who(p)),
+            });
+          }
+        }
         return;
       }
-      if (breakFormat) match.formatBroken = true;
+      if (breakFormat) {
+        match.formatBroken = true;
+        if (match.matchId) haxbooket.void("format-broken");
+      }
     },
     markFormatBroken() {
       if (!match) return;
       match.formatBroken = true;
+      if (match.matchId) haxbooket.void("format-broken");
     },
     isRunning: () => !!match,
     isCompetitive: () => !!match?.competitive,

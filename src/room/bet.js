@@ -19,7 +19,11 @@ function bindLines(templates) {
   return templates.map((t) => (n) => t.replaceAll("%s", n));
 }
 
-const TEASE_LINES = bindLines([
+function expandLines(openings, endings, emblem) {
+  return bindLines(openings.flatMap((opening) => endings.map((ending) => `${emblem} ${opening} ${ending}`)));
+}
+
+const LEGACY_TEASE_LINES = bindLines([
   "🎲 %s pediu a bola, recebeu e devolveu pro outro time.",
   "🎲 %s transformou defesa em assistência pro rival.",
   "🎲 %s chutou no gol aberto e acertou o córner.",
@@ -122,7 +126,7 @@ const TEASE_LINES = bindLines([
   "🎲 %s abriu a perna no 1v1. Kyamo teria feito igual.",
 ]);
 
-const PRAISE_LINES = bindLines([
+const LEGACY_PRAISE_LINES = bindLines([
   "⭐ %s é craque. Ponto.",
   "⭐ %s viu o lance três segundos antes do resto.",
   "⭐ Muralha. O nome no gol é %s.",
@@ -225,6 +229,113 @@ const PRAISE_LINES = bindLines([
   "⭐ Passe de %s no pé. Copas teria dado no pé do rival.",
 ]);
 
+// Voz da X4: competitiva, tática e com zoeira de futebol sem ataques pessoais.
+const TEASE_LINES = bindLines([
+  "🟥 %s subiu pra pressionar e esqueceu de avisar a defesa.",
+  "🟥 O 4v4 virou 3v5 quando %s tentou sair jogando.",
+  "🟥 %s fechou a linha de passe. A do próprio time.",
+  "🟥 Recuo de %s veio redondo para o atacante rival.",
+  "🟥 %s pediu cobertura e levou o cobertor para o lado errado.",
+  "🟥 A transição de %s foi rápida: da posse para o contra-ataque rival.",
+  "🟥 %s tentou inverter o jogo e inverteu a vantagem.",
+  "🟥 Último homem %s: emoção que nenhum torcedor pediu.",
+  "🟥 %s foi no bote. A bola continuou, ele não.",
+  "🟥 A linha defensiva subiu; %s ficou consultando o VAR.",
+  "🟥 %s achou um passe impossível. Era impossível mesmo.",
+  "🟥 Bola parada para %s, jogo parado para o time.",
+  "🟥 %s dominou, pensou e entregou. Sequência completa.",
+  "🟥 O corredor estava fechado até %s entregar a chave.",
+  "🟥 %s armou a jogada mais perigosa do rival.",
+  "🟥 O time pediu compactação; %s escolheu outro continente.",
+  "🟥 %s tabelou bonito com quem vestia a outra cor.",
+  "🟥 Contra-ataque de quatro contra três, encerrado por %s contra a lateral.",
+  "🟥 %s cobriu o primeiro pau e liberou o gol inteiro.",
+  "🟥 A posse era segura até chegar no pé de %s.",
+  "🟥 %s tentou passe vertical e mandou para fora do estádio.",
+  "🟥 A recomposição de %s chega no próximo lance.",
+  "🟥 %s abriu espaço entre as linhas. Para o adversário.",
+  "🟥 Placar apertado e %s distribuindo sustos de graça.",
+  "🟥 %s marcou por zona: ficou numa zona e não marcou ninguém.",
+  "🟥 O técnico desenhou a jogada; %s apagou com o primeiro toque.",
+]).concat(expandLines(
+  [
+    "Quando %s tenta sair jogando,",
+    "Depois que %s perde a posse,",
+    "Com %s no último homem,",
+    "Na pressão alta de %s,",
+    "Quando a bola chega em %s,",
+    "Na cobertura de %s,",
+    "Se %s tenta inverter,",
+    "Quando %s chama a tabela,",
+    "No contra-ataque puxado por %s,",
+    "Com o placar apertado e %s na bola,",
+  ],
+  [
+    "o rival já prepara o contra.",
+    "a defesa pede reforço.",
+    "o passe seguro vira aventura.",
+    "a compactação vira lembrança.",
+    "até a lateral fica preocupada.",
+    "o outro time agradece o espaço.",
+    "o goleiro respira fundo.",
+    "a jogada muda de dono.",
+  ],
+  "🟥",
+));
+
+const PRAISE_LINES = bindLines([
+  "⭐ %s comandou o 4v4 como capitão em final.",
+  "🏅 %s fechou a linha e ainda iniciou o contra-ataque.",
+  "🏅 Dois toques de %s e a defesa inteira ficou para trás.",
+  "🏅 %s fez a cobertura que vale tanto quanto gol.",
+  "🏅 Pressão coordenada tem nome: %s.",
+  "🏅 %s ganhou o duelo e manteve o time compacto.",
+  "🏅 Passe vertical de %s quebrou duas linhas de uma vez.",
+  "🏅 %s leu a inversão antes de todo mundo.",
+  "🏅 Último homem seguro: com %s, o time pode subir.",
+  "🏅 %s transformou defesa em ataque sem rifar a bola.",
+  "🏅 O pivô de %s desmontou a marcação.",
+  "🏅 %s apareceu no segundo pau como manda o manual.",
+  "🏅 Quando o jogo apertou, %s jogou simples e decidiu.",
+  "🏅 %s fechou o corredor e abriu o placar.",
+  "🏅 A bola correu porque %s pensou rápido.",
+  "🏅 %s deu ritmo de time treinado para esse 4v4.",
+  "🏅 Desarme limpo, passe certo, jogada viva: %s.",
+  "🏅 %s protegeu a posse até surgir o passe decisivo.",
+  "🏅 Finalização de %s: canto, rede e tranquilidade.",
+  "🏅 %s fez o balanço perfeito entre atacar e recompor.",
+  "🏅 Visão periférica de %s encontrou quem ninguém viu.",
+  "🏅 %s dominou o espaço antes de dominar a bola.",
+  "🏅 O adversário pressionou; %s respondeu com categoria.",
+  "🏅 %s deixou o time jogar de frente o tempo inteiro.",
+  "🏅 Partida grande, atuação maior ainda de %s.",
+  "🏅 %s fez parecer ensaiada uma jogada inventada na hora.",
+]).concat(expandLines(
+  [
+    "Quando %s recebe de frente,",
+    "Com %s organizando a saída,",
+    "Depois do desarme de %s,",
+    "Na pressão comandada por %s,",
+    "Quando %s aparece entre as linhas,",
+    "Com %s protegendo o último setor,",
+    "Na inversão precisa de %s,",
+    "Quando o jogo aperta para %s,",
+    "No passe vertical de %s,",
+    "Com %s acelerando o 4v4,",
+  ],
+  [
+    "o time inteiro joga melhor.",
+    "a defesa rival perde a referência.",
+    "a bola chega limpa no ataque.",
+    "o lance ganha cara de gol.",
+    "a posse vira oportunidade.",
+    "o adversário fica sem resposta.",
+    "a jogada parece ensaiada.",
+    "o campo fica maior para o time.",
+  ],
+  "🏅",
+));
+
 function pickFrom(lines, name, rng = Math.random) {
   const nick = String(name || "?").trim() || "?";
   const i = Math.min(lines.length - 1, Math.floor(rng() * lines.length));
@@ -232,11 +343,11 @@ function pickFrom(lines, name, rng = Math.random) {
 }
 
 function pickTeaseLine(name, rng = Math.random) {
-  return pickFrom(TEASE_LINES, name, rng);
+  return `🎲 ${pickFrom(TEASE_LINES, name, rng).replace(/^\S+\s+/, "")}`;
 }
 
 function pickPraiseLine(name, rng = Math.random) {
-  return pickFrom(PRAISE_LINES, name, rng);
+  return `⭐ ${pickFrom(PRAISE_LINES, name, rng).replace(/^\S+\s+/, "")}`;
 }
 
 /**

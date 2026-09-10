@@ -14,6 +14,7 @@ function emptyPlayerStats() {
     mvps: 0,
     woms: 0,
     cs: 0,
+    hat_tricks: 0,
     selected_title: null,
     gifted_titles: [],
   };
@@ -22,7 +23,7 @@ function emptyPlayerStats() {
 /** Overlay em memória: testes, sala sem banco, ou coluna ainda não migrada. */
 const statsMemory = new Map();
 
-const STAT_SUM_KEYS = ["games", "wins", "draws", "losses", "goals", "assists", "own_goals", "mvps", "woms", "cs"];
+const STAT_SUM_KEYS = ["games", "wins", "draws", "losses", "goals", "assists", "own_goals", "mvps", "woms", "cs", "hat_tricks"];
 
 function normalizeGiftedIds(raw) {
   if (!Array.isArray(raw)) return [];
@@ -74,6 +75,14 @@ function winratePct(stats) {
   return Math.round((wins / games) * 1000) / 10;
 }
 
+function isHatTrick(player) {
+  return (Number(player?.goals) || 0) >= 3;
+}
+
+function isHatTrickForMatch(valid, player) {
+  return !!valid && isHatTrick(player);
+}
+
 function formatStatusCard(name, stats, title) {
   const s = { ...emptyPlayerStats(), ...stats };
   const wr = winratePct(s);
@@ -82,8 +91,8 @@ function formatStatusCard(name, stats, title) {
   const cargo = title?.name || "Novato";
   return [
     `${emblem} ${name}  ·  ${cargo}`,
-    `Jogos: ${Number(s.games) || 0}  (${Number(s.wins) || 0}V ${Number(s.draws) || 0}E ${Number(s.losses) || 0}D)  ·  WR ${wrText}%`,
-    `Gols: ${Number(s.goals) || 0}  ·  Assist: ${Number(s.assists) || 0}  ·  CS: ${Number(s.cs) || 0}  ·  MVP: ${Number(s.mvps) || 0}  ·  WoM: ${Number(s.woms) || 0}`,
+    `Jogos: ${Number(s.games) || 0}  ·  Vitórias: ${Number(s.wins) || 0}  ·  Empates: ${Number(s.draws) || 0}  ·  Derrotas: ${Number(s.losses) || 0}  ·  WR ${wrText}%`,
+    `Gols: ${Number(s.goals) || 0}  ·  Assist: ${Number(s.assists) || 0}  ·  Hat-tricks: ${Number(s.hat_tricks) || 0}  ·  CS: ${Number(s.cs) || 0}  ·  MVP: ${Number(s.mvps) || 0}  ·  WoM: ${Number(s.woms) || 0}`,
   ].join("\n");
 }
 
@@ -146,13 +155,14 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
       mvp: mvpAuths.has(p.auth),
       wom: womAuths.has(p.auth),
       clean_sheet: !!p.cleanSheet,
+      hat_trick: isHatTrickForMatch(valid, p),
     }));
     const { error: pe } = await sb.from("match_players").insert(rows);
     if (pe) {
       const msg = pe.message || "";
-      if (/clean_sheet|wom/i.test(msg)) {
+      if (/clean_sheet|wom|hat_trick/i.test(msg)) {
         const retry = await sb.from("match_players").insert(
-          rows.map(({ clean_sheet, wom, ...r }) => r)
+          rows.map(({ clean_sheet, wom, hat_trick, ...r }) => r)
         );
         if (retry.error) console.error("[stats] match_players", retry.error.message);
       } else if (/duplicate|23505/i.test(msg)) {
@@ -221,6 +231,7 @@ async function bumpPlayerStats(p) {
     goals: row.goals,
     assists: row.assists,
     mvps: row.mvps || 0,
+    hat_tricks: row.hat_tricks || 0,
     selected_title: row.selected_title || null,
     gifted_titles: row.gifted_titles,
   };
@@ -230,6 +241,7 @@ async function bumpPlayerStats(p) {
   else if (p.result === "draw") row.draws += 1;
   else if (p.result === "loss") row.losses += 1;
   row.goals += p.goals || 0;
+  if (isHatTrick(p)) row.hat_tricks = (row.hat_tricks || 0) + 1;
   row.assists += p.assists || 0;
   row.own_goals += p.own_goals || 0;
   if (p.mvp) row.mvps = (row.mvps || 0) + 1;
@@ -243,8 +255,8 @@ async function bumpPlayerStats(p) {
 
   const { error } = await sb.from("player_stats").upsert(row);
   if (error) {
-    if (/cs|woms|gifted_titles/i.test(error.message || "")) {
-      const { cs: _cs, woms: _woms, gifted_titles: _g, ...withoutOptional } = row;
+    if (/cs|woms|gifted_titles|hat_tricks/i.test(error.message || "")) {
+      const { cs: _cs, woms: _woms, gifted_titles: _g, hat_tricks: _ht, ...withoutOptional } = row;
       const retry = await sb.from("player_stats").upsert(withoutOptional);
       if (retry.error) console.error("[stats] bump", retry.error.message);
     } else {
@@ -279,6 +291,7 @@ async function aggregateFromMatches(sb, auth) {
     if (row.mvp) acc.mvps += 1;
     if (row.wom) acc.woms += 1;
     if (row.clean_sheet) acc.cs += 1;
+    if ((Number(row.goals) || 0) >= 3) acc.hat_tricks += 1;
   }
   return acc;
 }
@@ -380,7 +393,7 @@ async function setSelectedTitle(auth, titleId) {
 }
 
 function emptyBoards() {
-  return { goals: [], assists: [], own_goals: [], mvps: [], cs: [], woms: [], games: [] };
+  return { goals: [], assists: [], own_goals: [], mvps: [], cs: [], woms: [], games: [], wins: [], hat_tricks: [] };
 }
 
 function mapLeaderboardRows(data, col, nickMap) {
@@ -443,7 +456,7 @@ function createLeaderboardStore({ ttlMs = 60_000, load } = {}) {
 }
 
 async function queryLeaderboards(sb) {
-  const cols = ["games", "goals", "assists", "own_goals", "mvps", "cs", "woms"];
+  const cols = ["games", "goals", "assists", "own_goals", "mvps", "cs", "woms", "wins", "hat_tricks"];
   const results = await Promise.all(
     cols.map(async (col) => {
       const { data, error } = await sb
@@ -509,8 +522,8 @@ async function persistPlayerStatsRow(auth, row) {
   saved.updated_at = new Date().toISOString();
   const { error } = await sb.from("player_stats").upsert(saved);
   if (error) {
-    if (/gifted_titles/i.test(error.message || "")) {
-      const { gifted_titles: _g, ...withoutGift } = saved;
+    if (/gifted_titles|hat_tricks/i.test(error.message || "")) {
+      const { gifted_titles: _g, hat_tricks: _ht, ...withoutGift } = saved;
       const retry = await sb.from("player_stats").upsert(withoutGift);
       if (retry.error) {
         console.error("[stats] persist", retry.error.message);
@@ -560,6 +573,8 @@ module.exports = {
   emptyPlayerStats,
   formatStatusCard,
   winratePct,
+  isHatTrick,
+  isHatTrickForMatch,
   formatTop5,
   mapLeaderboardRows,
   createLeaderboardStore,

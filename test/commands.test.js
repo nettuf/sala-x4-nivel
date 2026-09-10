@@ -467,10 +467,8 @@ describe("comandos (mock room)", () => {
     assert.match(pickPraiseLine("Netto", () => 0), /⭐/);
     const teases = TEASE_LINES.map((fn) => fn("Netto")).join("\n");
     const praises = PRAISE_LINES.map((fn) => fn("Netto")).join("\n");
-    for (const name of ["Kyamo", "Jalin", "Didiey", "Copas"]) {
-      assert.match(teases, new RegExp(name));
-      assert.match(praises, new RegExp(name));
-    }
+    assert.equal(/Kyamo|Jalin|Didiey|Copas/i.test(`${teases}\n${praises}`), false);
+    assert.match(`${teases}\n${praises}`, /4v4|último homem|compact/);
   });
 
   it("!bet anuncia o contador em público e respeita cooldown", async () => {
@@ -1023,6 +1021,8 @@ describe("comandos (mock room)", () => {
       own_goals: [{ nick: "Caio", value: 3 }],
       mvps: [{ nick: "Craque", value: 15 }],
       cs: [{ nick: "Goleiro", value: 5 }],
+      wins: [{ nick: "Campeão", value: 30 }],
+      hat_tricks: [{ nick: "Artilheiro", value: 4 }],
     };
     const ctx = {
       admins: new Map(),
@@ -1037,6 +1037,8 @@ describe("comandos (mock room)", () => {
     await cmd.handle(room._players[0], "!cs");
     await cmd.handle(room._players[0], "!jogos");
     await cmd.handle(room._players[0], "!mvp");
+    await cmd.handle(room._players[0], "!vitorias");
+    await cmd.handle(room._players[0], "!hattricks");
     const msg = room.announcements.map((a) => a.msg).join("\n");
     assert.match(msg, /Top 5 gols/);
     assert.match(msg, /1\. Netto — 12/);
@@ -1050,7 +1052,35 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /1\. Veterano — 420/);
     assert.match(msg, /Top 5 MVPs/);
     assert.match(msg, /1\. Craque — 15/);
+    assert.match(msg, /Top 5 vitórias/);
+    assert.match(msg, /1\. Campeão — 30/);
+    assert.match(msg, /Top 5 hat-tricks/);
+    assert.match(msg, /1\. Artilheiro — 4/);
     afk.stop();
+  });
+
+  it("aliases !wins e !ht consultam vitórias e hat-tricks", async () => {
+    for (const [command, stat, title] of [
+      ["!wins", "wins", /Top 5 vitórias/],
+      ["!ht", "hat_tricks", /Top 5 hat-tricks/],
+    ]) {
+      const room = mockRoom();
+      const afk = createAfkTracker(room);
+      const requested = [];
+      const cmd = createCommandHandler(room, {
+        admins: new Map(),
+        mutes: new Map(),
+        afk,
+        getLeaderboard: async (key) => {
+          requested.push(key);
+          return { unavailable: false, rows: [{ nick: "Craque", value: 1 }] };
+        },
+      });
+      await cmd.handle(room._players[0], command);
+      assert.deepEqual(requested, [stat]);
+      assert.ok(room.announcements.some((a) => title.test(a.msg)));
+      afk.stop();
+    }
   });
 
   it("!topstreak mostra recorde da sala", async () => {
@@ -1278,6 +1308,7 @@ describe("comandos (mock room)", () => {
       assists: 1,
       cs: 1,
       mvps: 1,
+      hat_tricks: 1,
     });
     await persistPlayerStatsRow("auth-old", {
       games: 20,
@@ -1286,6 +1317,7 @@ describe("comandos (mock room)", () => {
       assists: 4,
       cs: 2,
       mvps: 3,
+      hat_tricks: 3,
     });
     const room = mockRoom();
     const ctx = {
@@ -1312,8 +1344,10 @@ describe("comandos (mock room)", () => {
     const old = await getPlayerStats("auth-old");
     assert.equal(now.games, 25);
     assert.equal(now.goals, 11);
+    assert.equal(now.hat_tricks, 4);
     assert.equal(old.games, 0);
     assert.equal(old.goals, 0);
+    assert.equal(old.hat_tricks, 0);
 
     room.announcements.length = 0;
     await cmd.handle(room._players[1], "!moverstats auth-atual auth-atual");
