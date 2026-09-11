@@ -4,6 +4,7 @@
 
 const PARTICIPANT_KEYS = [
   "nickname",
+  "auth",
   "team",
   "goals",
   "assists",
@@ -48,9 +49,10 @@ function makeMatchId(now = Date.now(), random = Math.random) {
   return `${now}-${rand}`;
 }
 
-function participantRow({ nickname, team, goals, assists, ownGoals, cleanSheet, isGoalkeeper }) {
+function participantRow({ nickname, auth, team, goals, assists, ownGoals, cleanSheet, isGoalkeeper }) {
   return {
     nickname: nickname == null ? "" : String(nickname),
+    auth: auth == null ? null : String(auth),
     team,
     goals: Number(goals) || 0,
     assists: Number(assists) || 0,
@@ -71,6 +73,7 @@ function buildParticipants({ red, blue, tally, gk, redScore, blueScore } = {}) {
     rows.push(
       participantRow({
         nickname: p.name,
+        auth: p.auth,
         team: "RED",
         goals: t.goals,
         assists: t.assists,
@@ -86,6 +89,7 @@ function buildParticipants({ red, blue, tally, gk, redScore, blueScore } = {}) {
     rows.push(
       participantRow({
         nickname: p.name,
+        auth: p.auth,
         team: "BLUE",
         goals: t.goals,
         assists: t.assists,

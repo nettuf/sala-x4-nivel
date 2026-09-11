@@ -155,7 +155,7 @@ function createHaxbooket(room, { statsUrl, apiKey, fetchImpl } = {}) {
       if (!summary || state !== current || state.terminal) return;
       scheduleSummary(state, summary?.closesAt);
       try {
-        room.sendAnnouncement("🎰 Mercado aberto! Aposte no site Haxbook em /bet antes do fechamento.", null, 0xf1c40f, "bold", 1);
+        room.sendAnnouncement("🎰 Mercado aberto! Aposte em www.haxbook.com.br/bet antes do fechamento.", null, 0xf1c40f, "bold", 1);
       } catch {
         /* ignore */
       }

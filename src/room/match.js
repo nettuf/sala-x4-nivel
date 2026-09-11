@@ -22,12 +22,17 @@ const {
   postMatchStats,
 } = require("../haxbook/statsWebhook");
 const { createHaxbooket, marketParticipants } = require("../haxbook/haxbooket");
+const { createPostMatchInsights } = require("../haxbook/insight");
 
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
  */
 function createMatchController(room, { identify, onCompletedMatch } = {}) {
   const haxbooket = createHaxbooket(room, {
+    statsUrl: config.haxbookStatsUrl,
+    apiKey: config.haxbookApiKey,
+  });
+  const postMatchInsights = createPostMatchInsights(room, {
     statsUrl: config.haxbookStatsUrl,
     apiKey: config.haxbookApiKey,
   });
@@ -635,6 +640,7 @@ function createMatchController(room, { identify, onCompletedMatch } = {}) {
       postMatchStats(config.haxbookStatsUrl, config.haxbookApiKey, payload.haxbook).catch((err) => {
         console.warn("[haxbook] stats", err?.message || err);
       });
+      postMatchInsights.onOfficialMatch();
     }
     return { titleUnlocks };
   }

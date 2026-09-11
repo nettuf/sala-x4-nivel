@@ -3,7 +3,7 @@ const { findPlayer, parseDurationToMs, formatDuration, connToIp, kickReason, res
 const { resolvePlayerAuth } = require("../room/playerAuth");
 const { isRandomKitArg, parseTeamRef, isColorKit, listColorPage } = require("../room/uniforms");
 const { createBan, deactivateBan, listActiveBans } = require("../db/bans");
-const { getAdmin, setAdmin, removeAdmin, generateLoginCode, createRoleCode, consumeRoleCode, peekRoleCode } = require("../db/players");
+const { getAdmin, setAdmin, removeAdmin, generateLoginCode, createRoleCode, consumeRoleCode, peekRoleCode, searchPlayers } = require("../db/players");
 const { notifyBan, notifyUnban, notifyStaffAudit } = require("../discord/webhook");
 const { createMute, unmute, findActiveMute, listActiveMutes } = require("../db/mutes");
 const {
@@ -19,6 +19,7 @@ const {
 } = require("../db/stats");
 const { formatCurrentStreak, formatBestStreak } = require("../room/streak");
 const { formatBetLine, formatViadoLine, pickTeaseLine, pickPraiseLine, resolveTeaseTarget } = require("../room/bet");
+const { normalizeLinkCode, linkHaxballAuth } = require("../haxbook/authLink");
 const {
   TITLES,
   STAFF_TITLES,
@@ -84,6 +85,7 @@ function playerHelpLines({
   if (isAfk) lines.push("!voltar — sair do AFK");
   else if (canAfk) lines.push("!afk — ficar AFK / voltar");
   lines.push("!afks — quem está AFK");
+  lines.push("!vincular CÓDIGO — sincronizar conta Haxbook");
   lines.push("@nick msg — mensagem privada");
   if (onField) lines.push("t <msg> — chat do time");
   if (isAdmin) lines.push("% <msg> — chat só de staff");
@@ -161,6 +163,9 @@ const MOD_ADMIN_CMDS = new Set([
   "mutelist",
   "unmute",
   "verstats",
+  "buscarplayer",
+  "buscarjogador",
+  "findplayer",
 ]);
 
 function parseModListPage(args) {
@@ -180,6 +185,20 @@ function formatNickAuthList({ label, emoji, result, nextCmd }) {
   const parts = [header, ...lines];
   if (result.page < result.pages) parts.push(`${nextCmd} ${result.page + 1}`);
   return parts.join("\n");
+}
+
+function formatPlayerSearch(result, query) {
+  if (result?.unavailable) return "Busca indisponível (banco fora).";
+  const rows = result?.rows || [];
+  if (!rows.length) return `Nenhum jogador encontrado para "${query}".`;
+  return [
+    `🔎 Jogadores encontrados (${rows.length}):`,
+    ...rows.map((row, index) => {
+      const nick = row.nick || "sem nick";
+      const joins = Number(row.join_count) || 0;
+      return `${index + 1}. ${nick} · ${row.auth} · ${joins} entrada(s)`;
+    }),
+  ].join("\n");
 }
 
 function adminHelpText(level = 0) {
@@ -204,6 +223,7 @@ function adminHelpText(level = 0) {
       "!gerlogin <1-3> — senha de cargo de uso único",
       "!login <senha> — ativa o cargo",
       "!revoke <#id|nick|auth> — tira o cargo de staff",
+      "!buscarplayer <auth|nickname> — acha auth no histórico",
       "!moverstats <authAlvo> <authAntiga> — soma stats da conta antiga na atual"
     );
   }
@@ -718,6 +738,47 @@ function createCommandHandler(room, ctx) {
       if (blockPublicFun(player)) return true;
       const url = config.siteUrl;
       room.sendAnnouncement(`🌐 Stats, rankings e mais: ${url}`, null, 0x1abc9c, "bold", 1);
+      return true;
+    }
+
+    if (cmd === "vincular" || cmd === "sincronizar" || cmd === "link") {
+      const auth = resolveAuth(player);
+      if (!auth) {
+        room.sendAnnouncement(noAuthMsg, player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const code = normalizeLinkCode(args.join(""));
+      if (!/^[A-HJ-NP-Z2-9]{8}$/.test(code)) {
+        room.sendAnnouncement("Uso: !vincular CÓDIGO — gere o código no seu perfil Haxbook.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      if (blockLookup(player, "vincular")) return true;
+      const submit = ctx.linkHaxballAuth || ((payload) => linkHaxballAuth({
+        ...payload,
+        statsUrl: config.haxbookStatsUrl,
+        apiKey: config.haxbookApiKey,
+      }));
+      const result = await submit({ code, auth, nickname: player.name });
+      let message = "Não foi possível sincronizar agora. Tente novamente.";
+      let color = 0xe74c3c;
+      if (result?.ok) {
+        message = "Auth sincronizada com sua conta Haxbook.";
+        color = 0x2ecc71;
+      } else if (result?.code === "HAXBALL_AUTH_ALREADY_LINKED") {
+        message = "Esta auth já pertence a outra conta. Procure o suporte no site.";
+      } else if ([
+        "INVALID_CHALLENGE",
+        "CHALLENGE_EXPIRED",
+        "CHALLENGE_ALREADY_USED",
+        "HAXBALL_LINK_CODE_INVALID",
+        "HAXBALL_LINK_CODE_EXPIRED",
+        "HAXBALL_LINK_CODE_ALREADY_USED",
+      ].includes(result?.code)) {
+        message = "Código inválido, expirado ou já utilizado. Gere outro no site.";
+      } else if (result?.code === "CONFIG_UNAVAILABLE") {
+        message = "Sincronização indisponível nesta sala.";
+      }
+      room.sendAnnouncement(message, player.id, color, "bold", 2);
       return true;
     }
 
@@ -1725,8 +1786,32 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
-    if (cmd === "moverstats" || cmd === "transferirstats" || cmd === "somarstats") {
+    if (cmd === "buscarplayer" || cmd === "buscarjogador" || cmd === "findplayer") {
       if ((admin?.level || 0) < 3) {
+        room.sendAnnouncement("Só Gerente e Chefe podem buscar auths.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const query = args.join(" ").trim();
+      if (!query) {
+        room.sendAnnouncement("Uso: !buscarplayer <auth|nickname>", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const findPlayers = ctx.searchPlayers || searchPlayers;
+      const result = await findPlayers(query);
+      room.sendAnnouncement(formatPlayerSearch(result, query), player.id, 0xecf0f1, "small", 1);
+      return true;
+    }
+
+    if (cmd === "moverstats" || cmd === "transfstats" || cmd === "transferirstats" || cmd === "somarstats") {
+      if ((admin?.level || 0) < 3) {
+        notifyStaffAudit({
+          title: "⛔ **Transferência de stats negada**",
+          lines: [
+            `Por: ${player.name} \`${resolveAuth(player) || player.name}\``,
+            `Sala: ${config.roomName}`,
+            `Motivo: permissão insuficiente`,
+          ],
+        });
         room.sendAnnouncement("Só Gerente e Chefe podem transferir stats.", player.id, 0xe74c3c, "normal", 1);
         return true;
       }
@@ -1734,7 +1819,7 @@ function createCommandHandler(room, ctx) {
       const sourceAuth = String(args[1] || "").trim();
       if (!targetAuth || !sourceAuth) {
         room.sendAnnouncement(
-          "Uso: !moverstats <authAlvo> <authAntiga> — soma a conta antiga na atual",
+          "Uso: !moverstats <authAlvo> <authAntiga> — transfere tudo e zera a antiga",
           player.id,
           0xe74c3c,
           "normal",
@@ -1744,6 +1829,16 @@ function createCommandHandler(room, ctx) {
       }
       const result = await transferPlayerStats(targetAuth, sourceAuth);
       if (!result.ok) {
+        notifyStaffAudit({
+          title: "❌ **Falha ao transferir stats**",
+          lines: [
+            `Alvo: \`${targetAuth}\``,
+            `Antiga: \`${sourceAuth}\``,
+            `Por: ${player.name} \`${resolveAuth(player) || player.name}\``,
+            `Sala: ${config.roomName}`,
+            `Motivo: ${result.reason || "erro desconhecido"}`,
+          ],
+        });
         const why =
           result.reason === "same"
             ? "Auth alvo e antiga são iguais."
@@ -1761,7 +1856,7 @@ function createCommandHandler(room, ctx) {
       }
       room.sendAnnouncement(
         [
-          `Stats somadas na auth atual.`,
+          `Stats transferidas para a auth atual; a auth antiga foi zerada.`,
           `Jogos ${Number(a.games) || 0}+${Number(s.games) || 0}=${n.games} · Gols ${Number(a.goals) || 0}+${Number(s.goals) || 0}=${n.goals} · Assist ${Number(a.assists) || 0}+${Number(s.assists) || 0}=${n.assists} · CS ${Number(a.cs) || 0}+${Number(s.cs) || 0}=${n.cs} · MVP ${Number(a.mvps) || 0}+${Number(s.mvps) || 0}=${n.mvps}`,
         ].join("\n"),
         player.id,
@@ -1776,7 +1871,10 @@ function createCommandHandler(room, ctx) {
           `Antiga: \`${sourceAuth}\``,
           `Jogos: ${Number(a.games) || 0}+${Number(s.games) || 0}=${n.games}`,
           `Gols: ${Number(a.goals) || 0}+${Number(s.goals) || 0}=${n.goals}`,
+          `Demais: vitórias ${Number(a.wins) || 0}+${Number(s.wins) || 0}=${n.wins} · assistências ${Number(a.assists) || 0}+${Number(s.assists) || 0}=${n.assists} · CS ${Number(a.cs) || 0}+${Number(s.cs) || 0}=${n.cs} · MVP ${Number(a.mvps) || 0}+${Number(s.mvps) || 0}=${n.mvps}`,
+          `Conta antiga após transferência: jogos 0 · gols 0 · assistências 0 · CS 0 · MVP 0`,
           `Por: ${player.name} \`${resolveAuth(player) || player.name}\``,
+          `Sala: ${config.roomName}`,
           `Origem: !moverstats`,
         ],
       });

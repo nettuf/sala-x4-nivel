@@ -542,6 +542,32 @@ async function transferPlayerStats(targetAuth, sourceAuth) {
   const sourceId = String(sourceAuth || "").trim();
   if (!targetId || !sourceId) return { ok: false, reason: "invalid" };
   if (targetId === sourceId) return { ok: false, reason: "same" };
+
+  const sb = getSupabase();
+  if (sb) {
+    await ensurePlayer(targetId, null);
+    await ensurePlayer(sourceId, null);
+    const { data, error } = await sb.rpc("transfer_player_stats", {
+      p_target_auth: targetId,
+      p_source_auth: sourceId,
+    });
+    if (error || !data?.before || !data?.after) {
+      console.error("[stats] transfer", error?.message || "resposta inválida da função");
+      return { ok: false, reason: "database" };
+    }
+
+    const zeroed = { ...emptyPlayerStats(), gifted_titles: [], selected_title: null };
+    patchStatsMemory(targetId, { ...data.after, _full: true });
+    patchStatsMemory(sourceId, { ...zeroed, _full: true });
+    invalidateLeaderboards();
+    return {
+      ok: true,
+      before: data.before,
+      after: data.after,
+      sourceAfter: data.source_after || zeroed,
+    };
+  }
+
   const target = await getPlayerStats(targetId);
   const source = await getPlayerStats(sourceId);
   const summed = emptyPlayerStats();
@@ -556,7 +582,12 @@ async function transferPlayerStats(targetAuth, sourceAuth) {
   const okT = await persistPlayerStatsRow(targetId, summed);
   const okS = await persistPlayerStatsRow(sourceId, zeroed);
   if (okT && okS) invalidateLeaderboards();
-  return { ok: okT && okS, before: { target, source }, after: summed };
+  return {
+    ok: okT && okS,
+    before: { target, source },
+    after: summed,
+    sourceAfter: zeroed,
+  };
 }
 
 module.exports = {

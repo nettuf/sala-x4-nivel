@@ -86,6 +86,20 @@ describe("proteções de entrada", () => {
     assert.match(room.kicks[0].reason, /já está na sala/i);
   });
 
+  it("usa identidade em cache quando a lista omite auth e conn", () => {
+    const players = [
+      { id: 1, name: "Netto", team: 1 },
+      { id: 2, name: "Netto", auth: "authA", conn: "c2", team: 0 },
+    ];
+    const identities = new Map([[1, { auth: "authA", conn: "c1" }]]);
+    const identify = (player) => ({ ...player, ...(identities.get(player.id) || {}) });
+    const room = mockRoom(players);
+
+    assert.equal(applyJoinGuards(room, players[1], identify), "duplicate");
+    assert.equal(room.kicks[0].id, 2);
+    assert.equal(players[0].id, 1);
+  });
+
   it("entrada normal passa", () => {
     const players = [
       { id: 1, name: "A", auth: "a1", conn: "c1", team: 0 },

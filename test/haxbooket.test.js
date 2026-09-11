@@ -98,7 +98,7 @@ describe("Haxbooket", () => {
       { auth: "auth-r", goals: 2 },
       { auth: "auth-b", goals: 0 },
     ]);
-    assert.ok(announcements.some((line) => line.includes("Haxbook") && line.includes("/bet")));
+    assert.ok(announcements.some((line) => line.includes("www.haxbook.com.br/bet")));
     assert.ok(announcements.some((line) =>
       line.includes("120 coins") &&
       line.includes("1.75x") &&

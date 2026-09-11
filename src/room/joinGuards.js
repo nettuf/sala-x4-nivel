@@ -32,8 +32,9 @@ function evaluateJoin(players, player) {
 }
 
 /** @returns {"duplicate"|"ok"} */
-function applyJoinGuards(room, player) {
-  const result = evaluateJoin(room.getPlayerList(), player);
+function applyJoinGuards(room, player, identify = (p) => p) {
+  const players = room.getPlayerList().map((p) => identify(p) || p);
+  const result = evaluateJoin(players, player);
   if (result.action === "duplicate") {
     room.kickPlayer(player.id, kickReason(result.reason), false);
     return "duplicate";

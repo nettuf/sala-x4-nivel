@@ -57,6 +57,14 @@ describe("uniformes: catálogo e regras puras", () => {
       assert.ok(Array.isArray(k.colors) && k.colors.length >= 1);
     }
     assert.equal(findKit("VERMELHO").id, "vermelho");
+    assert.deepEqual(findKit("zebra1").colors, [0x09665a, 0xffed94, 0x09665a]);
+    assert.equal(findKit("zebra2").name, "Amigos do Zebra");
+    assert.equal(findKit("lionsh").emoji, "🦁");
+    assert.equal(findKit("lionsa").emoji, "🦁");
+    assert.equal(findKit("whales").emoji, "🐋");
+    assert.deepEqual(findKit("haxbook1").colors, [0x104c33, 0x76a938, 0x104c33]);
+    assert.deepEqual(findKit("haxbook2").colors, [0xffffff]);
+    assert.deepEqual(findKit("haxbook3").colors, [0x000000]);
     assert.equal(findKit("naoexiste"), null);
   });
 
@@ -337,6 +345,8 @@ describe("uniformes: emoji do kit", () => {
       "gordo",
       "jalin",
       "leao",
+      "lionsa",
+      "lionsh",
       "marconhados",
       "mdr",
       "moggadores",
@@ -350,6 +360,7 @@ describe("uniformes: emoji do kit", () => {
       "skdreams",
       "tigre",
       "tulio",
+      "whales",
     ]);
     assert.equal(findKit("baleio").emoji, "🐋");
     assert.equal(findKit("artemis").name, "Artemis FC");

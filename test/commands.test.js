@@ -1339,6 +1339,7 @@ describe("comandos (mock room)", () => {
     const msg = room.announcements.find((a) => a.to === 2)?.msg || "";
     assert.match(msg, /5\+20=25/);
     assert.match(msg, /3\+8=11/);
+    assert.match(msg, /antiga foi zerada/i);
 
     const now = await getPlayerStats("auth-atual");
     const old = await getPlayerStats("auth-old");

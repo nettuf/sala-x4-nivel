@@ -38,6 +38,38 @@ async function upsertPlayer({ auth, nick, conn, ip }) {
   return data;
 }
 
+async function searchPlayers(term, limit = 6) {
+  const query = String(term || "").trim();
+  const sb = getSupabase();
+  if (!sb) return { unavailable: true, rows: [] };
+  if (!query) return { unavailable: false, rows: [] };
+
+  const fields = "auth, nick, join_count, last_seen_at";
+  const { data: byAuth, error: authError } = await sb
+    .from("players")
+    .select(fields)
+    .eq("auth", query)
+    .limit(1);
+  if (authError) {
+    console.error("[players] search auth", authError.message);
+    return { unavailable: true, rows: [] };
+  }
+  if (byAuth?.length) return { unavailable: false, rows: byAuth };
+
+  const pattern = `%${query.replace(/[\\%_]/g, "\\$&")}%`;
+  const { data, error } = await sb
+    .from("players")
+    .select(fields)
+    .ilike("nick", pattern)
+    .order("last_seen_at", { ascending: false })
+    .limit(Math.max(1, Math.min(Number(limit) || 6, 10)));
+  if (error) {
+    console.error("[players] search nick", error.message);
+    return { unavailable: true, rows: [] };
+  }
+  return { unavailable: false, rows: data || [] };
+}
+
 const crypto = require("node:crypto");
 
 const LOGIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -194,6 +226,7 @@ async function peekRoleCode(code) {
 
 module.exports = {
   upsertPlayer,
+  searchPlayers,
   getAdmin,
   setAdmin,
   removeAdmin,

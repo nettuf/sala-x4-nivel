@@ -170,6 +170,8 @@ describe("payload haxbook", () => {
     assert.equal(rows.every((p) => p.playTime === 0), true);
     const gkRed = rows.find((p) => p.nickname === "R1");
     const gkBlue = rows.find((p) => p.nickname === "B5");
+    assert.equal(gkRed.auth, "auth-r1");
+    assert.equal(gkBlue.auth, "auth-b5");
     assert.equal(gkRed.isGoalkeeper, true);
     assert.equal(gkRed.cleanSheet, 1);
     assert.equal(gkBlue.isGoalkeeper, true);
