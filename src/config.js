@@ -37,6 +37,8 @@ const DEFAULT_BAN_WEBHOOK =
   "https://discord.com/api/webhooks/1539978318353403976/dIgwqm-obDBdUbGy6LZccdPOGfeG4VlvdTlwcu6lXL5Cyo_b5OTC6SU5plnZYN4Lfd0U";
 const DEFAULT_CHAT_WEBHOOK =
   "https://discord.com/api/webhooks/1539979820635791511/6AHy90SkGDG02bkrFSumz6fAC6iX1KTO5Z3Qn7ep8i9DUsdfyhVYdHD5QfTHOHgLv9MC";
+const DEFAULT_CALL_ADM_WEBHOOK =
+  "https://discord.com/api/webhooks/1548103421498757240/lL6wQYpqD-dw0EyKFsNG6fdh4z9cnS9PSruMsaUTUyJk1VlGfq6SPRsbK1c6aI77dbwr";
 
 const config = {
   root: ROOT,
@@ -85,6 +87,8 @@ const config = {
   discordReplayWebhookUrl: process.env.DISCORD_REPLAY_WEBHOOK_URL || "",
   discordBanWebhookUrl: process.env.DISCORD_BAN_WEBHOOK_URL || DEFAULT_BAN_WEBHOOK,
   discordChatWebhookUrl: process.env.DISCORD_CHAT_WEBHOOK_URL || DEFAULT_CHAT_WEBHOOK,
+  discordCallAdmWebhookUrl: process.env.DISCORD_CALL_ADM_WEBHOOK_URL || DEFAULT_CALL_ADM_WEBHOOK,
+  callAdmCooldownMs: Number(process.env.CALL_ADM_COOLDOWN_MS || 3 * 60 * 1000),
   discordChatFlushMs: Number(process.env.DISCORD_CHAT_FLUSH_MS || 4000),
   tokenApiPort: Number(process.env.TOKEN_API_PORT || 3847),
   tokenApiHost: process.env.TOKEN_API_HOST || "0.0.0.0",

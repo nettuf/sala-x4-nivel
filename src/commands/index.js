@@ -4,7 +4,7 @@ const { resolvePlayerAuth } = require("../room/playerAuth");
 const { isRandomKitArg, parseTeamRef, isColorKit, listColorPage } = require("../room/uniforms");
 const { createBan, deactivateBan, listActiveBans } = require("../db/bans");
 const { getAdmin, setAdmin, removeAdmin, generateLoginCode, createRoleCode, consumeRoleCode, peekRoleCode, searchPlayers } = require("../db/players");
-const { notifyBan, notifyUnban, notifyStaffAudit } = require("../discord/webhook");
+const { notifyBan, notifyUnban, notifyStaffAudit, notifyCallAdm } = require("../discord/webhook");
 const { createMute, unmute, findActiveMute, listActiveMutes } = require("../db/mutes");
 const {
   getPlayerStats,
@@ -80,7 +80,7 @@ function playerHelpLines({
 } = {}) {
   const lines = [
     "— Sala —",
-    "!bb · !discord · !site · !ids",
+    "!bb · !discord · !site · !ids · !calladm",
   ];
   if (isAfk) lines.push("!voltar — sair do AFK");
   else if (canAfk) lines.push("!afk — ficar AFK / voltar");
@@ -95,7 +95,8 @@ function playerHelpLines({
     "!cargos · !listacargos · !cargo — emblemas",
     "!unis — uniformes · !cores1 · !cores2",
     "!zoeira — zoeiras da sala",
-    "!ranking — tops e streak"
+    "!ranking — tops e streak",
+    "!calladm <motivo> — chamar staff no Discord"
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — uniforme do time (capitão/admin)");
@@ -138,6 +139,17 @@ function zoeiraHelpText() {
 
 function rankingHelpText() {
   return rankingHelpLines().join("\n");
+}
+
+function parseCallAdmReason(cmd, args) {
+  const first = String(args[0] || "").toLowerCase();
+  if (cmd === "calladm" || cmd === "chamaadm" || cmd === "calladmin") {
+    return args.join(" ").trim();
+  }
+  if (cmd === "call" && ["adm", "admin", "staff"].includes(first)) {
+    return args.slice(1).join(" ").trim();
+  }
+  return null;
 }
 
 /**
@@ -249,11 +261,14 @@ function createCommandHandler(room, ctx) {
   const lastAfkCommandAt = new Map();
   /** @type {Map<number, number>} */
   const lastFunPlayerAt = new Map();
+  /** @type {Map<number, number>} */
+  const lastCallAdmAt = new Map();
   /** @type {Map<string, number>} */
   const lastLookupAt = new Map();
   let lastFunRoomAt = 0;
   let lastRoletaAt = 0;
   const FUN_PLAYER_MS = config.cmdPublicPlayerMs || 25000;
+  const CALL_ADM_MS = config.callAdmCooldownMs || 3 * 60 * 1000;
   const FUN_ROOM_MS = config.cmdPublicRoomMs || 15000;
   const LOOKUP_MS = config.cmdLookupPlayerMs || 10000;
   const JOKE_CD_MS = config.tempTitleCooldownMs || 15 * 60 * 1000;
@@ -433,6 +448,7 @@ function createCommandHandler(room, ctx) {
   function forgetPlayer(playerId) {
     lastAfkCommandAt.delete(playerId);
     lastFunPlayerAt.delete(playerId);
+    lastCallAdmAt.delete(playerId);
     for (const key of [...lastLookupAt.keys()]) {
       if (key.startsWith(`${playerId}:`)) lastLookupAt.delete(key);
     }
@@ -672,6 +688,72 @@ function createCommandHandler(room, ctx) {
 
     if (MOD_ADMIN_CMDS.has(cmd) && !admin) {
       room.sendAnnouncement("Sem permissão.", player.id, 0xe74c3c, "bold", 2);
+      return true;
+    }
+
+    const callAdmReason = parseCallAdmReason(cmd, args);
+    if (callAdmReason !== null) {
+      if (callAdmReason.length < 3) {
+        room.sendAnnouncement(
+          "Uso: !calladm <motivo> — explique o que aconteceu.",
+          player.id,
+          0xe74c3c,
+          "normal",
+          1
+        );
+        return true;
+      }
+      const now = clock();
+      const left = cooldownLeftSec(lastCallAdmAt.get(player.id), CALL_ADM_MS, now);
+      if (left > 0) {
+        room.sendAnnouncement(
+          `Espere ${formatJokeWait(left)} pra chamar ADM de novo.`,
+          player.id,
+          0xf1c40f,
+          "normal",
+          1
+        );
+        return true;
+      }
+      lastCallAdmAt.set(player.id, now);
+      const auth = resolvePlayerAuth(player, ctx.auths, room.getPlayerList());
+      const conn = player.conn || ctx.conns?.get(player.id) || null;
+      const online = room.getPlayerList();
+      const staffOnline = [...(ctx.admins?.keys?.() || [])].filter((id) =>
+        online.some((p) => p.id === id)
+      ).length;
+      const sent = await notifyCallAdm({
+        roomLabel: config.haxbookRoomName || config.roomName,
+        nick: player.name,
+        playerId: player.id,
+        auth,
+        conn,
+        ip: connToIp(conn),
+        reason: callAdmReason,
+        staffOnline,
+      });
+      if (!sent && !process.env.NODE_TEST_CONTEXT) {
+        lastCallAdmAt.delete(player.id);
+        room.sendAnnouncement("Não deu pra chamar o ADM agora. Tenta de novo.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      room.sendAnnouncement(
+        "🔔 ADM chamado no Discord. Explique o caso quando alguém entrar.",
+        player.id,
+        0x2ecc71,
+        "bold",
+        1
+      );
+      for (const adminId of ctx.admins?.keys?.() || []) {
+        if (!online.some((p) => p.id === adminId) || adminId === player.id) continue;
+        room.sendAnnouncement(
+          `🔔 ${player.name} chamou ADM: ${callAdmReason}`,
+          adminId,
+          0xe67e22,
+          "bold",
+          2
+        );
+      }
       return true;
     }
 

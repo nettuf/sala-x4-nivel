@@ -130,4 +130,32 @@ async function notifyStaffAudit({ title, lines, webhookUrl } = {}) {
   return postWebhook(url, content);
 }
 
-module.exports = { notifyJoin, notifyBan, notifyUnban, notifyStaffAudit, lookupGeo, postWebhook };
+async function notifyCallAdm({
+  roomLabel,
+  nick,
+  playerId,
+  auth,
+  conn,
+  ip,
+  reason,
+  staffOnline,
+  webhookUrl,
+} = {}) {
+  const url = webhookUrl || config.discordCallAdmWebhookUrl;
+  if (!url) return false;
+  if (!webhookUrl && process.env.NODE_TEST_CONTEXT) return false;
+
+  const content = [
+    `🔔 **Chamada de ADM** — ${roomLabel || config.haxbookRoomName || config.roomName}`,
+    `Quem: **#${playerId ?? "—"} — ${nick || "—"}**`,
+    `Auth: \`${auth || "—"}\``,
+    `Conn: \`${conn || "—"}\``,
+    `IP: \`${ip || "—"}\``,
+    `Motivo: ${reason || "Sem motivo"}`,
+    `Staff na sala: ${Number(staffOnline) || 0}`,
+  ].join("\n");
+
+  return postWebhook(url, content);
+}
+
+module.exports = { notifyJoin, notifyBan, notifyUnban, notifyStaffAudit, notifyCallAdm, lookupGeo, postWebhook };

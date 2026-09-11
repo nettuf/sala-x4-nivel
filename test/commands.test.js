@@ -311,6 +311,32 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("!calladm exige motivo, chama staff e respeita cooldown", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = withClock({
+      admins: new Map([[2, { level: 3, title: "Mod" }]]),
+      mutes: new Map(),
+      afk,
+      auths: new Map([[1, "auth1"]]),
+      conns: new Map([[1, "aabbcc"]]),
+    });
+    const cmd = createCommandHandler(room, ctx);
+
+    await cmd.handle(room._players[0], "!calladm");
+    assert.ok(room.announcements.some((a) => /Uso: !calladm/i.test(a.msg)));
+    room.announcements.length = 0;
+
+    await cmd.handle(room._players[0], "!call adm racismo no chat");
+    assert.ok(room.announcements.some((a) => /ADM chamado no Discord/i.test(a.msg)));
+    assert.ok(room.announcements.some((a) => a.to === 2 && /chamou ADM: racismo no chat/.test(a.msg)));
+    room.announcements.length = 0;
+
+    await cmd.handle(room._players[0], "!calladm ainda precisa");
+    assert.ok(room.announcements.some((a) => /pra chamar ADM de novo/i.test(a.msg)));
+    afk.stop();
+  });
+
   it("!ajuda lista só comandos de jogador", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
