@@ -140,6 +140,22 @@ function createRoom(HBInit) {
     return p;
   }
 
+  function logRejectedEntry(player, reason) {
+    const known = identified(player) || player;
+    const conn = known?.conn || ctx.conns.get(player.id) || null;
+    notifyJoin({
+      playerId: player.id,
+      nick: player.name,
+      auth: known?.auth || ctx.auths.get(player.id) || null,
+      conn,
+      ip: connToIp(conn),
+      admin: ctx.admins.get(player.id) || null,
+      title: ctx.titles.get(player.id) || null,
+      status: "⛔ Entrada bloqueada",
+      reason,
+    }).catch(() => {});
+  }
+
   let recoverSoonTimer = null;
   function recoverCompetitiveLineupSoon() {
     if (recoverSoonTimer) return;
@@ -162,11 +178,14 @@ function createRoom(HBInit) {
       if (!live.auth) return;
       clearInterval(timer);
       rememberIdentity(live, ctx);
-      const guard = applyJoinGuards(room, identified(live), identified);
+      const guard = applyJoinGuards(room, identified(live), identified, (result) => {
+        logRejectedEntry(live, result.reason);
+      });
       if (guard === "duplicate") return;
       const ban = await findActiveBan({ auth: live.auth, conn: live.conn || ctx.conns.get(playerId) });
       if (ban) {
         const until = ban.ends_at ? ` até ${ban.ends_at}` : " (permanente)";
+        logRejectedEntry(live, `Banido${until}: ${ban.reason || ""}`.trim());
         room.kickPlayer(playerId, kickReason(`Banido${until}: ${ban.reason || ""}`), false);
         return;
       }
@@ -1052,12 +1071,15 @@ function createRoom(HBInit) {
     const ban = await findActiveBan({ auth, conn });
     if (ban) {
       const until = ban.ends_at ? ` até ${ban.ends_at}` : " (permanente)";
+      logRejectedEntry(player, `Banido${until}: ${ban.reason || ""}`.trim());
       room.kickPlayer(player.id, kickReason(`Banido${until}: ${ban.reason || ""}`), false);
       return;
     }
 
     // Uma sessão por auth e até duas pessoas por IP
-    const guard = applyJoinGuards(room, identified(player), identified);
+    const guard = applyJoinGuards(room, identified(player), identified, (result) => {
+      logRejectedEntry(player, result.reason);
+    });
     if (guard === "duplicate") return;
 
     // Monta o 4v4/warmup já; stats/cargo/Discord não podem atrasar o jogo

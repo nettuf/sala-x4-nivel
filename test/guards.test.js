@@ -93,9 +93,13 @@ describe("proteções de entrada", () => {
       { id: 3, name: "C", auth: "a3", conn: conn("10.0.0.1"), team: 0 },
     ];
     const room = mockRoom(players);
-    assert.equal(applyJoinGuards(room, players[2]), "duplicate");
+    let rejected = null;
+    assert.equal(applyJoinGuards(room, players[2], undefined, (result) => {
+      rejected = result;
+    }), "duplicate");
     assert.equal(room.kicks[0].id, 3);
     assert.match(room.kicks[0].reason, /2 jogadores por IP/i);
+    assert.match(rejected.reason, /2 jogadores por IP/i);
   });
 
   it("usa identidade em cache quando a lista omite auth e conn", () => {

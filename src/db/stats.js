@@ -109,7 +109,14 @@ async function countCleanSheets(sb, auth) {
 async function ensurePlayer(auth, nick) {
   const sb = getSupabase();
   if (!sb || !auth) return;
-  await sb.from("players").upsert({ auth, nick, last_seen_at: new Date().toISOString() }, { onConflict: "auth" });
+  const cleanNick = typeof nick === "string" ? nick.trim() : "";
+  const row = cleanNick
+    ? { auth, nick: cleanNick, last_seen_at: new Date().toISOString() }
+    : { auth };
+  await sb.from("players").upsert(row, {
+    onConflict: "auth",
+    ignoreDuplicates: !cleanNick,
+  });
 }
 
 async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals }) {
@@ -480,7 +487,24 @@ async function queryLeaderboards(sb) {
   if (auths.length) {
     const { data: people, error } = await sb.from("players").select("auth, nick").in("auth", auths);
     if (error) console.error("[stats] top nicks", error.message);
-    for (const p of people || []) nickMap[p.auth] = p.nick || "sem nick";
+    for (const p of people || []) {
+      if (p.nick && String(p.nick).trim()) nickMap[p.auth] = String(p.nick).trim();
+    }
+    const missingAuths = auths.filter((auth) => !nickMap[auth]);
+    if (missingAuths.length) {
+      const { data: history, error: historyError } = await sb
+        .from("match_players")
+        .select("auth, nick")
+        .in("auth", missingAuths)
+        .not("nick", "is", null)
+        .limit(1000);
+      if (historyError) console.error("[stats] fallback nicks", historyError.message);
+      for (const row of history || []) {
+        if (!nickMap[row.auth] && row.nick && String(row.nick).trim()) {
+          nickMap[row.auth] = String(row.nick).trim();
+        }
+      }
+    }
   }
 
   const boards = emptyBoards();

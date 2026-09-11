@@ -562,8 +562,7 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
-    const live = room.getPlayerList().find((p) => p.id === player.id);
-    const color = chatColor(displayTitle(player, ctx.titles.get(player.id)), live?.team ?? player.team);
+    const color = 0x5dade2;
     room.sendAnnouncement(
       `📩 PV de @${player.name}: ${parsed.body}`,
       target.id,

@@ -31,7 +31,7 @@ async function postWebhook(url, content, username = "HAXBOOK x4") {
   }
 }
 
-async function notifyJoin({ playerId, nick, auth, conn, ip, admin, title }) {
+async function notifyJoin({ playerId, nick, auth, conn, ip, admin, title, status, reason }) {
   const url = config.discordWebhookUrl;
   if (!url) return;
 
@@ -49,7 +49,9 @@ async function notifyJoin({ playerId, nick, auth, conn, ip, admin, title }) {
     `ISP: ${geo.isp || "—"}`,
     `Staff: ${staff}`,
     `Cargo: ${cargo}`,
-  ].join("\n");
+    status ? `Status: ${status}` : null,
+    reason ? `Motivo: ${reason}` : null,
+  ].filter(Boolean).join("\n");
 
   await postWebhook(url, content);
 }

@@ -3,19 +3,21 @@ const { getSupabase } = require("./supabase");
 async function upsertPlayer({ auth, nick, conn, ip }) {
   const sb = getSupabase();
   if (!sb || !auth) return null;
+  const present = (value) => value != null && String(value).trim() !== "";
 
   const { data: existing } = await sb.from("players").select("auth, join_count").eq("auth", auth).maybeSingle();
 
   if (existing) {
+    const patch = {
+      last_seen_at: new Date().toISOString(),
+      join_count: (existing.join_count || 1) + 1,
+    };
+    if (present(nick)) patch.nick = nick;
+    if (present(conn)) patch.conn = conn;
+    if (present(ip)) patch.ip = ip;
     const { data, error } = await sb
       .from("players")
-      .update({
-        nick,
-        conn,
-        ip,
-        last_seen_at: new Date().toISOString(),
-        join_count: (existing.join_count || 1) + 1,
-      })
+      .update(patch)
       .eq("auth", auth)
       .select()
       .maybeSingle();
@@ -23,15 +25,13 @@ async function upsertPlayer({ auth, nick, conn, ip }) {
     return data;
   }
 
+  const row = { auth, join_count: 1 };
+  if (present(nick)) row.nick = nick;
+  if (present(conn)) row.conn = conn;
+  if (present(ip)) row.ip = ip;
   const { data, error } = await sb
     .from("players")
-    .insert({
-      auth,
-      nick,
-      conn,
-      ip,
-      join_count: 1,
-    })
+    .insert(row)
     .select()
     .maybeSingle();
   if (error) console.error("[players] insert", error.message);
@@ -122,7 +122,7 @@ async function setAdmin(auth, level, title, grantedBy) {
   adminMemory.set(auth, row);
   const sb = getSupabase();
   if (!sb) return row;
-  await upsertPlayer({ auth, nick: null });
+  await sb.from("players").upsert({ auth }, { onConflict: "auth", ignoreDuplicates: true });
   const { data, error } = await sb
     .from("admins")
     .upsert({
