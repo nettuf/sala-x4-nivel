@@ -1056,7 +1056,7 @@ function createRoom(HBInit) {
       return;
     }
 
-    // Ghost kick (auth duplicada) e limite por conexão
+    // Uma sessão por auth e até duas pessoas por IP
     const guard = applyJoinGuards(room, identified(player), identified);
     if (guard === "duplicate") return;
 

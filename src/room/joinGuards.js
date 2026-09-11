@@ -1,6 +1,7 @@
-const { kickReason } = require("../utils");
+const { connToIp, kickReason } = require("../utils");
 
-const DUPLICATE_REASON = "Você já está na sala (uma conexão por vez)";
+const DUPLICATE_AUTH_REASON = "Esta autenticação já está na sala";
+const IP_LIMIT_REASON = "Limite de 2 jogadores por IP atingido";
 
 /** @returns {object[]} jogadores antigos com a mesma auth */
 function duplicateAuthPlayers(players, player) {
@@ -8,25 +9,20 @@ function duplicateAuthPlayers(players, player) {
   return players.filter((p) => p.id !== player.id && p.id !== 0 && p.auth === player.auth);
 }
 
-/** @returns {object[]} jogadores antigos com a mesma conn */
-function duplicateConnPlayers(players, player) {
-  if (!player?.conn) return [];
-  return players.filter((p) => p.id !== player.id && p.id !== 0 && p.conn === player.conn);
-}
-
-/** @returns {object[]} jogadores com a mesma conn (inclui o novo) */
-function sameConnPlayers(players, player) {
-  if (!player?.conn) return [];
-  return players.filter((p) => p.id !== 0 && p.conn === player.conn);
+/** @returns {object[]} jogadores com o mesmo IP (inclui o novo) */
+function sameIpPlayers(players, player) {
+  const ip = connToIp(player?.conn);
+  if (!ip) return [];
+  return players.filter((p) => p.id !== 0 && connToIp(p.conn) === ip);
 }
 
 /** @returns {{ action: "duplicate"|"ok", reason?: string }} */
 function evaluateJoin(players, player) {
   if (duplicateAuthPlayers(players, player).length) {
-    return { action: "duplicate", reason: DUPLICATE_REASON };
+    return { action: "duplicate", reason: DUPLICATE_AUTH_REASON };
   }
-  if (duplicateConnPlayers(players, player).length) {
-    return { action: "duplicate", reason: DUPLICATE_REASON };
+  if (sameIpPlayers(players, player).length > 2) {
+    return { action: "duplicate", reason: IP_LIMIT_REASON };
   }
   return { action: "ok" };
 }
@@ -44,8 +40,7 @@ function applyJoinGuards(room, player, identify = (p) => p) {
 
 module.exports = {
   duplicateAuthPlayers,
-  duplicateConnPlayers,
-  sameConnPlayers,
+  sameIpPlayers,
   evaluateJoin,
   applyJoinGuards,
 };

@@ -3,12 +3,13 @@ const assert = require("node:assert/strict");
 
 const {
   duplicateAuthPlayers,
-  sameConnPlayers,
+  sameIpPlayers,
   evaluateJoin,
   applyJoinGuards,
 } = require("../src/room/joinGuards");
 const { createAfkTracker, shouldCountAutoAfk } = require("../src/room/afk");
 const config = require("../src/config");
+const conn = (ip) => Buffer.from(ip, "utf8").toString("hex");
 
 function mockRoom(players) {
   const kicks = [];
@@ -33,16 +34,16 @@ function mockRoom(players) {
 }
 
 describe("proteções de entrada", () => {
-  it("detecta auth duplicada e mesma conn", () => {
+  it("detecta auth duplicada e jogadores no mesmo IP", () => {
     const players = [
-      { id: 1, name: "A", auth: "x", conn: "c1", team: 1 },
-      { id: 2, name: "B", auth: "y", conn: "c1", team: 0 },
-      { id: 3, name: "A2", auth: "x", conn: "c2", team: 0 },
+      { id: 1, name: "A", auth: "x", conn: conn("10.0.0.1"), team: 1 },
+      { id: 2, name: "B", auth: "y", conn: conn("10.0.0.1"), team: 0 },
+      { id: 3, name: "A2", auth: "x", conn: conn("10.0.0.2"), team: 0 },
     ];
     const novo = players[2];
     assert.equal(duplicateAuthPlayers(players, novo).length, 1);
     assert.equal(duplicateAuthPlayers(players, novo)[0].id, 1);
-    assert.equal(sameConnPlayers(players, players[1]).length, 2);
+    assert.equal(sameIpPlayers(players, players[1]).length, 2);
   });
 
   it("auth repetida: kicka a 2ª entrada e mantém a antiga", () => {
@@ -74,16 +75,27 @@ describe("proteções de entrada", () => {
     assert.equal(players.length, 1);
   });
 
-  it("mesma conn sem auth: kicka o 2º", () => {
+  it("mesmo IP com auths diferentes: permite o 2º", () => {
     const players = [
-      { id: 1, name: "A", auth: "a1", conn: "same", team: 0 },
-      { id: 2, name: "B", auth: "a2", conn: "same", team: 0 },
+      { id: 1, name: "A", auth: "a1", conn: conn("10.0.0.1"), team: 0 },
+      { id: 2, name: "B", auth: "a2", conn: conn("10.0.0.1"), team: 0 },
     ];
     const room = mockRoom(players);
     const result = applyJoinGuards(room, players[1]);
-    assert.equal(result, "duplicate");
-    assert.equal(room.kicks[0].id, 2);
-    assert.match(room.kicks[0].reason, /já está na sala/i);
+    assert.equal(result, "ok");
+    assert.equal(room.kicks.length, 0);
+  });
+
+  it("mesmo IP: kicka o 3º jogador", () => {
+    const players = [
+      { id: 1, name: "A", auth: "a1", conn: conn("10.0.0.1"), team: 0 },
+      { id: 2, name: "B", auth: "a2", conn: conn("10.0.0.1"), team: 0 },
+      { id: 3, name: "C", auth: "a3", conn: conn("10.0.0.1"), team: 0 },
+    ];
+    const room = mockRoom(players);
+    assert.equal(applyJoinGuards(room, players[2]), "duplicate");
+    assert.equal(room.kicks[0].id, 3);
+    assert.match(room.kicks[0].reason, /2 jogadores por IP/i);
   });
 
   it("usa identidade em cache quando a lista omite auth e conn", () => {

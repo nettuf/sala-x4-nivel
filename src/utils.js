@@ -21,7 +21,8 @@ function isModerationKickReason(reason) {
     /^Ban \(/i.test(base) ||
     /^Kick:/i.test(base) ||
     /^AFK/i.test(base) ||
-    base === "Você já está na sala (uma conexão por vez)"
+    base === "Esta autenticação já está na sala" ||
+    base === "Limite de 2 jogadores por IP atingido"
   );
 }
 
