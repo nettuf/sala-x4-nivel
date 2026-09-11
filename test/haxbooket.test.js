@@ -62,7 +62,12 @@ describe("Haxbooket", () => {
       }
       return { ok: true, json: async () => ({}) };
     };
-    const client = createHaxbooket(room, { statsUrl: STATS_URL, apiKey: "key", fetchImpl });
+    const client = createHaxbooket(room, {
+      statsUrl: STATS_URL,
+      apiKey: "key",
+      fetchImpl,
+      getRedStreak: () => 10,
+    });
     client.open({
       matchId: "stable-id",
       participants: [
@@ -86,6 +91,7 @@ describe("Haxbooket", () => {
     const start = calls.find((c) => /\/start$/.test(c.url));
     const events = calls.filter((c) => /\/events$/.test(c.url));
     assert.equal(start.body.matchId, "stable-id");
+    assert.equal(start.body.redStreak, 10);
     assert.equal(start.body.participants[0].auth, "auth-r");
     assert.equal(Object.hasOwn(start.body.participants[0], "goals"), false);
     assert.ok(calls.some((c) => /\/summary$/.test(c.url)), "timer deve consultar summary");

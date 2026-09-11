@@ -27,10 +27,11 @@ const { createPostMatchInsights } = require("../haxbook/insight");
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
  */
-function createMatchController(room, { identify, onCompletedMatch } = {}) {
+function createMatchController(room, { identify, onCompletedMatch, getStreak } = {}) {
   const haxbooket = createHaxbooket(room, {
     statsUrl: config.haxbookStatsUrl,
     apiKey: config.haxbookApiKey,
+    getRedStreak: getStreak,
   });
   const postMatchInsights = createPostMatchInsights(room, {
     statsUrl: config.haxbookStatsUrl,

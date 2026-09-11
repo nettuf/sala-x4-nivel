@@ -101,6 +101,7 @@ function createRoom(HBInit) {
     .then((snap) => streak.hydrateBest(snap.bestStreak, snap.bestStreakHolders))
     .catch(() => {});
   const match = createMatchController(room, {
+    getStreak: () => streak.get(),
     identify: (player) =>
       withIdentity(player, {
         auths: ctx.auths,

@@ -403,6 +403,9 @@ function emptyBoards() {
   return { goals: [], assists: [], own_goals: [], mvps: [], cs: [], woms: [], games: [], wins: [], hat_tricks: [] };
 }
 
+const LEADERBOARD_COLS = ["games", "goals", "assists", "own_goals", "mvps", "cs", "woms", "wins", "hat_tricks"];
+const OPTIONAL_LEADERBOARD_COLS = new Set(["hat_tricks", "cs", "woms"]);
+
 function mapLeaderboardRows(data, col, nickMap) {
   return (data || [])
     .map((r) => ({
@@ -462,55 +465,65 @@ function createLeaderboardStore({ ttlMs = 60_000, load } = {}) {
   return { get, invalidate };
 }
 
-async function queryLeaderboards(sb) {
-  const cols = ["games", "goals", "assists", "own_goals", "mvps", "cs", "woms", "wins", "hat_tricks"];
-  const results = await Promise.all(
-    cols.map(async (col) => {
-      const { data, error } = await sb
-        .from("player_stats")
-        .select(`auth, ${col}`)
-        .order(col, { ascending: false })
-        .gt(col, 0)
-        .limit(5);
-      if (error) {
-        console.error("[stats] top", col, error.message);
-        return [];
-      }
-      return data || [];
-    })
-  );
+async function fetchTopColumn(sb, col) {
+  const { data, error } = await sb
+    .from("player_stats")
+    .select(`auth, ${col}`)
+    .order(col, { ascending: false })
+    .limit(8);
+  if (error) return { error: error.message || String(error), rows: [] };
+  return { error: null, rows: data || [] };
+}
 
-  const auths = [
-    ...new Set(results.flatMap((rows) => rows.map((r) => r.auth).filter(Boolean))),
-  ];
+async function resolveNickMap(sb, auths) {
   const nickMap = {};
-  if (auths.length) {
-    const { data: people, error } = await sb.from("players").select("auth, nick").in("auth", auths);
-    if (error) console.error("[stats] top nicks", error.message);
-    for (const p of people || []) {
-      if (p.nick && String(p.nick).trim()) nickMap[p.auth] = String(p.nick).trim();
-    }
-    const missingAuths = auths.filter((auth) => !nickMap[auth]);
-    if (missingAuths.length) {
-      const { data: history, error: historyError } = await sb
-        .from("match_players")
-        .select("auth, nick")
-        .in("auth", missingAuths)
-        .not("nick", "is", null)
-        .limit(1000);
-      if (historyError) console.error("[stats] fallback nicks", historyError.message);
-      for (const row of history || []) {
-        if (!nickMap[row.auth] && row.nick && String(row.nick).trim()) {
-          nickMap[row.auth] = String(row.nick).trim();
-        }
-      }
-    }
+  if (!auths.length) return nickMap;
+
+  const { data: people, error } = await sb.from("players").select("auth, nick").in("auth", auths);
+  if (error) console.error("[stats] top nicks", error.message);
+  for (const p of people || []) {
+    if (p.nick && String(p.nick).trim()) nickMap[p.auth] = String(p.nick).trim();
   }
 
+  const missingAuths = auths.filter((auth) => !nickMap[auth]);
+  if (!missingAuths.length) return nickMap;
+
+  const { data: history, error: historyError } = await sb
+    .from("match_players")
+    .select("auth, nick")
+    .in("auth", missingAuths)
+    .not("nick", "is", null)
+    .neq("nick", "")
+    .order("match_id", { ascending: false })
+    .limit(200);
+  if (historyError) console.error("[stats] fallback nicks", historyError.message);
+  for (const row of history || []) {
+    const nick = row.nick && String(row.nick).trim();
+    if (row.auth && nick && !nickMap[row.auth]) nickMap[row.auth] = nick;
+  }
+  return nickMap;
+}
+
+async function queryLeaderboards(sb) {
+  const fetched = await Promise.all(LEADERBOARD_COLS.map(async (col) => ({ col, ...(await fetchTopColumn(sb, col)) })));
+  const coreFailed = fetched.filter((r) => r.error && !OPTIONAL_LEADERBOARD_COLS.has(r.col));
+  if (coreFailed.length) {
+    const err = new Error(coreFailed.map((r) => `${r.col}: ${r.error}`).join(" | "));
+    err.unavailable = true;
+    throw err;
+  }
+
+  const auths = [...new Set(fetched.flatMap((r) => (r.rows || []).map((row) => row.auth).filter(Boolean)))];
+  const nickMap = await resolveNickMap(sb, auths);
   const boards = emptyBoards();
-  cols.forEach((col, i) => {
-    boards[col] = mapLeaderboardRows(results[i], col, nickMap);
-  });
+  for (const item of fetched) {
+    if (item.error) {
+      console.error("[stats] top", item.col, item.error);
+      boards[item.col] = [];
+      continue;
+    }
+    boards[item.col] = mapLeaderboardRows(item.rows, item.col, nickMap).slice(0, 5);
+  }
   return boards;
 }
 
@@ -519,7 +532,12 @@ const leaderboardStore = createLeaderboardStore({
   async load() {
     const sb = getSupabase();
     if (!sb) return { unavailable: true };
-    return { unavailable: false, boards: await queryLeaderboards(sb) };
+    try {
+      return { unavailable: false, boards: await queryLeaderboards(sb) };
+    } catch (err) {
+      console.error("[stats] leaderboard", err?.message || err);
+      return { unavailable: true };
+    }
   },
 });
 

@@ -77,7 +77,7 @@ async function request(url, apiKey, { method = "GET", body, fetchImpl = globalTh
   return null;
 }
 
-function createHaxbooket(room, { statsUrl, apiKey, fetchImpl } = {}) {
+function createHaxbooket(room, { statsUrl, apiKey, fetchImpl, getRedStreak } = {}) {
   const base = marketsBase(statsUrl);
   let current = null;
   let queue = Promise.resolve();
@@ -133,12 +133,16 @@ function createHaxbooket(room, { statsUrl, apiKey, fetchImpl } = {}) {
     if (typeof state.timer.unref === "function") state.timer.unref();
   }
 
-  function open({ matchId, participants, startedAt } = {}) {
+  function open({ matchId, participants, startedAt, redStreak } = {}) {
     if (!base || !apiKey || !matchId) return false;
     if (current && !current.terminal) voidMarket("nova-partida");
     const state = {
       matchId,
       participants: marketParticipants(participants),
+      redStreak: Math.max(
+        0,
+        Math.floor(Number(redStreak ?? (typeof getRedStreak === "function" ? getRedStreak() : 0)) || 0)
+      ),
       sent: new Set(),
       terminal: null,
       timer: null,
@@ -149,7 +153,12 @@ function createHaxbooket(room, { statsUrl, apiKey, fetchImpl } = {}) {
     enqueue(async () => {
       const summary = await request(`${base}/start`, apiKey, {
         method: "POST",
-        body: { matchId, startedAt: startedAt || new Date().toISOString(), participants: state.participants },
+        body: {
+          matchId,
+          startedAt: startedAt || new Date().toISOString(),
+          participants: state.participants,
+          redStreak: state.redStreak,
+        },
         fetchImpl,
       });
       if (!summary || state !== current || state.terminal) return;
