@@ -23,7 +23,7 @@ const { createMatchController } = require("./match");
 const { createRoomStats } = require("./roomStats");
 const { createCarousel, buildCarouselSlides } = require("./carousel");
 const { applyJoinGuards } = require("./joinGuards");
-const { createUniformManager } = require("./uniforms");
+const { createUniformManager, findKit } = require("./uniforms");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays, pruneStreakIfTooFewHolders } = require("./streak");
 const { createCommandHandler } = require("../commands");
 const { createGifClip } = require("./gifClip");
@@ -123,7 +123,12 @@ function createRoom(HBInit) {
       if (!scores || stadiumKind === "training") return false;
       return room.getPlayerList().filter((p) => p && p.id !== 0 && p.team !== 0).length >= 2;
     },
-    bounds: () => (stadiumKind === "x3" ? { w: 536, h: 245 } : { w: 700, h: 320 }),
+    bounds: () => (stadiumKind === "x3" ? { w: 536, h: 245, r: 61 } : { w: 700, h: 320, r: 80 }),
+    stadium: () => (stadiumKind === "x3" ? "x3" : "x4"),
+    kits: () => {
+      const cur = uniforms.current();
+      return { red: findKit(cur[1]), blue: findKit(cur[2]) };
+    },
     roomLabel: config.haxbookRoomName || config.roomName,
     postClip: (payload) => postGifClip(config.haxbookStatsUrl, config.haxbookApiKey, payload),
     announce: (text, to, color) => room.sendAnnouncement(text, to, color, "bold", 1),

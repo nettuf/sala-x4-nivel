@@ -97,7 +97,7 @@ function playerHelpLines({
     "!zoeira — zoeiras da sala",
     "!ranking — tops e streak",
     "!calladm <motivo> — chamar staff no Discord",
-    "!gif — clipe de 15s no Discord"
+    "!gif — 5 pessoas, clipe de 15s no Discord"
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — uniforme do time (capitão/admin)");
@@ -724,7 +724,7 @@ function createCommandHandler(room, ctx) {
       }
       if (result.opened) {
         room.sendAnnouncement(
-          `🎬 ${player.name} pediu GIF — 15s pra até 5 !gif.`,
+          `🎬 ${player.name} pediu GIF dos últimos 15s — faltam 4 pessoas (!gif).`,
           null,
           0x3498db,
           "bold",

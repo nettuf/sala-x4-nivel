@@ -337,7 +337,7 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
-  it("!gif abre janela só em partida e junta até 5", async () => {
+  it("!gif abre janela só em partida e junta 5 pessoas", async () => {
     const room = mockRoom();
     room.getScores = () => ({ red: 1, blue: 0, time: 30 });
     const requests = [];

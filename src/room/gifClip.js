@@ -16,11 +16,28 @@ function waitSec(lastAt, ms, now) {
   return left > 0 ? Math.ceil(left / 1000) : 0;
 }
 
+const DEFAULT_KITS = {
+  red: { angle: 0, text: 0xffffff, colors: [0xe56e56], emoji: null },
+  blue: { angle: 0, text: 0xffffff, colors: [0x5689e5], emoji: null },
+};
+
+function packKit(kit, fallback) {
+  if (!kit) return fallback;
+  return {
+    angle: Number(kit.angle) || 0,
+    text: Number(kit.text) || 0xffffff,
+    colors: Array.isArray(kit.colors) && kit.colors.length ? kit.colors.map(Number) : fallback.colors,
+    emoji: kit.emoji || null,
+  };
+}
+
 function createGifClip({
   room,
   now = () => Date.now(),
   canClip = () => true,
   bounds = () => ({ w: 700, h: 320 }),
+  stadium = () => "x4",
+  kits = () => DEFAULT_KITS,
   roomLabel = "",
   postClip = async () => ({ ok: true }),
   schedule = (fn, ms) => setTimeout(fn, ms),
@@ -31,7 +48,7 @@ function createGifClip({
   let write = 0;
   let count = 0;
   let tick = 0;
-  /** @type {null | { requesters: Map<string, { id: number, name: string, auth: string|null }> }} */
+  /** @type {null | { requesters: Map<string, { id: number, name: string, auth: string|null }>, clip: object }} */
   let window = null;
   let timer = null;
   let lastRoomAt = 0;
@@ -86,35 +103,62 @@ function createGifClip({
     return true;
   }
 
-  function buildPayload(requesters) {
+  function freezeClip() {
     const scores = typeof room?.getScores === "function" ? room.getScores() : null;
     const list = typeof room?.getPlayerList === "function" ? room.getPlayerList() : [];
     const players = [];
     for (const raw of list) {
       if (!raw || raw.id === 0 || raw.team === 0) continue;
-      players.push({ id: raw.id, name: raw.name, team: raw.team });
+      players.push({
+        id: raw.id,
+        name: raw.name,
+        team: raw.team,
+        avatar: raw.avatar || null,
+      });
     }
+    const packed = typeof kits === "function" ? kits() : kits;
     return {
       roomLabel,
+      stadium: typeof stadium === "function" ? stadium() : stadium || "x4",
+      kits: {
+        red: packKit(packed?.red, DEFAULT_KITS.red),
+        blue: packKit(packed?.blue, DEFAULT_KITS.blue),
+      },
       bounds: bounds() || { w: 700, h: 320 },
       score: { red: scores?.red || 0, blue: scores?.blue || 0, time: round1(scores?.time || 0) },
-      requesters,
       players,
-      frames: snapshotFrames(),
+      frames: snapshotFrames().map((frame) => ({
+        ...frame,
+        p: (frame.p || []).map((disc) => disc.slice()),
+      })),
     };
   }
 
-  function finishWindow() {
+  function expireWindow() {
     if (!window || flushing) return;
+    if (timer) {
+      clearSchedule(timer);
+      timer = null;
+    }
+    window = null;
+    announce("🎬 GIF cancelado — precisa de 5 pessoas diferentes.", null, 0xf1c40f);
+  }
+
+  function sendClip() {
+    if (flushing || !window?.clip) return;
+    const requesters = [...window.requesters.values()];
+    const payload = { ...window.clip, requesters };
     flushing = true;
     if (timer) {
       clearSchedule(timer);
       timer = null;
     }
-    const requesters = [...window.requesters.values()];
     window = null;
-    lastRoomAt = now();
-    const payload = buildPayload(requesters);
+    const ts = now();
+    lastRoomAt = ts;
+    for (const requester of requesters) {
+      lastPlayerAt.set(playerKey({ id: requester.id }, requester.auth), ts);
+    }
     const run = () => {
       Promise.resolve()
         .then(() => postClip(payload))
@@ -162,17 +206,18 @@ function createGifClip({
     if (window) {
       if (window.requesters.size >= MAX_REQUESTERS) return { ok: false, reason: "full" };
       window.requesters.set(key, { id: player.id, name: player.name, auth: auth || null });
-      lastPlayerAt.set(key, ts);
       const joinedCount = window.requesters.size;
-      if (joinedCount >= MAX_REQUESTERS) finishWindow();
+      if (joinedCount >= MAX_REQUESTERS) {
+        sendClip();
+      }
       return { ok: true, joined: true, count: joinedCount };
     }
 
     window = {
       requesters: new Map([[key, { id: player.id, name: player.name, auth: auth || null }]]),
+      clip: freezeClip(),
     };
-    lastPlayerAt.set(key, ts);
-    timer = schedule(finishWindow, WINDOW_MS);
+    timer = schedule(expireWindow, WINDOW_MS);
     return { ok: true, opened: true, count: 1 };
   }
 
@@ -184,7 +229,7 @@ function createGifClip({
     sample,
     request,
     forget,
-    finishWindow,
+    finishWindow: expireWindow,
     frameCount: () => count,
     windowCount: () => window?.requesters.size || 0,
   };
@@ -192,6 +237,8 @@ function createGifClip({
 
 module.exports = {
   createGifClip,
+  packKit,
+  DEFAULT_KITS,
   TICKS_PER_SAMPLE,
   MAX_FRAMES,
   MIN_FRAMES,
