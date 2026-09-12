@@ -97,26 +97,64 @@ function formatStatusCard(name, stats, title) {
 }
 
 async function countCleanSheets(sb, auth) {
-  const { data, error } = await sb
+  const { count, error } = await sb
     .from("match_players")
-    .select("clean_sheet")
+    .select("auth", { count: "exact", head: true })
     .eq("auth", auth)
     .eq("clean_sheet", true);
-  if (error || !Array.isArray(data)) return null;
-  return data.length;
+  if (error || count == null) return null;
+  return count;
 }
 
 async function ensurePlayer(auth, nick) {
+  await ensurePlayers([{ auth, nick }]);
+}
+
+async function ensurePlayers(roster) {
   const sb = getSupabase();
-  if (!sb || !auth) return;
-  const cleanNick = typeof nick === "string" ? nick.trim() : "";
-  const row = cleanNick
-    ? { auth, nick: cleanNick, last_seen_at: new Date().toISOString() }
-    : { auth };
-  await sb.from("players").upsert(row, {
-    onConflict: "auth",
-    ignoreDuplicates: !cleanNick,
-  });
+  if (!sb || !roster?.length) return;
+  const now = new Date().toISOString();
+  const withNick = [];
+  const withoutNick = [];
+  const seen = new Set();
+  for (const p of roster) {
+    if (!p?.auth || seen.has(p.auth)) continue;
+    seen.add(p.auth);
+    const cleanNick = typeof p.nick === "string" ? p.nick.trim() : "";
+    if (cleanNick) withNick.push({ auth: p.auth, nick: cleanNick, last_seen_at: now });
+    else withoutNick.push({ auth: p.auth });
+  }
+  if (withNick.length) {
+    const { error } = await sb.from("players").upsert(withNick, { onConflict: "auth" });
+    if (error) console.error("[stats] ensure players", error.message);
+  }
+  if (withoutNick.length) {
+    const { error } = await sb.from("players").upsert(withoutNick, {
+      onConflict: "auth",
+      ignoreDuplicates: true,
+    });
+    if (error) console.error("[stats] ensure players", error.message);
+  }
+}
+
+const MATCH_RETENTION_DAYS = 90;
+const MATCH_CLEANUP_EVERY_MS = 12 * 60 * 60 * 1000;
+let lastMatchCleanupAt = 0;
+
+/** Apaga partidas velhas. Cascata limpa match_players e match_goals. Totais ficam em player_stats / room_meta. */
+async function cleanupOldMatches() {
+  const sb = getSupabase();
+  if (!sb) return;
+  const now = Date.now();
+  if (now - lastMatchCleanupAt < MATCH_CLEANUP_EVERY_MS) return;
+  lastMatchCleanupAt = now;
+  const cutoff = new Date(now - MATCH_RETENTION_DAYS * 86400000).toISOString();
+  const { error, count } = await sb
+    .from("matches")
+    .delete({ count: "exact" })
+    .lt("ended_at", cutoff);
+  if (error) console.warn("[stats] cleanup matches", error.message);
+  else if (count) console.log(`[stats] cleanup matches: ${count} partidas >${MATCH_RETENTION_DAYS}d`);
 }
 
 async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals }) {
@@ -147,9 +185,7 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
   }
 
   if (roster?.length) {
-    for (const p of roster) {
-      await ensurePlayer(p.auth, p.nick);
-    }
+    await ensurePlayers(roster);
     const rows = roster.map((p) => ({
       match_id: match.id,
       auth: p.auth,
@@ -218,6 +254,7 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
   }
 
   if (valid && players?.length) invalidateLeaderboards();
+  cleanupOldMatches().catch(() => {});
 
   return { match, mvpAuths: [...mvpAuths], womAuths: [...womAuths], titleUnlocks };
 }

@@ -63,6 +63,18 @@ async function persistViados(n) {
   if (error) console.warn("[room-stats] persist viados", error.message);
 }
 
+async function persistTotals(games, goals) {
+  const sb = getSupabase();
+  if (!sb) return;
+  const { error } = await sb.from("room_meta").upsert({
+    id: ROOM_META_ID,
+    games: Math.max(0, Math.floor(Number(games) || 0)),
+    goals: Math.max(0, Math.floor(Number(goals) || 0)),
+    updated_at: new Date().toISOString(),
+  });
+  if (error) console.warn("[room-stats] persist totals", error.message);
+}
+
 /**
  * Totais da sala (gols, partidas 4v4 válidas, apostas Haxbooket + recorde de streak).
  * Persistidos em JSON para não zerar no restart; se o Supabase tiver mais, usa o maior.
@@ -100,6 +112,7 @@ function createRoomStats({ filePath } = {}) {
     state.goals += Math.max(0, Math.floor(Number(goals) || 0));
     state.games += 1;
     save();
+    persistTotals(state.games, state.goals).catch(() => {});
     return snapshot();
   }
 
@@ -136,18 +149,24 @@ function createRoomStats({ filePath } = {}) {
     const sb = getSupabase();
     if (!sb) return snapshot();
     try {
-      const [gamesRes, goalsRes, metaRes] = await Promise.all([
-        sb.from("matches").select("*", { count: "exact", head: true }).eq("valid", true),
-        sb.from("match_goals").select("*", { count: "exact", head: true }).eq("is_own_goal", false),
-        sb
-          .from("room_meta")
-          .select("best_streak, best_streak_holders, bets, viados")
-          .eq("id", ROOM_META_ID)
-          .maybeSingle(),
-      ]);
+      const metaRes = await sb
+        .from("room_meta")
+        .select("best_streak, best_streak_holders, bets, viados, games, goals")
+        .eq("id", ROOM_META_ID)
+        .maybeSingle();
+      let remoteGames = Number(metaRes.data?.games) || 0;
+      let remoteGoals = Number(metaRes.data?.goals) || 0;
+      if ((!remoteGames && !state.games) || (!remoteGoals && !state.goals)) {
+        const [gamesRes, goalsRes] = await Promise.all([
+          sb.from("matches").select("id", { count: "exact", head: true }).eq("valid", true),
+          sb.from("match_goals").select("id", { count: "exact", head: true }).eq("is_own_goal", false),
+        ]);
+        remoteGames = Math.max(remoteGames, Number(gamesRes.count) || 0);
+        remoteGoals = Math.max(remoteGoals, Number(goalsRes.count) || 0);
+      }
       const remote = sanitize({
-        games: gamesRes.count,
-        goals: goalsRes.count,
+        games: remoteGames,
+        goals: remoteGoals,
         bets: metaRes.data?.bets,
         viados: metaRes.data?.viados,
         bestStreak: metaRes.data?.best_streak,
@@ -183,6 +202,13 @@ function createRoomStats({ filePath } = {}) {
       }
       if (!metaRes.error && state.viados > remote.viados) {
         persistViados(state.viados).catch(() => {});
+      }
+      if (
+        !metaRes.error &&
+        (state.games > (Number(metaRes.data?.games) || 0) ||
+          state.goals > (Number(metaRes.data?.goals) || 0))
+      ) {
+        persistTotals(state.games, state.goals).catch(() => {});
       }
     } catch (err) {
       console.warn("[room-stats] hydrate", err.message);
