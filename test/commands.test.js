@@ -337,6 +337,28 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("!gif abre janela só em partida e junta até 5", async () => {
+    const room = mockRoom();
+    room.getScores = () => ({ red: 1, blue: 0, time: 30 });
+    const requests = [];
+    const gifClip = {
+      request: (player) => {
+        requests.push(player.id);
+        if (requests.length === 1) return { ok: true, opened: true, count: 1 };
+        return { ok: true, joined: true, count: requests.length };
+      },
+      forget: () => {},
+    };
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk, gifClip };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!gif");
+    await cmd.handle(room._players[1], "!gif");
+    assert.ok(room.announcements.some((a) => /pediu GIF/i.test(a.msg)));
+    assert.ok(room.announcements.some((a) => /entrou no GIF/i.test(a.msg)));
+    afk.stop();
+  });
+
   it("!ajuda lista só comandos de jogador", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);

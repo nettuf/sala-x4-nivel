@@ -26,6 +26,8 @@ const { applyJoinGuards } = require("./joinGuards");
 const { createUniformManager } = require("./uniforms");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays, pruneStreakIfTooFewHolders } = require("./streak");
 const { createCommandHandler } = require("../commands");
+const { createGifClip } = require("./gifClip");
+const { postGifClip } = require("../haxbook/gifClipWebhook");
 const { detectRageQuit, isChooseToken, rageQuitMessages, targetTeamSize } = require("../gameLogic");
 const { rememberIdentity, withIdentity } = require("./playerAuth");
 const { guardRoomApi } = require("./safeApi");
@@ -70,6 +72,7 @@ function createRoom(HBInit) {
     uniforms: null,
     roomStats: null,
     chatLog: null,
+    gifClip: null,
     selfLeaves: new Set(),
   };
 
@@ -113,6 +116,18 @@ function createRoom(HBInit) {
     },
   });
   ctx.match = match;
+  ctx.gifClip = createGifClip({
+    room,
+    canClip: () => {
+      const scores = typeof room.getScores === "function" ? room.getScores() : null;
+      if (!scores || stadiumKind === "training") return false;
+      return room.getPlayerList().filter((p) => p && p.id !== 0 && p.team !== 0).length >= 2;
+    },
+    bounds: () => (stadiumKind === "x3" ? { w: 536, h: 245 } : { w: 700, h: 320 }),
+    roomLabel: config.haxbookRoomName || config.roomName,
+    postClip: (payload) => postGifClip(config.haxbookStatsUrl, config.haxbookApiKey, payload),
+    announce: (text, to, color) => room.sendAnnouncement(text, to, color, "bold", 1),
+  });
   const commands = createCommandHandler(room, ctx);
 
   function identified(player) {
@@ -1581,6 +1596,11 @@ function createRoom(HBInit) {
       afk.noteGameTick();
     } catch (err) {
       console.error("[room] afk.tick", err?.message || err);
+    }
+    try {
+      ctx.gifClip?.sample();
+    } catch (err) {
+      console.error("[room] gif.sample", err?.message || err);
     }
   };
 

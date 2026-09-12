@@ -80,7 +80,7 @@ function playerHelpLines({
 } = {}) {
   const lines = [
     "— Sala —",
-    "!bb · !discord · !site · !ids · !calladm",
+    "!bb · !discord · !site · !ids · !calladm · !gif",
   ];
   if (isAfk) lines.push("!voltar — sair do AFK");
   else if (canAfk) lines.push("!afk — ficar AFK / voltar");
@@ -96,7 +96,8 @@ function playerHelpLines({
     "!unis — uniformes · !cores1 · !cores2",
     "!zoeira — zoeiras da sala",
     "!ranking — tops e streak",
-    "!calladm <motivo> — chamar staff no Discord"
+    "!calladm <motivo> — chamar staff no Discord",
+    "!gif — clipe de 15s no Discord"
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — uniforme do time (capitão/admin)");
@@ -449,6 +450,7 @@ function createCommandHandler(room, ctx) {
     lastAfkCommandAt.delete(playerId);
     lastFunPlayerAt.delete(playerId);
     lastCallAdmAt.delete(playerId);
+    ctx.gifClip?.forget?.(playerId);
     for (const key of [...lastLookupAt.keys()]) {
       if (key.startsWith(`${playerId}:`)) lastLookupAt.delete(key);
     }
@@ -688,6 +690,58 @@ function createCommandHandler(room, ctx) {
 
     if (MOD_ADMIN_CMDS.has(cmd) && !admin) {
       room.sendAnnouncement("Sem permissão.", player.id, 0xe74c3c, "bold", 2);
+      return true;
+    }
+
+    if (cmd === "gif" || cmd === "clip") {
+      const auth = resolvePlayerAuth(player, ctx.auths, room.getPlayerList());
+      const result = ctx.gifClip?.request?.(player, { auth }) || { ok: false, reason: "not-live" };
+      if (result.reason === "not-live") {
+        room.sendAnnouncement("!gif só no meio da partida (não no treino).", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      if (result.reason === "empty") {
+        room.sendAnnouncement("Espera a jogada uns 2s pra ter clip.", player.id, 0xf1c40f, "normal", 1);
+        return true;
+      }
+      if (result.reason === "player-cd" || result.reason === "room-cd") {
+        room.sendAnnouncement(
+          `Espere ${formatJokeWait(result.wait || 1)} pra pedir GIF de novo.`,
+          player.id,
+          0xf1c40f,
+          "normal",
+          1
+        );
+        return true;
+      }
+      if (result.reason === "already") {
+        room.sendAnnouncement("Você já entrou nesse GIF.", player.id, 0xf1c40f, "normal", 1);
+        return true;
+      }
+      if (result.reason === "full") {
+        room.sendAnnouncement("Esse GIF já fechou. Espera o próximo.", player.id, 0xf1c40f, "normal", 1);
+        return true;
+      }
+      if (result.opened) {
+        room.sendAnnouncement(
+          `🎬 ${player.name} pediu GIF — 15s pra até 5 !gif.`,
+          null,
+          0x3498db,
+          "bold",
+          1
+        );
+        return true;
+      }
+      if (result.joined) {
+        room.sendAnnouncement(
+          `🎬 ${player.name} entrou no GIF (${result.count}/5).`,
+          null,
+          0x3498db,
+          "normal",
+          1
+        );
+        return true;
+      }
       return true;
     }
 
