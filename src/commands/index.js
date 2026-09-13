@@ -97,7 +97,7 @@ function playerHelpLines({
     "!zoeira — zoeiras da sala",
     "!ranking — tops e streak",
     "!calladm <motivo> — chamar staff no Discord",
-    "!gif — 5 pessoas, clipe de 15s no Discord"
+    "!gif — 5 pessoas ou Chefe, 15s no Discord no fim da partida"
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — uniforme do time (capitão/admin)");
@@ -695,9 +695,19 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "gif" || cmd === "clip") {
       const auth = resolvePlayerAuth(player, ctx.auths, room.getPlayerList());
-      const result = ctx.gifClip?.request?.(player, { auth }) || { ok: false, reason: "not-live" };
+      const result =
+        ctx.gifClip?.request?.(player, { auth, staffLevel: admin?.level || 0 }) || {
+          ok: false,
+          reason: "not-live",
+        };
       if (result.reason === "not-live") {
-        room.sendAnnouncement("!gif só no meio da partida (não no treino).", player.id, 0xe74c3c, "normal", 1);
+        room.sendAnnouncement(
+          "!gif só na partida ou nos 20s depois do apito (não no treino).",
+          player.id,
+          0xe74c3c,
+          "normal",
+          1
+        );
         return true;
       }
       if (result.reason === "empty") {
@@ -722,6 +732,10 @@ function createCommandHandler(room, ctx) {
         room.sendAnnouncement("Esse GIF já fechou. Espera o próximo.", player.id, 0xf1c40f, "normal", 1);
         return true;
       }
+      if (result.queued && result.staff) {
+        room.sendAnnouncement(`🎬 ${player.name} fechou o GIF (Chefe).`, null, 0x2ecc71, "bold", 1);
+        return true;
+      }
       if (result.opened) {
         room.sendAnnouncement(
           `🎬 ${player.name} pediu GIF dos últimos 15s — faltam 4 pessoas (!gif).`,
@@ -734,7 +748,9 @@ function createCommandHandler(room, ctx) {
       }
       if (result.joined) {
         room.sendAnnouncement(
-          `🎬 ${player.name} entrou no GIF (${result.count}/5).`,
+          result.queued
+            ? `🎬 ${player.name} entrou no GIF (5/5).`
+            : `🎬 ${player.name} entrou no GIF (${result.count}/5).`,
           null,
           0x3498db,
           "normal",

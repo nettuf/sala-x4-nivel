@@ -27,7 +27,7 @@ const { createPostMatchInsights } = require("../haxbook/insight");
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
  */
-function createMatchController(room, { identify, onCompletedMatch, getStreak } = {}) {
+function createMatchController(room, { identify, onCompletedMatch, getStreak, onReplayHold, onReplayCancel } = {}) {
   const haxbooket = createHaxbooket(room, {
     statsUrl: config.haxbookStatsUrl,
     apiKey: config.haxbookApiKey,
@@ -557,6 +557,19 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak } =
       bluePlayers: lineupBlue.map((p) => ({ name: p.name })),
       recording,
     };
+    if (valid && recording && recording.length) {
+      try {
+        onReplayHold?.(recording, { endTime: Number(finalScores?.time) || 0 });
+      } catch (e) {
+        console.warn("[match] gif hold", e.message);
+      }
+    } else {
+      try {
+        onReplayCancel?.();
+      } catch {
+        /* ignore */
+      }
+    }
 
     match = null;
     lastScores = null;
@@ -698,6 +711,11 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak } =
       } catch {
         /* ignore */
       }
+    }
+    try {
+      onReplayCancel?.();
+    } catch {
+      /* ignore */
     }
     match = null;
   }
