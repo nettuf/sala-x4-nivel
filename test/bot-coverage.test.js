@@ -399,10 +399,11 @@ describe("comandos extras", () => {
     assert.ok(host.announcements.some((a) => /Sem recorde/i.test(a.msg)));
     host.streak.recordWin(TEAM.RED, ["A", "B"]);
     host.streak.recordWin(TEAM.RED, ["A", "B"]);
+    host.streak.recordWin(TEAM.RED, ["A", "B"]);
     host.streak.recordWin(TEAM.BLUE, ["C"]);
     host.advance(10_000);
     await host.cmd.handle(host.players[0], "!topstreak");
-    assert.ok(host.announcements.some((a) => /Maior streak da sala: 2 · A, B/.test(a.msg)));
+    assert.ok(host.announcements.some((a) => /1\. 3 — A, B/.test(a.msg)));
     host.afk.stop();
   });
 

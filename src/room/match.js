@@ -6,13 +6,18 @@ const {
   isValidMatchScores,
   formatMatchClock,
   possessionPercents,
+  bumpPlayStat,
+  classifyTouchChange,
+  applyPlayEvents,
+  formatPlayChatLines,
+  formatPlaySummaryLines,
   canJoinMatchStats,
   isDecidedLosingScore,
   pickGoalkeeper,
   sameTouchPlayer,
   dedupeMatchPlayers,
 } = require("../gameLogic");
-const { pickMatchMvps, pickMatchWorst, filterPlayersAtWhistle } = require("../titles");
+const { pickMatchMvps, pickMatchWorst, filterPlayersAtWhistle, withPlayStats, formatMvpAnnounce, formatWorstAnnounce } = require("../titles");
 const {
   fieldEightAtWhistle,
   shouldSendHaxbookStats,
@@ -114,6 +119,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       const last = match.touches[0];
       if (last?.team === 1) redPoss += 1;
       else if (last?.team === 2) bluePoss += 1;
+      if (last?.id != null && match.playStats) bumpPlayStat(match.playStats, last, "possTicks");
     }
 
     if (match && s) {
@@ -180,6 +186,8 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       formatBroken: false,
       recordingStarted: false,
       touches: [],
+      pendingKick: null,
+      playStats: new Map(),
       goals: [],
       lastGoal: null,
       lineupRed: playersOf(1).map((p) => ({ id: p.id, name: p.name, auth: p.auth || null })),
@@ -200,6 +208,18 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     room.startGame();
   }
 
+  function skipMisplacedFor(kicker) {
+    if (!kicker) return false;
+    const gk = gkFromSamples();
+    return (kicker.team === 1 && gk.redId === kicker.id) || (kicker.team === 2 && gk.blueId === kicker.id);
+  }
+
+  function clearPlaySequence() {
+    if (!match) return;
+    match.touches = [];
+    match.pendingKick = null;
+  }
+
   function recordTouch(player, { kind = "kick" } = {}) {
     if (!match || !player || player.team === 0) return;
     const p = who(player);
@@ -210,15 +230,24 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       last.team = p.team;
       last.name = p.name;
       if (p.auth) last.auth = p.auth;
+      if (kind === "kick") match.pendingKick = last;
       return;
     }
-    match.touches.unshift({
+    const next = {
       id: p.id,
       name: p.name,
       auth: p.auth || null,
       team: p.team,
       kind,
+    };
+    const kicker = match.pendingKick;
+    const classified = classifyTouchChange(last, next, {
+      pendingKick: kicker,
+      skipMisplacedForKicker: skipMisplacedFor(kicker),
     });
+    applyPlayEvents(match.playStats, classified);
+    match.pendingKick = classified.nextPendingKick;
+    match.touches.unshift(next);
     if (match.touches.length > TOUCH_HISTORY) match.touches.length = TOUCH_HISTORY;
   }
 
@@ -315,7 +344,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       );
     }
 
-    match.touches = [];
+    clearPlaySequence();
 
     if (goldenGoal) {
       markVictory();
@@ -344,7 +373,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
 
   function notePositionsReset() {
     activePlay = false;
-    if (match) match.touches = [];
+    clearPlaySequence();
   }
 
   function isValidGame(scores) {
@@ -421,6 +450,12 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     return gkFromSamples();
   }
 
+  function xAvgOf(id) {
+    const s = gkSamples.get(id);
+    if (!s || !s.n) return null;
+    return s.xSum / s.n;
+  }
+
   function buildPlayersPayload(scores, winner, lineupRed, lineupBlue) {
     const gk = gkAuths();
     const rows = [];
@@ -435,6 +470,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
         result: winner === 0 ? "draw" : winner === 1 ? "win" : "loss",
         goalkeeper: gk.redId === p.id,
         cleanSheet: Number(scores?.blue ?? 0) === 0 && gk.redId === p.id,
+        xAvg: xAvgOf(p.id),
       });
     }
     for (const p of lineupBlue) {
@@ -448,6 +484,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
         result: winner === 0 ? "draw" : winner === 2 ? "win" : "loss",
         goalkeeper: gk.blueId === p.id,
         cleanSheet: Number(scores?.red ?? 0) === 0 && gk.blueId === p.id,
+        xAvg: xAvgOf(p.id),
       });
     }
     return dedupeMatchPlayers(rows);
@@ -548,6 +585,9 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     const mvps = valid ? pickMatchMvps(playersForTitles) : [];
     const worst = valid ? pickMatchWorst(playersForTitles) : [];
     const poss = possessionPercents(redPoss, bluePoss);
+    const playMap = match.playStats;
+    const chatLines = formatPlayChatLines(playMap, poss);
+    const playLines = formatPlaySummaryLines(playMap);
 
     const snapshot = {
       scoreRed,
@@ -556,8 +596,9 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       redPlayers: lineupRed.map((p) => ({ name: p.name })),
       bluePlayers: lineupBlue.map((p) => ({ name: p.name })),
       recording,
+      playLines,
     };
-    if (valid && recording && recording.length) {
+    if (valid) {
       try {
         onReplayHold?.(recording, { endTime: Number(finalScores?.time) || 0 });
       } catch (e) {
@@ -589,18 +630,14 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       : null;
 
     if (valid) {
-      room.sendAnnouncement(
-        `⭐ Posse: 🔴 ${poss.red.toFixed(1)}% : ${poss.blue.toFixed(1)}% 🔵`,
-        null,
-        0xecf0f1,
-        "bold",
-        1
-      );
+      for (const line of chatLines) {
+        room.sendAnnouncement(line, null, 0xecf0f1, "bold", 1);
+      }
       if (mvps.length) {
-        room.sendAnnouncement(`⭐ MVP: ${mvps[0].nick}`, null, 0xf1c40f, "bold", 2);
+        room.sendAnnouncement(formatMvpAnnounce(withPlayStats(mvps[0], playMap)), null, 0xf1c40f, "bold", 2);
       }
       if (worst.length) {
-        room.sendAnnouncement(`💩 Pior: ${worst[0].nick}`, null, 0xe67e22, "bold", 2);
+        room.sendAnnouncement(formatWorstAnnounce(withPlayStats(worst[0], playMap)), null, 0xe67e22, "bold", 2);
       }
 
       try {
@@ -745,6 +782,8 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       formatBroken: !!state.formatBroken,
       recordingStarted: false,
       touches: [],
+      pendingKick: null,
+      playStats: new Map(),
       goals: [],
       lastGoal: null,
       lineupRed: playersOf(1).map((p) => ({ id: p.id, name: p.name, auth: p.auth || null })),

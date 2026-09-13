@@ -429,14 +429,40 @@ function chatColor(title, team) {
   return CHAT_COLOR_SPEC;
 }
 
-/** Contribuição (pior): gols*2 + assists − GC*2; GK sem GC ganha piso pra não ser sempre o pior. */
-function matchContribution(p) {
+function sameMatchPlayer(a, b) {
+  if (!a || !b) return false;
+  if (a.auth && b.auth) return a.auth === b.auth;
+  return !!(a.id && b.id && a.id === b.id);
+}
+
+/** Mais avançado do time pelo X médio: vermelho ataca +X, azul ataca −X. */
+function isMostAdvanced(p, teamMates) {
+  const withX = (teamMates || []).filter((x) => Number.isFinite(Number(x.xAvg)));
+  if (withX.length < 2) return false;
+  const team = Number(p.team);
+  let best = withX[0];
+  for (const row of withX) {
+    if (team === 2 ? row.xAvg < best.xAvg : row.xAvg > best.xAvg) best = row;
+  }
+  return sameMatchPlayer(p, best);
+}
+
+/** GK +2; zaga/volante +1; avançado 0. Sem X médio não inventa função. */
+function roleFloor(p, teamMates) {
+  if ((Number(p.own_goals) || 0) > 0) return 0;
+  if (p.goalkeeper) return 2;
+  const withX = (teamMates || []).filter((x) => Number.isFinite(Number(x.xAvg)));
+  if (withX.length < 2) return 0;
+  if (isMostAdvanced(p, teamMates)) return 0;
+  return 1;
+}
+
+/** Contribuição (pior): gols*2 + assists − gol contra*2 + piso da função. */
+function matchContribution(p, teamMates) {
   const goals = Number(p.goals) || 0;
   const assists = Number(p.assists) || 0;
   const own = Number(p.own_goals) || 0;
-  let s = goals * 2 + assists - own * 2;
-  if (p.goalkeeper && own === 0) s += 2;
-  return s;
+  return goals * 2 + assists - own * 2 + roleFloor(p, teamMates);
 }
 
 /** Score de MVP: gols*2 + assists; GK com CS +3 (compete com artilheiro de 1 gol). */
@@ -499,35 +525,90 @@ function pickMatchMvps(players) {
 }
 
 /**
- * Pior da partida: sempre 1.
+ * Pior da partida: 1 se for único no fundo, senão ninguém.
  * Com perdedor → só no time que perdeu; empate → qualquer time.
- * Critério: menor contribuição (gols*2 + assists − GC*2; GK sem GC +2);
- * empate → mais GC → menos gols → menos assists.
+ * Piso de função (X médio) evita cravar volante/zaga só por não atacar.
  */
 function pickMatchWorst(players) {
   const list = players || [];
   const losers = list.filter((p) => p.result === "loss").map(withMatchStats);
   const pool = losers.length ? losers : list.map(withMatchStats);
   if (!pool.length) return [];
-  const scored = pool.map((p) => ({ ...p, score: matchContribution(p) }));
-  scored.sort((a, b) => {
-    if (a.score !== b.score) return a.score - b.score;
-    if (b.own_goals !== a.own_goals) return b.own_goals - a.own_goals;
-    if (a.goals !== b.goals) return a.goals - b.goals;
-    if (a.assists !== b.assists) return a.assists - b.assists;
-    // Empate total: prefere marcar linha de campo, não o GK.
-    if (Number(a.goalkeeper) !== Number(b.goalkeeper)) return Number(a.goalkeeper) - Number(b.goalkeeper);
-    return byAuthNick(a, b);
-  });
-  // Em empate de placar, evita MVP e pior serem a mesma pessoa quando dá.
+  const byTeam = new Map();
+  for (const p of pool) {
+    const team = Number(p.team) || 0;
+    if (!byTeam.has(team)) byTeam.set(team, []);
+    byTeam.get(team).push(p);
+  }
+  const scored = pool.map((p) => ({
+    ...p,
+    score: matchContribution(p, byTeam.get(Number(p.team) || 0) || pool),
+  }));
+  const min = Math.min(...scored.map((p) => p.score));
+  let worstTied = scored.filter((p) => p.score === min);
   if (!losers.length) {
     const mvpAuth = pickMatchMvps(list)[0]?.auth;
-    if (mvpAuth && scored.length > 1) {
-      const notMvp = scored.find((p) => p.auth !== mvpAuth);
-      if (notMvp) return [notMvp];
+    if (mvpAuth && worstTied.length > 1) {
+      worstTied = worstTied.filter((p) => p.auth !== mvpAuth);
     }
   }
-  return [scored[0]];
+  if (worstTied.length !== 1) return [];
+  return [worstTied[0]];
+}
+
+function playRowForPlayer(player, playMap) {
+  if (!player || !playMap) return null;
+  if (player.id != null && playMap.has(player.id)) return playMap.get(player.id);
+  if (player.auth) {
+    for (const row of playMap.values()) {
+      if (row?.auth && row.auth === player.auth) return row;
+    }
+  }
+  return null;
+}
+
+function withPlayStats(player, playMap) {
+  const row = playRowForPlayer(player, playMap);
+  if (!player) return player;
+  if (!row) return player;
+  return {
+    ...player,
+    passes: row.passes,
+    misplaced: row.misplaced,
+    recoveries: row.recoveries,
+    lost: row.lost,
+  };
+}
+
+function formatMvpAnnounce(player) {
+  const name = player?.nick || player?.name || "?";
+  const bits = [];
+  const goals = Number(player?.goals) || 0;
+  const assists = Number(player?.assists) || 0;
+  const passes = Number(player?.passes) || 0;
+  const misplaced = Number(player?.misplaced) || 0;
+  const recoveries = Number(player?.recoveries) || 0;
+  if (goals) bits.push(`${goals}G`);
+  if (assists) bits.push(`${assists}A`);
+  if (player?.cleanSheet) bits.push("CS");
+  if (passes > 0) bits.push(`${passes}/${passes + misplaced} passe`);
+  if (recoveries > 0) bits.push(`${recoveries} rec`);
+  return bits.length ? `⭐ MVP: ${name} · ${bits.join(" · ")}` : `⭐ MVP: ${name}`;
+}
+
+function formatWorstAnnounce(player) {
+  const name = player?.nick || player?.name || "?";
+  const bits = [];
+  const goals = Number(player?.goals) || 0;
+  const assists = Number(player?.assists) || 0;
+  const own = Number(player?.own_goals) || 0;
+  const misplaced = Number(player?.misplaced) || 0;
+  const lost = Number(player?.lost) || 0;
+  if (own) bits.push(`${own} GC`);
+  if (misplaced) bits.push(`${misplaced} passe err.`);
+  else if (lost) bits.push(`${lost} perda`);
+  if (!goals && !assists) bits.push("0G 0A");
+  return bits.length ? `💩 Pior: ${name} · ${bits.join(" · ")}` : `💩 Pior: ${name}`;
 }
 
 function reqLabel(req, title) {
@@ -603,6 +684,9 @@ module.exports = {
   filterPlayersAtWhistle,
   pickMatchMvps,
   pickMatchWorst,
+  withPlayStats,
+  formatMvpAnnounce,
+  formatWorstAnnounce,
   matchContribution,
   reqLabel,
   reqLabelLong,

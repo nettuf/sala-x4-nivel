@@ -63,10 +63,26 @@ describe("totais da sala", () => {
     const a = createRoomStats({ filePath: file });
     a.recordCompletedMatch({ goals: 5 });
     a.recordCompletedMatch({ goals: 2 });
-    assert.deepEqual(a.snapshot(), { goals: 7, games: 2, bets: 0, viados: 0, bestStreak: 0, bestStreakHolders: [] });
+    assert.deepEqual(a.snapshot(), {
+      goals: 7,
+      games: 2,
+      bets: 0,
+      viados: 0,
+      bestStreak: 0,
+      bestStreakHolders: [],
+      bestStreaks: [],
+    });
 
     const b = createRoomStats({ filePath: file });
-    assert.deepEqual(b.snapshot(), { goals: 7, games: 2, bets: 0, viados: 0, bestStreak: 0, bestStreakHolders: [] });
+    assert.deepEqual(b.snapshot(), {
+      goals: 7,
+      games: 2,
+      bets: 0,
+      viados: 0,
+      bestStreak: 0,
+      bestStreakHolders: [],
+      bestStreaks: [],
+    });
     fs.unlinkSync(file);
   });
 
@@ -78,10 +94,18 @@ describe("totais da sala", () => {
     a.setBestStreak(5, ["C", "D", "E", "F"]);
     assert.equal(a.snapshot().bestStreak, 5);
     assert.deepEqual(a.snapshot().bestStreakHolders, ["C", "D", "E", "F"]);
+    assert.deepEqual(
+      a.snapshot().bestStreaks.map((e) => e.n),
+      [5, 3]
+    );
 
     const b = createRoomStats({ filePath: file });
     assert.equal(b.snapshot().bestStreak, 5);
     assert.deepEqual(b.snapshot().bestStreakHolders, ["C", "D", "E", "F"]);
+    assert.deepEqual(
+      b.snapshot().bestStreaks.map((e) => e.n),
+      [5, 3]
+    );
     fs.unlinkSync(file);
   });
 

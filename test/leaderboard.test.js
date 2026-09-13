@@ -85,6 +85,7 @@ describe("mensagens de streak", () => {
   const {
     formatCurrentStreak,
     formatBestStreak,
+    formatTopStreaks,
     isStreakMilestone,
     formatStreakMilestone,
     formatStreakBroken,
@@ -94,11 +95,18 @@ describe("mensagens de streak", () => {
     assert.match(formatCurrentStreak(0), /Sem streak/);
     assert.match(formatCurrentStreak(4), /Streak atual: 4/);
     assert.match(formatBestStreak(0), /Sem recorde/);
-    assert.equal(formatBestStreak(7, 2), "🏆 Maior streak da sala: 7");
+    assert.equal(formatBestStreak(7, 2), "🏆 Top streak\n1. 7");
     assert.match(formatBestStreak(7, 7), /em andamento/);
     assert.equal(
       formatBestStreak(5, 1, ["Ana", "Bob", "Cia", "Dan"]),
-      "🏆 Maior streak da sala: 5 · Ana, Bob, Cia, Dan"
+      "🏆 Top streak\n1. 5 — Ana, Bob, Cia, Dan"
+    );
+    assert.match(
+      formatTopStreaks([
+        { n: 12, holders: ["A", "B"], live: true },
+        { n: 9, holders: ["C"] },
+      ]),
+      /1\. 12 — A, B \(em andamento\)/
     );
   });
 

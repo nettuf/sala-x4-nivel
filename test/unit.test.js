@@ -17,6 +17,10 @@ const {
   formatMatchClock,
   ballSpeedKmh,
   possessionPercents,
+  classifyTouchChange,
+  applyPlayEvents,
+  formatPlayChatLines,
+  formatPlaySummaryLines,
   canJoinMatchStats,
   detectRageQuit,
   isDecidedLosingScore,
@@ -30,6 +34,8 @@ const {
   resolveTitle,
   pickMatchMvps,
   pickMatchWorst,
+  formatMvpAnnounce,
+  formatWorstAnnounce,
   filterPlayersAtWhistle,
   formatChatPrefix,
   formatChatBody,
@@ -187,6 +193,25 @@ describe("gameLogic", () => {
     assert.equal(g.scorer.name, "Zaga");
   });
 
+  it("attributeGoal: drible do companheiro leva o gol, passe vira assist", () => {
+    const g = attributeGoal(
+      [
+        { id: 2, name: "Carrier", auth: "c", team: 1, kind: "body" },
+        { id: 1, name: "Passer", auth: "p", team: 1, kind: "kick" },
+      ],
+      1
+    );
+    assert.equal(g.scorer.name, "Carrier");
+    assert.equal(g.assist.name, "Passer");
+    assert.equal(g.isOwnGoal, false);
+  });
+
+  it("attributeGoal: só corpo do zagueiro não inventa GC", () => {
+    const g = attributeGoal([{ id: 9, name: "Zaga", team: 2, kind: "body" }], 1);
+    assert.equal(g.isOwnGoal, false);
+    assert.equal(g.scorer, null);
+  });
+
   it("pickGoalkeeper: vermelho mais à esquerda, azul mais à direita", () => {
     const samples = [
       { id: 1, team: 1, xAvg: -40 },
@@ -250,6 +275,51 @@ describe("gameLogic", () => {
     assert.equal(formatMatchClock(-1), "00:00");
     assert.deepEqual(possessionPercents(0, 0), { red: 50, blue: 50 });
     assert.deepEqual(possessionPercents(3, 1), { red: 75, blue: 25 });
+  });
+
+  it("classifica passe, passe errado, recuperação e perda", () => {
+    const a = { id: 1, name: "A", team: 1, kind: "kick" };
+    const b = { id: 2, name: "B", team: 1, kind: "body" };
+    const c = { id: 3, name: "C", team: 2, kind: "body" };
+    const pass = classifyTouchChange(a, b, { pendingKick: a });
+    assert.equal(pass.pass, a);
+    assert.equal(pass.misplaced, null);
+    assert.equal(pass.recovery, null);
+    assert.equal(pass.nextPendingKick, null);
+
+    const steal = classifyTouchChange(a, c, { pendingKick: a });
+    assert.equal(steal.misplaced, a);
+    assert.equal(steal.recovery, c);
+    assert.equal(steal.pass, null);
+
+    const gkClear = classifyTouchChange(a, c, { pendingKick: a, skipMisplacedForKicker: true });
+    assert.equal(gkClear.misplaced, null);
+    assert.equal(gkClear.recovery, c);
+
+    const loose = classifyTouchChange(a, c, { pendingKick: null });
+    assert.equal(loose.lost, a);
+    assert.equal(loose.recovery, c);
+    assert.equal(loose.misplaced, null);
+
+    const stats = new Map();
+    applyPlayEvents(stats, steal);
+    assert.equal(stats.get(1).misplaced, 1);
+    assert.equal(stats.get(3).recoveries, 1);
+  });
+
+  it("monta líderes de passe/rec/posse no chat", () => {
+    const map = new Map([
+      [1, { id: 1, name: "João", passes: 5, misplaced: 2, recoveries: 1, lost: 0, possTicks: 40 }],
+      [2, { id: 2, name: "Pedro", passes: 1, misplaced: 0, recoveries: 4, lost: 1, possTicks: 10 }],
+    ]);
+    const lines = formatPlayChatLines(map, { red: 60, blue: 40 });
+    assert.match(lines[0], /60\.0%/);
+    assert.match(lines.find((l) => l.includes("Passe")), /João 5\/7/);
+    assert.match(lines.find((l) => l.includes("Rec")), /Pedro 4/);
+    assert.match(lines.find((l) => l.includes("Posse jogador")), /João 80%/);
+    const discord = formatPlaySummaryLines(map).join("\n");
+    assert.match(discord, /João — 5\/7 passe/);
+    assert.match(discord, /2 perda/);
   });
 
   it("ballSpeedKmh cresce com deslocamento", () => {
@@ -343,6 +413,32 @@ describe("streak / winner stays", () => {
     s.hydrateBest(8, ["Z"]);
     assert.equal(s.getBest(), 8);
     assert.deepEqual(s.getBestHolders(), ["Z"]);
+  });
+
+  it("top 5: só entra com 3+, atualiza a campanha viva e congela quando cai", () => {
+    const boards = [];
+    const s = createStreakTracker({
+      onBoard(board) {
+        boards.push(board.map((e) => ({ n: e.n, live: !!e.live, holders: e.holders })));
+      },
+    });
+    s.recordWin(TEAM.RED, ["A", "B"]);
+    s.recordWin(TEAM.RED, ["A", "B"]);
+    assert.deepEqual(s.getTopStreaks(), []);
+    s.recordWin(TEAM.RED, ["A", "B"]);
+    assert.deepEqual(s.getTopStreaks(), [{ n: 3, holders: ["A", "B"], live: true }]);
+    s.recordWin(TEAM.RED, ["A", "B"]);
+    assert.equal(s.getTopStreaks()[0].n, 4);
+    assert.equal(s.getTopStreaks()[0].live, true);
+    s.recordWin(TEAM.BLUE, ["X", "Y"]);
+    assert.deepEqual(s.getTopStreaks(), [{ n: 4, holders: ["A", "B"], live: false }]);
+    s.recordWin(TEAM.RED, ["X", "Y"]);
+    s.recordWin(TEAM.RED, ["X", "Y"]);
+    assert.equal(s.getTopStreaks().length, 2);
+    assert.equal(s.getTopStreaks()[0].n, 4);
+    assert.equal(s.getTopStreaks()[1].n, 3);
+    assert.equal(s.getTopStreaks()[1].live, true);
+    assert.ok(boards.length >= 3);
   });
 
   it("azul vence → move para vermelho", () => {
@@ -653,6 +749,45 @@ describe("titles / cargos", () => {
     assert.equal(gkWorst[0].auth, "gk");
   });
 
+  it("pickMatchWorst: avançado zerado é o pior, não o volante", () => {
+    const worst = pickMatchWorst([
+      { auth: "gk", nick: "GK", team: 1, goals: 0, assists: 0, own_goals: 0, goalkeeper: true, result: "loss", xAvg: -80 },
+      { auth: "vol", nick: "Vol", team: 1, goals: 0, assists: 0, own_goals: 0, result: "loss", xAvg: 0 },
+      { auth: "fw", nick: "Fw", team: 1, goals: 0, assists: 0, own_goals: 0, result: "loss", xAvg: 90 },
+    ]);
+    assert.equal(worst.length, 1);
+    assert.equal(worst[0].auth, "fw");
+  });
+
+  it("pickMatchWorst: volante com gol contra continua o pior", () => {
+    const worst = pickMatchWorst([
+      { auth: "gk", nick: "GK", team: 1, goals: 0, assists: 0, own_goals: 0, goalkeeper: true, result: "loss", xAvg: -80 },
+      { auth: "vol", nick: "Vol", team: 1, goals: 0, assists: 0, own_goals: 1, result: "loss", xAvg: 0 },
+      { auth: "fw", nick: "Fw", team: 1, goals: 0, assists: 0, own_goals: 0, result: "loss", xAvg: 90 },
+    ]);
+    assert.equal(worst.length, 1);
+    assert.equal(worst[0].auth, "vol");
+  });
+
+  it("MVP anuncia stats boas; pior anuncia as ruins", () => {
+    assert.match(
+      formatMvpAnnounce({ nick: "João", goals: 2, assists: 1, cleanSheet: true, passes: 5, misplaced: 1, recoveries: 3 }),
+      /⭐ MVP: João · 2G · 1A · CS · 5\/6 passe · 3 rec/
+    );
+    assert.match(
+      formatWorstAnnounce({ nick: "Pedro", goals: 0, assists: 0, own_goals: 1, misplaced: 4 }),
+      /💩 Pior: Pedro · 1 GC · 4 passe err\. · 0G 0A/
+    );
+  });
+
+  it("pickMatchWorst: empate no fundo não inventa um bode", () => {
+    const worst = pickMatchWorst([
+      { auth: "a", nick: "A", goals: 0, assists: 0, own_goals: 0, result: "loss" },
+      { auth: "b", nick: "B", goals: 0, assists: 0, own_goals: 0, result: "loss" },
+    ]);
+    assert.equal(worst.length, 0);
+  });
+
   it("formatChatPrefix coloca o emoji do cargo entre colchetes", () => {
     assert.equal(formatChatPrefix({ emblem: "👑", name: "Chefe" }), "[👑] ");
     assert.equal(formatChatPrefix({ emblem: "🐉", name: "Lenda" }), "[🐉] ");
@@ -842,5 +977,18 @@ describe("replay summary", () => {
     assert.match(text, /2/);
     assert.match(text, /A/);
     assert.match(text, /assist B/i);
+  });
+
+  it("inclui passe/rec/posse no resumo", () => {
+    const text = buildSummary({
+      scoreRed: 1,
+      scoreBlue: 0,
+      redLineup: ["A"],
+      blueLineup: ["B"],
+      goals: [],
+      playLines: ["", "**Passe / rec / posse**", "· A — 3/4 passe · 1 rec · 1 perda · 55%"],
+    });
+    assert.match(text, /3\/4 passe/);
+    assert.match(text, /1 rec/);
   });
 });

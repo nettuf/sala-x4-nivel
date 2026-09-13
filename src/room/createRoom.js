@@ -27,7 +27,7 @@ const { createUniformManager, findKit } = require("./uniforms");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays, pruneStreakIfTooFewHolders } = require("./streak");
 const { createCommandHandler } = require("../commands");
 const { createGifClip } = require("./gifClip");
-const { uploadReplayAndEnqueue } = require("../haxbook/gifClipWebhook");
+const { postGifClip } = require("../haxbook/gifClipWebhook");
 const { detectRageQuit, isChooseToken, rageQuitMessages, targetTeamSize } = require("../gameLogic");
 const { rememberIdentity, withIdentity } = require("./playerAuth");
 const { guardRoomApi } = require("./safeApi");
@@ -92,8 +92,9 @@ function createRoom(HBInit) {
   const streak = createStreakTracker({
     best: statsSnap.bestStreak,
     bestHolders: statsSnap.bestStreakHolders,
-    onBest(n, holders) {
-      roomStats.setBestStreak(n, holders);
+    board: statsSnap.bestStreaks,
+    onBoard(board) {
+      roomStats.setBestStreaks(board);
     },
   });
   ctx.streak = streak;
@@ -101,7 +102,7 @@ function createRoom(HBInit) {
   ctx.chatLog = chatLog;
   roomStats
     .hydrateFromDb()
-    .then((snap) => streak.hydrateBest(snap.bestStreak, snap.bestStreakHolders))
+    .then((snap) => streak.hydrateBoard(snap.bestStreaks, snap.bestStreak, snap.bestStreakHolders))
     .catch(() => {});
   const match = createMatchController(room, {
     getStreak: () => streak.get(),
@@ -125,9 +126,14 @@ function createRoom(HBInit) {
       if (!scores || stadiumKind === "training") return false;
       return room.getPlayerList().filter((p) => p && p.id !== 0 && p.team !== 0).length >= 2;
     },
+    bounds: () => (stadiumKind === "x3" ? { w: 536, h: 245, r: 61 } : { w: 700, h: 320, r: 80 }),
+    stadium: () => (stadiumKind === "x3" ? "x3" : "x4"),
+    kits: () => {
+      const cur = uniforms.current();
+      return { red: findKit(cur[1]), blue: findKit(cur[2]) };
+    },
     roomLabel: config.haxbookRoomName || config.roomName,
-    submitReplay: (payload) =>
-      uploadReplayAndEnqueue(config.haxbookStatsUrl, config.haxbookApiKey, payload),
+    postClip: (payload) => postGifClip(config.haxbookStatsUrl, config.haxbookApiKey, payload),
     announce: (text, to, color) => room.sendAnnouncement(text, to, color, "bold", 1),
   });
   const commands = createCommandHandler(room, ctx);
@@ -1493,6 +1499,7 @@ function createRoom(HBInit) {
     kickoffAfkRestart = false;
     afk.setPaused(false);
     afk.resetClocks();
+    ctx.gifClip?.resetFrames?.();
     uniforms.prepareKickoff();
     uniforms.syncAvatars();
     const humans = room.getPlayerList().filter((p) => p.id !== 0);
@@ -1598,6 +1605,11 @@ function createRoom(HBInit) {
       afk.noteGameTick();
     } catch (err) {
       console.error("[room] afk.tick", err?.message || err);
+    }
+    try {
+      ctx.gifClip?.sample();
+    } catch (err) {
+      console.error("[room] gif.sample", err?.message || err);
     }
   };
 

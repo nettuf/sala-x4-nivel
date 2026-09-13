@@ -17,7 +17,7 @@ const {
   getLeaderboard,
   formatTop5,
 } = require("../db/stats");
-const { formatCurrentStreak, formatBestStreak } = require("../room/streak");
+const { formatCurrentStreak, formatBestStreak, formatTopStreaks } = require("../room/streak");
 const { formatBetLine, formatViadoLine, pickTeaseLine, pickPraiseLine, resolveTeaseTarget } = require("../room/bet");
 const { normalizeLinkCode, linkHaxballAuth } = require("../haxbook/authLink");
 const {
@@ -97,7 +97,7 @@ function playerHelpLines({
     "!zoeira — zoeiras da sala",
     "!ranking — tops e streak",
     "!calladm <motivo> — chamar staff no Discord",
-    "!gif — 5 pessoas ou Chefe, 15s no Discord no fim da partida"
+    "!gif — 5 pessoas ou Chefe, últimos 15s no Discord"
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — uniforme do time (capitão/admin)");
@@ -126,7 +126,7 @@ function rankingHelpLines() {
     "!gols !assists !vitorias !hattricks — top 5",
     "!golcontra !cs !jogos !mvp !wom — top 5",
     "!streak — streak atual",
-    "!topstreak — recorde da sala",
+    "!topstreak — 5 maiores da sala",
   ];
 }
 
@@ -1136,13 +1136,18 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "topstreak" || cmd === "recordstreak" || cmd === "melhorstreak" || cmd === "maxstreak") {
       if (blockLookup(player, "topstreak")) return true;
-      const best = ctx.streak?.getBest?.() ?? ctx.roomStats?.snapshot?.()?.bestStreak ?? 0;
-      const current = ctx.streak?.get?.() ?? 0;
-      const holders =
-        ctx.streak?.getBestHolders?.() ??
-        ctx.roomStats?.snapshot?.()?.bestStreakHolders ??
+      const board =
+        ctx.streak?.getTopStreaks?.() ??
+        ctx.roomStats?.snapshot?.()?.bestStreaks ??
         [];
-      room.sendAnnouncement(formatBestStreak(best, current, holders), player.id, 0xf1c40f, "bold", 1);
+      const text = board.length
+        ? formatTopStreaks(board)
+        : formatBestStreak(
+            ctx.streak?.getBest?.() ?? ctx.roomStats?.snapshot?.()?.bestStreak ?? 0,
+            ctx.streak?.get?.() ?? 0,
+            ctx.streak?.getBestHolders?.() ?? ctx.roomStats?.snapshot?.()?.bestStreakHolders ?? []
+          );
+      room.sendAnnouncement(text, player.id, 0xf1c40f, "bold", 1);
       return true;
     }
 

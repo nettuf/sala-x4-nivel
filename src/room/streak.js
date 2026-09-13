@@ -13,6 +13,9 @@ const STREAK_MILESTONE_EVERY = 5;
 const STREAK_BREAK_MIN = 5;
 /** Streak só conta / segue se ≥2 vencedores (elegíveis) permanecerem. */
 const MIN_STREAK_HOLDERS = 2;
+/** !topstreak: até 5 campanhas; só entra com 3 ou mais. */
+const TOP_STREAKS = 5;
+const MIN_BOARD_STREAK = 3;
 
 /** Frases de efeito a cada 5 vitórias seguidas (5, 10, 15, 20…). */
 const MILESTONE_LINES = {
@@ -145,6 +148,48 @@ function sanitizeHolders(holders) {
   return out;
 }
 
+function sameHolders(a, b) {
+  const left = sanitizeHolders(a);
+  const right = sanitizeHolders(b);
+  return left.length === right.length && left.every((name, i) => name === right[i]);
+}
+
+function normalizeBoardEntry(raw) {
+  const n = Math.max(0, Math.floor(Number(raw?.n ?? raw?.best) || 0));
+  if (n < MIN_BOARD_STREAK) return null;
+  return {
+    n,
+    holders: sanitizeHolders(raw?.holders),
+    live: !!raw?.live,
+  };
+}
+
+function rankStreakBoard(entries) {
+  const out = [];
+  const seenLive = { yes: false };
+  for (const raw of entries || []) {
+    const entry = normalizeBoardEntry(raw);
+    if (!entry) continue;
+    if (entry.live) {
+      if (seenLive.yes) entry.live = false;
+      else seenLive.yes = true;
+    }
+    out.push(entry);
+  }
+  out.sort((a, b) => {
+    if (b.n !== a.n) return b.n - a.n;
+    if (a.live !== b.live) return a.live ? -1 : 1;
+    return 0;
+  });
+  return out.slice(0, TOP_STREAKS);
+}
+
+function seedStreakBoard(entries, best, bestHolders) {
+  const seeded = rankStreakBoard(entries);
+  if (seeded.length) return seeded;
+  return rankStreakBoard([{ n: best, holders: bestHolders, live: false }]);
+}
+
 function uniqIds(ids) {
   const out = [];
   const seen = new Set();
@@ -157,11 +202,13 @@ function uniqIds(ids) {
   return out;
 }
 
-function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
+function createStreakTracker({ best = 0, bestHolders = [], board = [], onBest, onBoard } = {}) {
   let streak = 0;
   let bestStreak = Math.max(0, Math.floor(Number(best) || 0));
   let bestStreakHolders = sanitizeHolders(bestHolders);
   let holderIds = [];
+  let live = null;
+  let topBoard = seedStreakBoard(board, bestStreak, bestStreakHolders);
 
   function get() {
     return streak;
@@ -175,30 +222,79 @@ function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
     return [...bestStreakHolders];
   }
 
+  function getTopStreaks() {
+    return topBoard.map((e) => ({ ...e, holders: [...e.holders] }));
+  }
+
   function getHolderIds() {
     return [...holderIds];
   }
 
+  function emitBoard() {
+    if (typeof onBoard === "function") onBoard(getTopStreaks());
+  }
+
+  function publishLive() {
+    const frozen = topBoard.filter((e) => !e.live);
+    const next = live && live.n >= MIN_BOARD_STREAK ? [...frozen, { ...live, live: true }] : frozen;
+    topBoard = rankStreakBoard(next);
+    emitBoard();
+  }
+
+  function finalizeLive() {
+    if (!live) return;
+    if (live.n >= MIN_BOARD_STREAK) {
+      topBoard = rankStreakBoard([...topBoard.filter((e) => !e.live), { ...live, live: false }]);
+    } else {
+      topBoard = rankStreakBoard(topBoard.filter((e) => !e.live));
+    }
+    live = null;
+    emitBoard();
+  }
+
   function hydrateBest(n, holders) {
     const v = Math.max(0, Math.floor(Number(n) || 0));
+    const names = sanitizeHolders(holders);
     if (v > bestStreak) {
       bestStreak = v;
-      bestStreakHolders = sanitizeHolders(holders);
+      bestStreakHolders = names;
     } else if (v === bestStreak && bestStreakHolders.length === 0) {
-      bestStreakHolders = sanitizeHolders(holders);
+      bestStreakHolders = names;
+    }
+    if (v >= MIN_BOARD_STREAK && !topBoard.some((e) => e.n === v && sameHolders(e.holders, names))) {
+      topBoard = rankStreakBoard([...topBoard, { n: v, holders: names, live: false }]);
+      emitBoard();
+    }
+  }
+
+  function hydrateBoard(entries, fallbackBest, fallbackHolders) {
+    const seeded = seedStreakBoard(entries, fallbackBest, fallbackHolders);
+    if (seeded.length) topBoard = seeded;
+    const top = topBoard[0];
+    const rec = Math.max(0, Math.floor(Number(fallbackBest) || 0));
+    if (top) {
+      bestStreak = Math.max(bestStreak, top.n, rec);
+      if (top.holders.length) bestStreakHolders = top.holders;
+    } else if (rec > bestStreak) {
+      hydrateBest(rec, fallbackHolders);
     }
   }
 
   function reset() {
+    finalizeLive();
     streak = 0;
     holderIds = [];
   }
 
   function maybeRecordBest(holders) {
-    if (streak <= 0 || streak < bestStreak) return;
+    if (streak <= 0 || streak < bestStreak) {
+      publishLive();
+      return;
+    }
     bestStreak = streak;
     bestStreakHolders = sanitizeHolders(holders);
     if (typeof onBest === "function") onBest(bestStreak, bestStreakHolders);
+    publishLive();
   }
 
   /**
@@ -213,11 +309,13 @@ function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
     if (winner === TEAM.RED) {
       streak += 1;
     } else if (winner === TEAM.BLUE) {
+      finalizeLive();
       streak = 1;
     } else {
       return streak;
     }
     holderIds = uniqIds(ids);
+    live = { n: streak, holders: sanitizeHolders(holders) };
     maybeRecordBest(holders);
     return streak;
   }
@@ -227,7 +325,18 @@ function createStreakTracker({ best = 0, bestHolders = [], onBest } = {}) {
     return `streak ${streak}`;
   }
 
-  return { get, getBest, getBestHolders, getHolderIds, hydrateBest, reset, recordWin, label };
+  return {
+    get,
+    getBest,
+    getBestHolders,
+    getTopStreaks,
+    getHolderIds,
+    hydrateBest,
+    hydrateBoard,
+    reset,
+    recordWin,
+    label,
+  };
 }
 
 function formatCurrentStreak(n) {
@@ -235,14 +344,23 @@ function formatCurrentStreak(n) {
   return v > 0 ? `🔁 Streak atual: ${v} (vencedores no vermelho)` : "🔁 Sem streak no momento.";
 }
 
+function formatTopStreaks(entries = []) {
+  const rows = rankStreakBoard(Array.isArray(entries) ? entries : []);
+  if (!rows.length) return "🏆 Sem recorde de streak ainda.";
+  const lines = rows.map((e, i) => {
+    const who = e.holders.length ? ` — ${e.holders.join(", ")}` : "";
+    const live = e.live ? " (em andamento)" : "";
+    return `${i + 1}. ${e.n}${who}${live}`;
+  });
+  return `🏆 Top streak\n${lines.join("\n")}`;
+}
+
 function formatBestStreak(best, current = 0, holders = []) {
+  if (Array.isArray(best)) return formatTopStreaks(best);
   const rec = Math.max(0, Math.floor(Number(best) || 0));
   const now = Math.max(0, Math.floor(Number(current) || 0));
-  if (rec <= 0) return "🏆 Sem recorde de streak ainda.";
-  const live = now > 0 && now >= rec ? " (em andamento)" : "";
-  const names = sanitizeHolders(holders);
-  const who = names.length ? ` · ${names.join(", ")}` : "";
-  return `🏆 Maior streak da sala: ${rec}${live}${who}`;
+  if (rec < MIN_BOARD_STREAK) return "🏆 Sem recorde de streak ainda.";
+  return formatTopStreaks([{ n: rec, holders, live: now > 0 && now >= rec }]);
 }
 
 /**
@@ -377,7 +495,11 @@ module.exports = {
   shouldUseWinnerStays,
   formatCurrentStreak,
   formatBestStreak,
+  formatTopStreaks,
+  rankStreakBoard,
   sanitizeHolders,
+  TOP_STREAKS,
+  MIN_BOARD_STREAK,
   isStreakMilestone,
   formatStreakMilestone,
   formatStreakBroken,

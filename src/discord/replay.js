@@ -9,7 +9,7 @@ function recordingName(scoreRed, scoreBlue, redCap, blueCap) {
   return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${pad(d.getFullYear() % 100)}-${pad(d.getHours())}h${pad(d.getMinutes())}-${redCap || "red"}vs${blueCap || "blue"}-${scoreRed}x${scoreBlue}.hbr2`;
 }
 
-function buildSummary({ scoreRed, scoreBlue, goals, redLineup, blueLineup }) {
+function buildSummary({ scoreRed, scoreBlue, goals, redLineup, blueLineup, playLines }) {
   const lines = [
     `**${config.roomName}** — fim de jogo`,
     `Placar: 🔴 **${scoreRed}** x **${scoreBlue}** 🔵`,
@@ -32,13 +32,15 @@ function buildSummary({ scoreRed, scoreBlue, goals, redLineup, blueLineup }) {
     }
   }
 
+  if (playLines?.length) lines.push(...playLines);
+
   return lines.join("\n");
 }
 
 /**
  * Envia resumo + arquivo .hbr2 no webhook de replay/partidas.
  */
-async function sendReplayAndSummary({ recording, scoreRed, scoreBlue, goals, redPlayers, bluePlayers }) {
+async function sendReplayAndSummary({ recording, scoreRed, scoreBlue, goals, redPlayers, bluePlayers, playLines }) {
   const url = config.discordReplayWebhookUrl || config.discordWebhookUrl;
   if (!url) {
     console.warn("[replay] nenhum webhook configurado");
@@ -53,6 +55,7 @@ async function sendReplayAndSummary({ recording, scoreRed, scoreBlue, goals, red
     goals,
     redLineup,
     blueLineup,
+    playLines,
   });
 
   const form = new FormData();

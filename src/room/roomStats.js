@@ -2,24 +2,44 @@ const fs = require("fs");
 const path = require("path");
 const config = require("../config");
 const { getSupabase } = require("../db/supabase");
-const { sanitizeHolders } = require("./streak");
+const { sanitizeHolders, rankStreakBoard } = require("./streak");
 
 const ROOM_META_ID = "x4";
 
 function emptyTotals() {
-  return { goals: 0, games: 0, bets: 0, viados: 0, bestStreak: 0, bestStreakHolders: [] };
+  return {
+    goals: 0,
+    games: 0,
+    bets: 0,
+    viados: 0,
+    bestStreak: 0,
+    bestStreakHolders: [],
+    bestStreaks: [],
+  };
+}
+
+function sanitizeBoard(raw) {
+  return rankStreakBoard(Array.isArray(raw) ? raw : []);
 }
 
 function sanitize(row) {
+  const bestStreak = Math.max(0, Math.floor(Number(row?.bestStreak ?? row?.best_streak) || 0));
+  const bestStreakHolders = sanitizeHolders(
+    row?.bestStreakHolders ?? row?.best_streak_holders
+  );
+  const bestStreaks = sanitizeBoard(row?.bestStreaks ?? row?.best_streaks);
+  const seeded = bestStreaks.length
+    ? bestStreaks
+    : sanitizeBoard([{ n: bestStreak, holders: bestStreakHolders, live: false }]);
+  const top = seeded[0];
   return {
     goals: Math.max(0, Math.floor(Number(row?.goals) || 0)),
     games: Math.max(0, Math.floor(Number(row?.games) || 0)),
     bets: Math.max(0, Math.floor(Number(row?.bets) || 0)),
     viados: Math.max(0, Math.floor(Number(row?.viados) || 0)),
-    bestStreak: Math.max(0, Math.floor(Number(row?.bestStreak ?? row?.best_streak) || 0)),
-    bestStreakHolders: sanitizeHolders(
-      row?.bestStreakHolders ?? row?.best_streak_holders
-    ),
+    bestStreak: Math.max(bestStreak, top?.n || 0),
+    bestStreakHolders: top?.holders?.length ? top.holders : bestStreakHolders,
+    bestStreaks: seeded,
   };
 }
 
@@ -29,15 +49,21 @@ function defaultFilePath() {
   return path.join(config.root, "data", "room-stats.json");
 }
 
-async function persistBestStreak(n, holders = []) {
+async function persistBestStreak(n, holders = [], board = []) {
   const sb = getSupabase();
   if (!sb) return;
-  const { error } = await sb.from("room_meta").upsert({
+  const payload = {
     id: ROOM_META_ID,
     best_streak: n,
     best_streak_holders: sanitizeHolders(holders),
+    best_streaks: sanitizeBoard(board),
     updated_at: new Date().toISOString(),
-  });
+  };
+  let { error } = await sb.from("room_meta").upsert(payload);
+  if (error && /best_streaks/.test(error.message || "")) {
+    delete payload.best_streaks;
+    ({ error } = await sb.from("room_meta").upsert(payload));
+  }
   if (error) console.warn("[room-stats] persist best", error.message);
 }
 
@@ -105,6 +131,10 @@ function createRoomStats({ filePath } = {}) {
     return {
       ...state,
       bestStreakHolders: [...(state.bestStreakHolders || [])],
+      bestStreaks: (state.bestStreaks || []).map((e) => ({
+        ...e,
+        holders: [...(e.holders || [])],
+      })),
     };
   }
 
@@ -113,6 +143,26 @@ function createRoomStats({ filePath } = {}) {
     state.games += 1;
     save();
     persistTotals(state.games, state.goals).catch(() => {});
+    return snapshot();
+  }
+
+  function applyBoard(entries) {
+    const board = sanitizeBoard(entries);
+    state.bestStreaks = board;
+    const top = board[0];
+    if (top) {
+      if (top.n > state.bestStreak) state.bestStreak = top.n;
+      if (top.n >= state.bestStreak && top.holders.length) {
+        state.bestStreak = top.n;
+        state.bestStreakHolders = top.holders;
+      }
+    }
+  }
+
+  function setBestStreaks(entries) {
+    applyBoard(entries);
+    save();
+    persistBestStreak(state.bestStreak, state.bestStreakHolders, state.bestStreaks).catch(() => {});
     return snapshot();
   }
 
@@ -126,8 +176,14 @@ function createRoomStats({ filePath } = {}) {
     if (v === state.bestStreak && (sameHolders || !names.length)) return snapshot();
     state.bestStreak = v;
     if (names.length) state.bestStreakHolders = names;
+    if (v >= 3) {
+      applyBoard([
+        ...(state.bestStreaks || []).filter((e) => !(e.n === v && e.holders.join("\0") === names.join("\0"))),
+        { n: v, holders: names, live: false },
+      ]);
+    }
     save();
-    persistBestStreak(state.bestStreak, state.bestStreakHolders).catch(() => {});
+    persistBestStreak(state.bestStreak, state.bestStreakHolders, state.bestStreaks).catch(() => {});
     return snapshot();
   }
 
@@ -149,11 +205,18 @@ function createRoomStats({ filePath } = {}) {
     const sb = getSupabase();
     if (!sb) return snapshot();
     try {
-      const metaRes = await sb
+      let metaRes = await sb
         .from("room_meta")
-        .select("best_streak, best_streak_holders, bets, viados, games, goals")
+        .select("best_streak, best_streak_holders, best_streaks, bets, viados, games, goals")
         .eq("id", ROOM_META_ID)
         .maybeSingle();
+      if (metaRes.error && /best_streaks/.test(metaRes.error.message || "")) {
+        metaRes = await sb
+          .from("room_meta")
+          .select("best_streak, best_streak_holders, bets, viados, games, goals")
+          .eq("id", ROOM_META_ID)
+          .maybeSingle();
+      }
       let remoteGames = Number(metaRes.data?.games) || 0;
       let remoteGoals = Number(metaRes.data?.goals) || 0;
       if ((!remoteGames && !state.games) || (!remoteGoals && !state.goals)) {
@@ -171,11 +234,17 @@ function createRoomStats({ filePath } = {}) {
         viados: metaRes.data?.viados,
         bestStreak: metaRes.data?.best_streak,
         bestStreakHolders: metaRes.data?.best_streak_holders,
+        bestStreaks: metaRes.data?.best_streaks,
       });
       if (remote.games > state.games) state.games = remote.games;
       if (remote.goals > state.goals) state.goals = remote.goals;
       if (remote.bets > state.bets) state.bets = remote.bets;
       if (remote.viados > state.viados) state.viados = remote.viados;
+      if ((remote.bestStreaks || []).length > (state.bestStreaks || []).length) {
+        state.bestStreaks = remote.bestStreaks;
+      } else if (!(state.bestStreaks || []).length && (remote.bestStreaks || []).length) {
+        state.bestStreaks = remote.bestStreaks;
+      }
       if (remote.bestStreak > state.bestStreak) {
         state.bestStreak = remote.bestStreak;
         state.bestStreakHolders = remote.bestStreakHolders;
@@ -186,16 +255,21 @@ function createRoomStats({ filePath } = {}) {
       ) {
         state.bestStreakHolders = remote.bestStreakHolders;
       }
+      if (!(state.bestStreaks || []).length && state.bestStreak >= 3) {
+        state.bestStreaks = sanitizeBoard([
+          { n: state.bestStreak, holders: state.bestStreakHolders, live: false },
+        ]);
+      }
       save();
-      if (!metaRes.error && state.bestStreak > remote.bestStreak) {
-        persistBestStreak(state.bestStreak, state.bestStreakHolders).catch(() => {});
-      } else if (
+      if (
         !metaRes.error &&
-        state.bestStreak === remote.bestStreak &&
-        (state.bestStreakHolders || []).length &&
-        !remote.bestStreakHolders.length
+        (state.bestStreak > remote.bestStreak ||
+          (state.bestStreaks || []).length > (remote.bestStreaks || []).length ||
+          (state.bestStreak === remote.bestStreak &&
+            (state.bestStreakHolders || []).length &&
+            !remote.bestStreakHolders.length))
       ) {
-        persistBestStreak(state.bestStreak, state.bestStreakHolders).catch(() => {});
+        persistBestStreak(state.bestStreak, state.bestStreakHolders, state.bestStreaks).catch(() => {});
       }
       if (!metaRes.error && state.bets > remote.bets) {
         persistBets(state.bets).catch(() => {});
@@ -216,7 +290,15 @@ function createRoomStats({ filePath } = {}) {
     return snapshot();
   }
 
-  return { snapshot, recordCompletedMatch, setBestStreak, recordBet, recordViado, hydrateFromDb };
+  return {
+    snapshot,
+    recordCompletedMatch,
+    setBestStreak,
+    setBestStreaks,
+    recordBet,
+    recordViado,
+    hydrateFromDb,
+  };
 }
 
 module.exports = { createRoomStats, emptyTotals, ROOM_META_ID };

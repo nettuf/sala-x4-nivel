@@ -32,33 +32,28 @@ function attributeGoal(touches, scoringTeam) {
     return { scorer: null, assist: null, isOwnGoal: false };
   }
 
-  // Proximidade/corpo do rival não conta como chute. Gol contra só se o
-  // último chute de verdade foi do time que sofreu.
-  const lastKick = list.find(isKickTouch) || null;
-  const last = lastKick || list[0];
+  // Toques mais recente primeiro.
+  // Gol: último toque do time que fez (chute ou drible).
+  // GC: último chute foi do time que sofreu, e ninguém desse time tocou depois.
+  // Corpo do zagueiro perto da bola nunca vira GC.
+  const kickIdx = list.findIndex(isKickTouch);
+  const lastKick = kickIdx >= 0 ? list[kickIdx] : null;
+  const scoreIdx = list.findIndex((t) => t && t.team === scoringTeam);
+  const scoringTouch = scoreIdx >= 0 ? list[scoreIdx] : null;
+  const ownKick = lastKick && lastKick.team !== scoringTeam;
+  const scoredAfterKick = scoringTouch && (kickIdx < 0 || scoreIdx < kickIdx);
 
-  if (last.team === scoringTeam) {
-    return {
-      scorer: last,
-      assist: findAssist(list, last, scoringTeam),
-      isOwnGoal: false,
-    };
-  }
-
-  if (lastKick && lastKick.team !== scoringTeam) {
+  if (ownKick && !scoredAfterKick) {
     return { scorer: lastKick, assist: null, isOwnGoal: true };
   }
-
-  const teammate = list.find((t) => t && t.team === scoringTeam);
-  if (teammate) {
+  if (scoringTouch) {
     return {
-      scorer: teammate,
-      assist: findAssist(list, teammate, scoringTeam),
+      scorer: scoringTouch,
+      assist: findAssist(list, scoringTouch, scoringTeam),
       isOwnGoal: false,
     };
   }
-
-  return { scorer: last, assist: null, isOwnGoal: true };
+  return { scorer: null, assist: null, isOwnGoal: false };
 }
 
 function isValidMatchScores(scores, { scoreLimit = 3, timeLimitMin = 4, endByVictory = false } = {}) {
@@ -132,6 +127,137 @@ function possessionPercents(redTicks, blueTicks) {
   if (total <= 0) return { red: 50, blue: 50 };
   const red = (100 * redTicks) / total;
   return { red, blue: 100 - red };
+}
+
+function emptyPlayStat(player = {}) {
+  return {
+    id: player.id ?? null,
+    auth: player.auth || null,
+    name: player.name || "",
+    team: player.team || 0,
+    passes: 0,
+    misplaced: 0,
+    recoveries: 0,
+    lost: 0,
+    possTicks: 0,
+  };
+}
+
+function bumpPlayStat(map, player, key, n = 1) {
+  if (!map || !player || player.id == null || !n) return;
+  let row = map.get(player.id);
+  if (!row) {
+    row = emptyPlayStat(player);
+    map.set(player.id, row);
+  } else {
+    if (player.name) row.name = player.name;
+    if (player.auth) row.auth = player.auth;
+    if (player.team) row.team = player.team;
+  }
+  row[key] = (Number(row[key]) || 0) + n;
+}
+
+/**
+ * Novo toque de outro jogador. Passe/errado só depois de um chute;
+ * recuperação é o primeiro toque após o adversário.
+ */
+function classifyTouchChange(prev, next, { pendingKick = null, skipMisplacedForKicker = false } = {}) {
+  const events = { pass: null, misplaced: null, recovery: null, lost: null };
+  if (!next) return { ...events, nextPendingKick: pendingKick };
+
+  if (pendingKick && !sameTouchPlayer(pendingKick, next)) {
+    const sameTeam = pendingKick.team === next.team;
+    if (sameTeam) {
+      events.pass = pendingKick;
+    } else {
+      if (!skipMisplacedForKicker) events.misplaced = pendingKick;
+      events.recovery = next;
+    }
+  } else if (prev && !sameTouchPlayer(prev, next) && prev.team !== next.team) {
+    events.recovery = next;
+    events.lost = prev;
+  }
+
+  return {
+    ...events,
+    nextPendingKick: isKickTouch(next) ? next : null,
+  };
+}
+
+function applyPlayEvents(map, events) {
+  if (!map || !events) return;
+  if (events.pass) bumpPlayStat(map, events.pass, "passes");
+  if (events.misplaced) bumpPlayStat(map, events.misplaced, "misplaced");
+  if (events.recovery) bumpPlayStat(map, events.recovery, "recoveries");
+  if (events.lost) bumpPlayStat(map, events.lost, "lost");
+}
+
+function playStatsList(map) {
+  return [...(map && map.values ? map.values() : [])];
+}
+
+function passAttempts(row) {
+  return (Number(row?.passes) || 0) + (Number(row?.misplaced) || 0);
+}
+
+function pickPlayLeader(rows, scoreFn, minScore = 1) {
+  let best = null;
+  let bestScore = minScore - 1;
+  for (const row of rows || []) {
+    const score = Number(scoreFn(row)) || 0;
+    if (score > bestScore) {
+      best = row;
+      bestScore = score;
+    }
+  }
+  return bestScore >= minScore ? best : null;
+}
+
+function formatPlayChatLines(map, teamPoss) {
+  const rows = playStatsList(map);
+  const totalPoss = rows.reduce((sum, row) => sum + (Number(row.possTicks) || 0), 0);
+  const passLeader = pickPlayLeader(rows, (row) => {
+    const n = passAttempts(row);
+    if (n <= 0) return 0;
+    return row.passes + row.passes / n / 1000;
+  });
+  const recLeader = pickPlayLeader(rows, (row) => Number(row.recoveries) || 0);
+  const possLeader = pickPlayLeader(rows, (row) => Number(row.possTicks) || 0);
+
+  const lines = [];
+  if (teamPoss) {
+    lines.push(`⭐ Posse: 🔴 ${Number(teamPoss.red).toFixed(1)}% : ${Number(teamPoss.blue).toFixed(1)}% 🔵`);
+  }
+  const attempts = passAttempts(passLeader);
+  if (passLeader && attempts > 0) {
+    lines.push(`🎯 Passe: ${passLeader.name} ${passLeader.passes}/${attempts}`);
+  }
+  if (recLeader) {
+    lines.push(`🛡️ Rec: ${recLeader.name} ${recLeader.recoveries}`);
+  }
+  if (possLeader && totalPoss > 0) {
+    const pct = (100 * possLeader.possTicks) / totalPoss;
+    lines.push(`⚽ Posse jogador: ${possLeader.name} ${pct.toFixed(0)}%`);
+  }
+  return lines;
+}
+
+function formatPlaySummaryLines(map) {
+  const rows = playStatsList(map)
+    .filter((row) => passAttempts(row) > 0 || row.recoveries > 0 || row.possTicks > 0)
+    .sort((a, b) => (b.passes - a.passes) || (b.recoveries - a.recoveries) || (b.possTicks - a.possTicks));
+  if (!rows.length) return [];
+  const totalPoss = rows.reduce((sum, row) => sum + (Number(row.possTicks) || 0), 0);
+  const lines = ["", "**Passe / rec / posse**"];
+  for (const row of rows.slice(0, 12)) {
+    const n = passAttempts(row);
+    const pass = n > 0 ? `${row.passes}/${n} passe` : "— passe";
+    const rec = `${row.recoveries || 0} rec`;
+    const lost = (row.misplaced || 0) + (row.lost || 0);
+    const poss = totalPoss > 0 ? `${((100 * (row.possTicks || 0)) / totalPoss).toFixed(0)}%` : "0%";
+    lines.push(`· ${row.name} — ${pass} · ${rec} · ${lost} perda · ${poss}`);
+  }
+  return lines;
 }
 
 function canJoinMatchStats(scores) {
@@ -232,6 +358,12 @@ module.exports = {
   pointDistance,
   ballSpeedKmh,
   possessionPercents,
+  bumpPlayStat,
+  classifyTouchChange,
+  applyPlayEvents,
+  formatPlayChatLines,
+  formatPlaySummaryLines,
+  passAttempts,
   canJoinMatchStats,
   detectRageQuit,
   isDecidedLosingScore,

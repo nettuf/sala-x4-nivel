@@ -1142,13 +1142,17 @@ describe("comandos (mock room)", () => {
         get: () => 2,
         getBest: () => 9,
         getBestHolders: () => ["Netto", "Baleio", "Rato", "GH"],
+        getTopStreaks: () => [
+          { n: 9, holders: ["Netto", "Baleio", "Rato", "GH"], live: false },
+          { n: 6, holders: ["Ana", "Bob"], live: false },
+        ],
       },
     };
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!topstreak");
     assert.ok(
-      room.announcements.some((a) =>
-        /Maior streak da sala: 9 · Netto, Baleio, Rato, GH/.test(a.msg)
+      room.announcements.some(
+        (a) => /Top streak/.test(a.msg) && /1\. 9 — Netto, Baleio, Rato, GH/.test(a.msg) && /2\. 6 — Ana, Bob/.test(a.msg)
       )
     );
     afk.stop();
