@@ -138,6 +138,7 @@ async function ensurePlayers(roster) {
 }
 
 const MATCH_RETENTION_DAYS = 90;
+const LEADERBOARD_TTL_MS = Number(process.env.LEADERBOARD_TTL_MS || 15 * 60 * 1000);
 const MATCH_CLEANUP_EVERY_MS = 12 * 60 * 60 * 1000;
 let lastMatchCleanupAt = 0;
 
@@ -459,44 +460,57 @@ function formatTop5(title, rows) {
   return `${title}\n${lines.join("\n")}`;
 }
 
-function createLeaderboardStore({ ttlMs = 60_000, load } = {}) {
+function createLeaderboardStore({ ttlMs = LEADERBOARD_TTL_MS, load } = {}) {
   let cache = { at: 0, payload: null };
   let inflight = null;
-
-  function invalidate() {
-    cache = { at: 0, payload: null };
-    inflight = null;
-  }
 
   function slice(payload, stat) {
     if (!payload || payload.unavailable) return { unavailable: true, rows: [] };
     return { unavailable: false, rows: payload.boards?.[stat] || [] };
   }
 
+  function usable(payload) {
+    return !!(payload && !payload.unavailable);
+  }
+
+  function startLoad() {
+    if (inflight) return inflight;
+    if (typeof load !== "function") {
+      return Promise.resolve({ unavailable: true, boards: emptyBoards() });
+    }
+    inflight = Promise.resolve()
+      .then(() => load())
+      .then((raw) => {
+        if (!raw || raw.unavailable) {
+          return usable(cache.payload) ? cache.payload : { unavailable: true, boards: emptyBoards() };
+        }
+        const payload = { unavailable: false, boards: { ...emptyBoards(), ...raw.boards } };
+        cache = { at: Date.now(), payload };
+        return payload;
+      })
+      .catch((err) => {
+        console.error("[stats] leaderboard", err?.message || err);
+        return usable(cache.payload) ? cache.payload : { unavailable: true, boards: emptyBoards() };
+      })
+      .finally(() => {
+        inflight = null;
+      });
+    return inflight;
+  }
+
   async function get(stat) {
     const now = Date.now();
-    if (cache.payload && now - cache.at < ttlMs) return slice(cache.payload, stat);
-    if (typeof load !== "function") return { unavailable: true, rows: [] };
-    if (!inflight) {
-      inflight = Promise.resolve()
-        .then(() => load())
-        .then((raw) => {
-          if (!raw || raw.unavailable) {
-            return { unavailable: true, boards: emptyBoards() };
-          }
-          const payload = { unavailable: false, boards: { ...emptyBoards(), ...raw.boards } };
-          cache = { at: Date.now(), payload };
-          return payload;
-        })
-        .catch((err) => {
-          console.error("[stats] leaderboard", err?.message || err);
-          return cache.payload || { unavailable: true, boards: emptyBoards() };
-        })
-        .finally(() => {
-          inflight = null;
-        });
+    if (usable(cache.payload) && now - cache.at < ttlMs) return slice(cache.payload, stat);
+    if (usable(cache.payload)) {
+      startLoad();
+      return slice(cache.payload, stat);
     }
-    return slice(await inflight, stat);
+    return slice(await startLoad(), stat);
+  }
+
+  function invalidate() {
+    cache = { at: 0, payload: cache.payload };
+    return startLoad();
   }
 
   return { get, invalidate };
@@ -565,7 +579,6 @@ async function queryLeaderboards(sb) {
 }
 
 const leaderboardStore = createLeaderboardStore({
-  ttlMs: 60_000,
   async load() {
     const sb = getSupabase();
     if (!sb) return { unavailable: true };

@@ -4,7 +4,7 @@ const { resolvePlayerAuth } = require("../room/playerAuth");
 const { isRandomKitArg, parseTeamRef, isColorKit, listColorPage } = require("../room/uniforms");
 const { createBan, deactivateBan, listActiveBans } = require("../db/bans");
 const { getAdmin, setAdmin, removeAdmin, generateLoginCode, createRoleCode, consumeRoleCode, peekRoleCode, searchPlayers } = require("../db/players");
-const { notifyBan, notifyUnban, notifyStaffAudit, notifyCallAdm } = require("../discord/webhook");
+const { notifyBan, notifyUnban, notifyStaffAudit, notifyCallAdm, notifyMute, notifyUnmute } = require("../discord/webhook");
 const { createMute, unmute, findActiveMute, listActiveMutes } = require("../db/mutes");
 const {
   getPlayerStats,
@@ -1731,6 +1731,14 @@ function createCommandHandler(room, ctx) {
         endsAt,
       });
       ctx.mutes.set(target.id, { endsAt: Date.now() + ms, reason });
+      notifyMute({
+        nick: target.name,
+        auth: resolveAuth(target),
+        reason,
+        duration: formatDuration(ms),
+        mutedBy: player.name,
+        source: "!mute",
+      });
       room.sendAnnouncement(
         `${target.name} mutado ${formatDuration(ms)} por ${player.name}`,
         null,
@@ -1757,6 +1765,12 @@ function createCommandHandler(room, ctx) {
         }
       }
       // Nunca ecoa auth no chat público.
+      notifyUnmute({
+        nick: target?.name,
+        auth,
+        unmutedBy: player.name,
+        source: "!unmute",
+      });
       room.sendAnnouncement(
         target ? `${target.name} não está mais mutado.` : "Unmute aplicado.",
         target ? null : player.id,

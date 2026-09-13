@@ -1,6 +1,7 @@
 const config = require("../config");
 
 const emptyGeo = { city: null, region: null, country: null, isp: null };
+const CENTRAL_USERNAME = "HAXBOOK log";
 
 /** Geo desligado — Local/ISP ficam "—"; IP e auth vêm direto do Haxball. */
 async function lookupGeo(_ip) {
@@ -31,16 +32,32 @@ async function postWebhook(url, content, username = "HAXBOOK x4") {
   }
 }
 
-async function notifyJoin({ playerId, nick, auth, conn, ip, admin, title, status, reason }) {
-  const url = config.discordWebhookUrl;
-  if (!url) return;
+function centralWebhookUrl() {
+  if (process.env.NODE_TEST_CONTEXT && !process.env.DISCORD_CENTRAL_WEBHOOK_URL) return "";
+  return process.env.DISCORD_CENTRAL_WEBHOOK_URL || config.discordCentralWebhookUrl || "";
+}
 
-  const geo = await lookupGeo(ip);
+function tagCentral(action, content) {
+  const room = config.discordRoomTag || "SALA";
+  return `[${room}] [${action}]\n${content}`;
+}
+
+function mirrorCentral(action, content) {
+  const url = centralWebhookUrl();
+  if (!url || !content) return Promise.resolve(false);
+  return postWebhook(url, tagCentral(action, content), CENTRAL_USERNAME).catch(() => false);
+}
+
+async function finishMirror(action, content) {
+  const p = mirrorCentral(action, content);
+  if (process.env.NODE_TEST_CONTEXT) await p;
+}
+
+function buildJoinContent({ playerId, nick, auth, conn, ip, admin, title, status, reason, geo }) {
   const local = formatLocal(geo);
   const staff = admin ? `${admin.title} (nv ${admin.level})` : "—";
   const cargo = title ? `${title.emblem} ${title.name}` : "—";
-
-  const content = [
+  return [
     `**#${playerId} — ${nick}**`,
     `Auth: \`${auth || "—"}\``,
     `Conn: \`${conn || "—"}\``,
@@ -52,8 +69,14 @@ async function notifyJoin({ playerId, nick, auth, conn, ip, admin, title, status
     status ? `Status: ${status}` : null,
     reason ? `Motivo: ${reason}` : null,
   ].filter(Boolean).join("\n");
+}
 
-  await postWebhook(url, content);
+async function notifyJoin({ playerId, nick, auth, conn, ip, admin, title, status, reason }) {
+  const geo = await lookupGeo(ip);
+  const content = buildJoinContent({ playerId, nick, auth, conn, ip, admin, title, status, reason, geo });
+  const url = config.discordWebhookUrl;
+  if (url) await postWebhook(url, content);
+  await finishMirror("ENTRADA", content);
 }
 
 async function notifyBan({
@@ -90,7 +113,9 @@ async function notifyBan({
     `Origem: ${source || "!ban"}`,
   ].join("\n");
 
-  return postWebhook(url, content);
+  const ok = await postWebhook(url, content);
+  await finishMirror("BAN", content);
+  return ok;
 }
 
 async function notifyUnban({
@@ -119,7 +144,9 @@ async function notifyUnban({
     `Origem: ${source || "!unban"}`,
   ].join("\n");
 
-  return postWebhook(url, content);
+  const ok = await postWebhook(url, content);
+  await finishMirror("DESBAN", content);
+  return ok;
 }
 
 async function notifyStaffAudit({ title, lines, webhookUrl } = {}) {
@@ -127,7 +154,9 @@ async function notifyStaffAudit({ title, lines, webhookUrl } = {}) {
   if (!url) return false;
   if (!webhookUrl && process.env.NODE_TEST_CONTEXT) return false;
   const content = [title, ...(lines || [])].filter(Boolean).join("\n");
-  return postWebhook(url, content);
+  const ok = await postWebhook(url, content);
+  await finishMirror("ADM", content);
+  return ok;
 }
 
 async function notifyCallAdm({
@@ -155,7 +184,43 @@ async function notifyCallAdm({
     `Staff na sala: ${Number(staffOnline) || 0}`,
   ].join("\n");
 
-  return postWebhook(url, content);
+  const ok = await postWebhook(url, content);
+  await finishMirror("CALLADM", content);
+  return ok;
 }
 
-module.exports = { notifyJoin, notifyBan, notifyUnban, notifyStaffAudit, notifyCallAdm, lookupGeo, postWebhook };
+async function notifyMute({ nick, auth, reason, duration, mutedBy, source } = {}) {
+  const content = [
+    `🔇 **Mute** — ${nick || "—"}`,
+    `Auth: \`${auth || "—"}\``,
+    `Motivo: ${reason || "Sem motivo"}`,
+    `Duração: ${duration || "—"}`,
+    `Por: ${mutedBy || "—"}`,
+    `Origem: ${source || "!mute"}`,
+  ].join("\n");
+  await finishMirror("MUTE", content);
+  return !!centralWebhookUrl();
+}
+
+async function notifyUnmute({ nick, auth, unmutedBy, source } = {}) {
+  const content = [
+    `🔊 **Unmute** — ${nick || "—"}`,
+    `Auth: \`${auth || "—"}\``,
+    `Por: ${unmutedBy || "—"}`,
+    `Origem: ${source || "!unmute"}`,
+  ].join("\n");
+  await finishMirror("DESMUTE", content);
+  return !!centralWebhookUrl();
+}
+
+module.exports = {
+  notifyJoin,
+  notifyBan,
+  notifyUnban,
+  notifyStaffAudit,
+  notifyCallAdm,
+  notifyMute,
+  notifyUnmute,
+  lookupGeo,
+  postWebhook,
+};

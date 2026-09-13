@@ -55,7 +55,10 @@ describe("rankings top 5", () => {
     assert.equal(loads, 1);
     assert.deepEqual(cached.rows, []);
 
-    store.invalidate();
+    const refreshing = store.invalidate();
+    const stale = await store.get("goals");
+    assert.equal(stale.rows[0].value, 1);
+    await refreshing;
     const next = await store.get("goals");
     assert.equal(loads, 2);
     assert.equal(next.rows[0].value, 2);

@@ -1,7 +1,7 @@
 const { describe, it, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { notifyBan, notifyUnban, notifyStaffAudit } = require("../src/discord/webhook");
+const { notifyBan, notifyUnban, notifyStaffAudit, notifyMute } = require("../src/discord/webhook");
 const { createChatLogger, formatChatLine } = require("../src/discord/chatLog");
 
 describe("webhook de ban", () => {
@@ -9,6 +9,7 @@ describe("webhook de ban", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    delete process.env.DISCORD_CENTRAL_WEBHOOK_URL;
   });
 
   it("envia nick, auth, conn, motivo e quem baniu", async () => {
@@ -106,6 +107,56 @@ describe("webhook de ban", () => {
     assert.match(posts[0].body.content, /Chefe/);
     assert.match(posts[0].body.content, /!gerlogin/);
     assert.equal(/!login [A-Z0-9]{6,}/.test(posts[0].body.content), false);
+  });
+
+  it("espelha no log central com tags sem mudar o corpo da sala", async () => {
+    process.env.DISCORD_CENTRAL_WEBHOOK_URL = "https://discord.example/central";
+    const posts = [];
+    globalThis.fetch = async (url, opts) => {
+      posts.push({ url, body: JSON.parse(opts.body) });
+      return { ok: true };
+    };
+
+    const ok = await notifyBan({
+      nick: "Trollzao",
+      auth: "auth-troll",
+      reason: "spam",
+      bannedBy: "Mod",
+      source: "!ban",
+      webhookUrl: "https://discord.example/hook",
+    });
+
+    assert.equal(ok, true);
+    assert.equal(posts.length, 2);
+    assert.equal(posts[0].url, "https://discord.example/hook");
+    assert.equal(posts[0].body.content.includes("[X4] [BAN]"), false);
+    assert.equal(posts[1].url, "https://discord.example/central");
+    assert.equal(posts[1].body.username, "HAXBOOK log");
+    assert.match(posts[1].body.content, /^\[X4\] \[BAN\]\n/);
+    assert.match(posts[1].body.content, /Trollzao/);
+  });
+
+  it("mute staff só vai no log central", async () => {
+    process.env.DISCORD_CENTRAL_WEBHOOK_URL = "https://discord.example/central";
+    const posts = [];
+    globalThis.fetch = async (url, opts) => {
+      posts.push({ url, body: JSON.parse(opts.body) });
+      return { ok: true };
+    };
+
+    await notifyMute({
+      nick: "Falador",
+      auth: "auth-mute",
+      reason: "spam",
+      duration: "10m",
+      mutedBy: "Mod",
+      source: "!mute",
+    });
+
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].url, "https://discord.example/central");
+    assert.match(posts[0].body.content, /^\[X4\] \[MUTE\]\n/);
+    assert.match(posts[0].body.content, /Falador/);
   });
 });
 
