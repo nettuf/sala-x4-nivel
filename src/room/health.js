@@ -44,6 +44,16 @@ function diagnoseRoom({
     }
 
     if (!official) {
+      // 4v4→3v3 zera competitive; se a pausa de reposição ficou órfã, solta.
+      if (
+        paused &&
+        !chooseActive &&
+        !waitingOnPick &&
+        redCount === blueCount &&
+        redCount >= teamSize - 1
+      ) {
+        return { action: "unpause", reason: "pausa presa após queda de formato" };
+      }
       return { action: "none" };
     }
 

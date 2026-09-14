@@ -372,15 +372,14 @@ function createRoom(HBInit) {
     return red > 0 && red === blue;
   }
 
-  /** Pausa de reposição ainda vale: choose aberto, ou buraco com gente no spec. */
+  /** Pausa de reposição: times desiguais, ou pick aberto com spec. 3v3+spec espera o par, sem pausa. */
   function shouldHoldReplacementPause() {
     if (adminPauseOverride) return false;
     if (!room.getScores()) return false;
     if (!holdUntilPick && !replacementPauseActive) return false;
     if (choose.isReplacement()) return specReadyCount() > 0;
     const { red, blue } = eligibleTeamCounts();
-    if (red !== blue) return true;
-    return Math.min(red, blue) < config.teamSize && specReadyCount() > 0;
+    return red !== blue;
   }
 
   /**
@@ -406,7 +405,9 @@ function createRoom(HBInit) {
     stopHoldPauseLoop();
     if (!force && !ours) return;
     afk.setPaused(false);
-    if (!enginePaused) return;
+    // `ours`: cancela countdown mesmo se onGamePause ainda não veio.
+    // `force`: health/admin esquecido — solta o motor mesmo sem flag nossa.
+    if (!ours && !force) return;
     try {
       room.pauseGame(false);
     } catch {
@@ -1420,7 +1421,22 @@ function createRoom(HBInit) {
       afk.touch(byPlayer.id);
       adminPauseOverride = true;
       stopHoldPauseLoop();
+      return;
     }
+    if (shouldHoldReplacementPause() || replacementPauseActive || holdUntilPick) return;
+    // Countdown do pauseGame(true) chegou depois do 3v3 já ter sido montado.
+    const timer = setTimeout(() => {
+      if (!enginePaused) return;
+      if (shouldHoldReplacementPause() || replacementPauseActive || holdUntilPick) return;
+      if (choose.isReplacement()) return;
+      afk.setPaused(false);
+      try {
+        room.pauseGame(false);
+      } catch {
+        /* ignore */
+      }
+    }, 50);
+    if (typeof timer.unref === "function") timer.unref();
   };
 
   room.onGameUnpause = (byPlayer) => {

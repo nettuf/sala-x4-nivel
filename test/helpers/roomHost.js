@@ -207,6 +207,22 @@ function bootRoom({ deferTeamChanges = false } = {}) {
     lastPause() {
       return pauses[pauses.length - 1];
     },
+    /** Como o Haxball: pauseGame só registra o pedido; onGamePause vem depois da contagem. */
+    muteEnginePauseEvents() {
+      room.pauseGame = (on) => {
+        pauses.push(!!on);
+      };
+    },
+    restoreEnginePauseEvents() {
+      room.pauseGame = (on) => {
+        pauses.push(!!on);
+        if (on) room.onGamePause?.();
+        else room.onGameUnpause?.();
+      };
+    },
+    fireDelayedPause() {
+      room.onGamePause?.();
+    },
     said(re, to) {
       return announcements.some((a) => re.test(a.msg) && (to === undefined || a.to === to));
     },

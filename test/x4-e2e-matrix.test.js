@@ -392,6 +392,29 @@ describe("x4 e2e: 4v4 saída, AFK e pick", () => {
     assert.equal(host.handles.choose.isActive(), false);
     assert.equal(host.live(), scores);
     assert.notEqual(host.lastPause(), true);
+    assert.equal(host.handles.afk.isPaused(), false, "AFK/pausa de reposição solta");
+    host.cleanup();
+  });
+
+  it("sai sem spec: countdown atrasado do Haxball não deixa 3v3 pausado", async () => {
+    const host = bootRoom();
+    const all = fill4v4(host);
+    host.startMatch();
+    const scores = host.live();
+
+    host.muteEnginePauseEvents();
+    host.quit(all[0]);
+    await settle();
+    assertNvN(host, 3, 1);
+    assert.ok(host.pauses.includes(false), "release cancela o countdown");
+
+    host.restoreEnginePauseEvents();
+    host.fireDelayedPause();
+    await settle();
+
+    assert.equal(host.handles.afk.isPaused(), false);
+    assert.notEqual(host.lastPause(), true);
+    assert.equal(host.live(), scores);
     host.cleanup();
   });
 

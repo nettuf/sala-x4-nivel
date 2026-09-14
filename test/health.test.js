@@ -84,6 +84,19 @@ describe("diagnóstico da sala", () => {
     );
   });
 
+  it("3v3 após queda do 4v4: pausa órfã despausa mesmo sem competitive", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: false,
+      paused: true,
+      redCount: 3,
+      blueCount: 3,
+      specReadyCount: 1,
+      teamSize: 4,
+    });
+    assert.equal(d.action, "unpause");
+  });
+
   it("competitive preso no treino 1v0/2v1 não RR", () => {
     assert.equal(
       diagnoseRoom({ live: true, competitive: true, redCount: 1, blueCount: 0 }).action,
