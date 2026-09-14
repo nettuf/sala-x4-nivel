@@ -48,6 +48,7 @@ const {
   CHAT_COLOR_SPEC,
   CHAT_COLOR_CHEFE,
   applyUnlockUpgrade,
+  newlyUnlockedPlayerTitles,
   reqLabel,
   formatTitleCatalog,
   getTitleById,
@@ -632,6 +633,17 @@ describe("titles / cargos", () => {
     assert.equal(isUnlocked({ cs: 999 }, "invencivel"), false);
     assert.equal(isUnlocked({ cs: 1000 }, "invencivel"), true);
     assert.match(reqLabel({ cs: 100 }), /100CS/);
+  });
+
+  it("CS já desbloqueado não anuncia Catador de novo", () => {
+    assert.deepEqual(
+      newlyUnlockedPlayerTitles({ cs: 0 }, { cs: 100 }).map((t) => t.id),
+      ["catador"]
+    );
+    assert.deepEqual(
+      newlyUnlockedPlayerTitles({ cs: 100 }, { cs: 101 }).map((t) => t.id),
+      []
+    );
   });
 
   it("Negativo: 10 jogos e WR abaixo de 50%", () => {

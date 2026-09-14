@@ -192,23 +192,20 @@ alter table match_players enable row level security;
 alter table match_goals enable row level security;
 alter table room_meta enable row level security;
 
+-- CS só do goleiro (match_players.clean_sheet). Recalcula sempre:
+-- o backfill antigo somava todo mundo do time que não sofreu.
 update player_stats ps
 set cs = sub.cs
 from (
   select
-    mp.auth,
-    count(*)::int as cs
-  from match_players mp
-  join matches m on m.id = mp.match_id
-  where m.valid
-    and (
-      (mp.team = 1 and m.score_blue = 0)
-      or (mp.team = 2 and m.score_red = 0)
-    )
-  group by mp.auth
+    ps2.auth,
+    count(*) filter (where m.valid and mp.clean_sheet)::int as cs
+  from player_stats ps2
+  left join match_players mp on mp.auth = ps2.auth
+  left join matches m on m.id = mp.match_id
+  group by ps2.auth
 ) sub
-where ps.auth = sub.auth
-  and coalesce(ps.cs, 0) = 0;
+where ps.auth = sub.auth;
 
 update match_players mp
 set hat_trick = true

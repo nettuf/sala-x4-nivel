@@ -271,12 +271,12 @@ async function bumpPlayerStats(p) {
   });
 
   const prev = {
-    games: row.games,
+    ...row,
     wins: row.wins || 0,
-    goals: row.goals,
-    assists: row.assists,
     mvps: row.mvps || 0,
     hat_tricks: row.hat_tricks || 0,
+    cs: row.cs || 0,
+    woms: row.woms || 0,
     selected_title: row.selected_title || null,
     gifted_titles: row.gifted_titles,
   };
