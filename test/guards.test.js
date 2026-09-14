@@ -396,7 +396,7 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
-  it("27 na sala não kicka AFK; no 28 kicka o mais antigo só depois de 5 min", () => {
+  it("27 na sala não kicka AFK; no 28 kicka o mais longe do pick só depois de 5 min", () => {
     const { room, players } = afkSetup(26);
     const afk = createAfkTracker(room);
     const t0 = 1_000_000;
@@ -405,8 +405,8 @@ describe("AFK: ações e pausa", () => {
     const second = players.find((p) => p.id === 21);
     const third = players.find((p) => p.id === 22);
     afk.setAfk(first, true, t0);
-    afk.setAfk(second, true, t0 + 1000);
-    afk.setAfk(third, true, t0 + 2000);
+    afk.setAfk(second, true, t0);
+    afk.setAfk(third, true, t0);
     afk.ensureReserveSlots(later);
     assert.equal(room.kicks.length, 0, "26 ainda fica AFK infinito");
 
@@ -419,16 +419,43 @@ describe("AFK: ações e pausa", () => {
     assert.equal(room.kicks.length, 0, "no 28 ainda tem 5 min de graça");
 
     afk.ensureReserveSlots(later);
-    assert.deepEqual(room.kicks.map((k) => k.id), [20], "no 28 depois de 5 min sai o mais antigo");
+    assert.deepEqual(room.kicks.map((k) => k.id), [22], "no 28 depois de 5 min sai o mais longe do pick");
     assert.equal(players.length, 27);
+    assert.equal(afk.isAfk(20), true);
     assert.equal(afk.isAfk(21), true);
-    assert.equal(afk.isAfk(22), true);
 
     players.push({ id: 29, name: "P29", team: 0, auth: "a29" });
     afk.ensureReserveSlots(later);
-    assert.deepEqual(room.kicks.map((k) => k.id), [20, 21], "próximo join kicka o próximo antigo");
+    assert.deepEqual(room.kicks.map((k) => k.id), [22, 21], "próximo join kicka o próximo mais longe");
     assert.equal(players.length, 27);
 
+    afk.stop();
+  });
+
+  it("kick async do Haxball não limpa todos os AFKs: só o excesso", () => {
+    const { room, players } = afkSetup(25);
+    const leftover = [];
+    room.kickPlayer = (id, reason) => {
+      leftover.push({ id, reason });
+    };
+    const afk = createAfkTracker(room);
+    const t0 = 2_000_000;
+    const later = t0 + config.afkSpecGraceMs + 1000;
+    for (const id of [18, 19, 20, 21, 22]) {
+      afk.setAfk(players.find((p) => p.id === id), true, t0);
+    }
+    players.push({ id: 26, name: "P26", team: 0, auth: "a26" });
+    players.push({ id: 27, name: "P27", team: 0, auth: "a27" });
+    players.push({ id: 28, name: "P28", team: 0, auth: "a28" });
+    afk.ensureReserveSlots(later);
+    assert.deepEqual(leftover.map((k) => k.id), [22], "28 na sala: 1 kick");
+    afk.ensureReserveSlots(later);
+    assert.deepEqual(leftover.map((k) => k.id), [22], "ainda na lista: não kicka de novo");
+
+    players.push({ id: 29, name: "P29", team: 0, auth: "a29" });
+    players.push({ id: 30, name: "P30", team: 0, auth: "a30" });
+    afk.ensureReserveSlots(later);
+    assert.deepEqual(leftover.map((k) => k.id), [22, 21, 20], "30 na sala: mais 2 (excesso 3 no total)");
     afk.stop();
   });
 

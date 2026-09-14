@@ -28,6 +28,8 @@ function createAfkTracker(room, opts = {}) {
   const state = new Map();
   /** @type {Map<number, { since: number, fieldTeam: number }>} */
   const afks = new Map();
+  /** Kick async do Haxball: ainda aparece no getPlayerList até o leave. */
+  const pendingKicks = new Set();
   let paused = false;
   let pauseAt = 0;
   let unpauseGraceUntil = 0;
@@ -57,6 +59,7 @@ function createAfkTracker(room, opts = {}) {
   function remove(playerId) {
     state.delete(playerId);
     afks.delete(playerId);
+    pendingKicks.delete(playerId);
   }
 
   function isAfk(playerId) {
@@ -85,39 +88,50 @@ function createAfkTracker(room, opts = {}) {
     return room.getPlayerList().filter((p) => p.id !== 0);
   }
 
-  function oldestEligibleAfk(wallNow) {
+  function countedHumans() {
+    return humans().filter((p) => !pendingKicks.has(p.id));
+  }
+
+  /** Specs ativos primeiro; AFK no fim da fila. O último da lista é o mais longe do pick. */
+  function eligibleAfksFurthestFromPick(wallNow) {
     const grace = Number(config.afkSpecGraceMs) || 5 * 60 * 1000;
-    let best = null;
-    let bestSince = Infinity;
-    for (const p of humans()) {
+    const list = humans();
+    const specs = list.filter((p) => p.team === 0);
+    const afkSpecs = specs.filter((p) => afks.has(p.id) && !pendingKicks.has(p.id));
+    const fieldAfks = list.filter((p) => p.team !== 0 && afks.has(p.id) && !pendingKicks.has(p.id));
+    const queue = [...afkSpecs, ...fieldAfks];
+    const eligible = [];
+    for (let i = queue.length - 1; i >= 0; i--) {
+      const p = queue[i];
       const entry = afks.get(p.id);
       if (!entry) continue;
-      const since = entry.since;
-      if (wallNow - since < grace) continue;
-      if (since >= bestSince) continue;
-      best = p;
-      bestSince = since;
+      if (wallNow - entry.since < grace) continue;
+      eligible.push(p);
     }
-    return best;
+    return eligible;
+  }
+
+  function kickAfkForReserve(p) {
+    pendingKicks.add(p.id);
+    onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
+    room.sendAnnouncement(
+      `${p.name} foi kickado por AFK (sala com ${Number(config.afkSpecKickAt) || 28}+).`,
+      null,
+      0xe67e22,
+      "normal",
+      1
+    );
+    room.kickPlayer(p.id, kickReason("AFK (sala cheia)"), false);
+    state.delete(p.id);
+    afks.delete(p.id);
   }
 
   function ensureReserveSlots(wallNow = Date.now()) {
     const kickAt = Number(config.afkSpecKickAt) || 28;
-    for (let i = 0; i < 32; i++) {
-      if (humans().length < kickAt) return;
-      const p = oldestEligibleAfk(wallNow);
-      if (!p) return;
-      onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
-      room.sendAnnouncement(
-        `${p.name} foi kickado por AFK (sala com ${kickAt}+).`,
-        null,
-        0xe67e22,
-        "normal",
-        1
-      );
-      room.kickPlayer(p.id, kickReason("AFK (sala cheia)"), false);
-      remove(p.id);
-    }
+    const overflow = countedHumans().length - (kickAt - 1);
+    if (overflow <= 0) return;
+    const toKick = eligibleAfksFurthestFromPick(wallNow).slice(0, overflow);
+    for (const p of toKick) kickAfkForReserve(p);
   }
 
   function setAfk(player, on, at = Date.now()) {

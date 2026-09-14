@@ -62,7 +62,7 @@ const config = {
   timeLimit: Number(process.env.TIME_LIMIT || 4),
   teamSize: Number(process.env.TEAM_SIZE || 4),
   chooseTimeSec: Number(process.env.CHOOSE_TIME_SEC || 20),
-  // AFK em campo: 12s aviso, 16s spec. Spec: infinito abaixo de 28; 5 min depois kicka o mais antigo.
+  // AFK em campo: 11s aviso, 15s spec. Spec: infinito abaixo de 28; no 28+ kicka só o excesso (5 min, mais longe do pick).
   afkWarnMs: 11000,
   afkActionMs: 15000,
   afkCommandCooldownMs: 10000,
