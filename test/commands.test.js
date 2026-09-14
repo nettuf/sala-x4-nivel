@@ -507,6 +507,24 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("😎👍 o BaleioBOT responde como player; 10min sem avisar cooldown", () => {
+    const room = mockRoom();
+    const ctx = withClock({ admins: new Map(), mutes: new Map() });
+    const cmd = createCommandHandler(room, ctx);
+    const first = cmd.maybeBaleioChat("😎👍");
+    assert.equal(first.line, "BaleioBOT: 😎👍");
+    assert.equal(first.color, 0xffffff);
+    assert.equal(cmd.maybeBaleioChat("😎👍"), null);
+    assert.equal(cmd.maybeBaleioChat("😎 👍"), null);
+    assert.equal(room.announcements.length, 0, "cooldown não manda aviso");
+    ctx.advance(10 * 60 * 1000 - 1);
+    assert.equal(cmd.maybeBaleioChat("😎👍"), null);
+    ctx.advance(1);
+    const again = cmd.maybeBaleioChat("😎 👍");
+    assert.equal(again.line, "BaleioBOT: 😎👍");
+    assert.equal(cmd.maybeBaleioChat("oi"), null);
+  });
+
   it("!provocar tem 100+ zoações e !elogiar 100+ elogios", () => {
     assert.ok(TEASE_LINES.length >= 100, `provocar: ${TEASE_LINES.length}`);
     assert.ok(PRAISE_LINES.length >= 100, `elogiar: ${PRAISE_LINES.length}`);

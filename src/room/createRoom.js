@@ -1629,6 +1629,11 @@ function createRoom(HBInit) {
     const { line, color } = commands.formatPlayerChat(who, message);
     room.sendAnnouncement(line, null, color, "normal", 1);
     chatLog.push({ nick: who.name, text: message, kind: "chat" });
+    const baleio = commands.maybeBaleioChat(message);
+    if (baleio) {
+      room.sendAnnouncement(baleio.line, null, baleio.color, "normal", 1);
+      chatLog.push({ nick: "BaleioBOT", text: "😎👍", kind: "chat" });
+    }
     return false;
   };
 

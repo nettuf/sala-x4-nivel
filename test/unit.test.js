@@ -56,7 +56,9 @@ const {
   STREAK_TITLE_MIN,
   wearsStreakTitle,
   SITE_TITLES,
+  SITE_ELO_TITLES,
   resolveSiteTitle,
+  resolveEloTitle,
   formatChatHead,
 } = require("../src/titles");
 const { stadiumForPlayerCount, stadiumKindForCount, needsTrainingX3Swap, reloadMaps, parseStadium } = require("../src/room/maps");
@@ -865,9 +867,25 @@ describe("titles / cargos", () => {
     assert.equal(resolveSiteTitle({ vip: false, booster: true }).id, "booster");
     assert.equal(resolveSiteTitle({ vip: true, booster: true }).id, "aurora");
     assert.equal(resolveSiteTitle({ vip: false, booster: false }), null);
-    assert.equal(formatChatHead({ emblem: "👑" }, SITE_TITLES.vip), "[🩷][👑]");
+    assert.equal(formatChatHead({ emblem: "👑" }, SITE_TITLES.vip), "[👑][🩷]");
+    assert.equal(formatChatHead({ emblem: "⚽" }, SITE_TITLES.vip, null), "[⚽][🩷]");
+    assert.equal(
+      formatChatHead({ emblem: "⚽" }, SITE_TITLES.vip, SITE_ELO_TITLES.goat),
+      "[⚽][GOAT][🩷]"
+    );
+    assert.equal(resolveEloTitle({ elo: "novato" }).emblem, "NOVATO");
+    assert.equal(resolveEloTitle("idolo").emblem, "ÍDOLO");
+    assert.equal(resolveEloTitle(null), null);
     assert.equal(chatColor({ kind: "staff", color: 0xd4a017 }, 2, SITE_TITLES.vip), SITE_TITLES.vip.color);
-    assert.equal(chatColor(STREAK_TITLE, 1, SITE_TITLES.aurora), STREAK_TITLE.color);
+    assert.equal(
+      chatColor({ kind: "staff", color: 0xd4a017 }, 2, SITE_TITLES.vip, SITE_ELO_TITLES.novato),
+      SITE_TITLES.vip.color
+    );
+    assert.equal(
+      chatColor({ kind: "staff", color: 0xd4a017 }, 2, SITE_TITLES.vip, SITE_ELO_TITLES.goat),
+      SITE_ELO_TITLES.goat.color
+    );
+    assert.equal(chatColor(STREAK_TITLE, 1, SITE_TITLES.aurora, SITE_ELO_TITLES.goat), STREAK_TITLE.color);
     assert.equal(SITE_TITLES.vip.emblem, "🩷");
     assert.equal(SITE_TITLES.vip.color, 0xff4fa8);
     assert.equal(SITE_TITLES.booster.color, 0x9bb0ff);

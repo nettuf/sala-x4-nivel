@@ -29,7 +29,7 @@ describe("playerStatus", () => {
       assert.ok(opts.signal, "timeout de 8s para a API não prender o bot");
       return {
         ok: true,
-        json: async () => ({ players: { abc: { vip: true, booster: false } } }),
+        json: async () => ({ players: { abc: { vip: true, booster: false, elo: "idolo" } } }),
       };
     };
     const result = await fetchPlayerSiteStatus({
@@ -41,6 +41,7 @@ describe("playerStatus", () => {
     assert.equal(result.ok, true);
     assert.equal(result.players.abc.vip, true);
     assert.equal(result.players.abc.booster, false);
+    assert.equal(result.players.abc.elo, "idolo");
   });
 
   it("rede lenta ou API fora não explode e não inventa cargo", async () => {

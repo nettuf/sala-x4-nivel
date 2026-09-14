@@ -36,6 +36,7 @@ const {
   formatChatHead,
   formatChatBody,
   resolveSiteTitle,
+  resolveEloTitle,
   JOKE_TITLES,
   STREAK_TITLE,
   wearsStreakTitle,
@@ -271,6 +272,11 @@ function createCommandHandler(room, ctx) {
   const lastLookupAt = new Map();
   let lastFunRoomAt = 0;
   let lastRoletaAt = 0;
+  let lastBaleioAt = 0;
+  const BALEIO_TRIGGER = "😎👍";
+  const BALEIO_LINE = "BaleioBOT: 😎👍";
+  const BALEIO_COLOR = 0xffffff;
+  const BALEIO_CD_MS = config.baleioReactMs || 10 * 60 * 1000;
   const FUN_PLAYER_MS = config.cmdPublicPlayerMs || 25000;
   const CALL_ADM_MS = config.callAdmCooldownMs || 3 * 60 * 1000;
   const FUN_ROOM_MS = config.cmdPublicRoomMs || 15000;
@@ -299,6 +305,12 @@ function createCommandHandler(room, ctx) {
     return resolveSiteTitle(ensureSiteStatusMap().get(auth));
   }
 
+  function eloTitleFor(player) {
+    const auth = resolveAuth(player);
+    if (!auth) return null;
+    return resolveEloTitle(ensureSiteStatusMap().get(auth));
+  }
+
   async function syncSiteStatus(players) {
     const auths = [...new Set((players || []).map((p) => resolveAuth(p)).filter(Boolean))];
     if (!auths.length) return;
@@ -310,8 +322,8 @@ function createCommandHandler(room, ctx) {
     if (!result.ok) return;
     const map = ensureSiteStatusMap();
     for (const auth of auths) {
-      const row = result.players[auth] || { vip: false, booster: false };
-      map.set(auth, { vip: !!row.vip, booster: !!row.booster });
+      const row = result.players[auth] || { vip: false, booster: false, elo: null };
+      map.set(auth, { vip: !!row.vip, booster: !!row.booster, elo: row.elo || null });
     }
   }
 
@@ -555,7 +567,7 @@ function createCommandHandler(room, ctx) {
   function chatSpeaker(player, title) {
     const live = room.getPlayerList().find((p) => p.id === player.id);
     const name = live?.name ?? player.name;
-    let head = formatChatHead(title, siteTitleFor(player));
+    let head = formatChatHead(title, siteTitleFor(player), eloTitleFor(player));
     if (ctx.afk?.isAfk?.(player.id)) head += "[AFK]";
     return head ? `${head} ${name}` : name;
   }
@@ -566,13 +578,26 @@ function createCommandHandler(room, ctx) {
     return ctx.afk?.isAfk?.(player.id) ? `[AFK] ${name}` : name;
   }
 
+  function isBaleioTrigger(message) {
+    return String(message || "").replace(/\s+/g, "") === BALEIO_TRIGGER;
+  }
+
+  /** Responde 😎👍 como player. Cooldown da sala; em silêncio se ainda não deu. */
+  function maybeBaleioChat(message) {
+    if (!isBaleioTrigger(message)) return null;
+    const now = clock();
+    if (cooldownLeftSec(lastBaleioAt, BALEIO_CD_MS, now) > 0) return null;
+    lastBaleioAt = now;
+    return { line: BALEIO_LINE, color: BALEIO_COLOR };
+  }
+
   function formatPlayerChat(player, message) {
     const title = displayTitle(player, ensureTitlesMap().get(player.id));
     const live = room.getPlayerList().find((p) => p.id === player.id);
     const team = live?.team ?? player.team;
     return {
       line: `${chatSpeaker(player, title)}: ${formatChatBody(title, message)}`,
-      color: chatColor(title, team, siteTitleFor(player)),
+      color: chatColor(title, team, siteTitleFor(player), eloTitleFor(player)),
     };
   }
 
@@ -2123,6 +2148,7 @@ function createCommandHandler(room, ctx) {
     syncSiteStatus,
     siteTitleFor,
     formatPlayerChat,
+    maybeBaleioChat,
     handleWhisper,
     handleTeamChat,
     handleStaffChat,

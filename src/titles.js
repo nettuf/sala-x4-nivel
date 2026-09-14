@@ -254,6 +254,23 @@ function resolveSiteTitle(status) {
   return null;
 }
 
+/** Faixas do ranking do site (mesmo cargo do Discord). Texto no [] — não entra em !cargo. */
+const SITE_ELO_TITLES = {
+  goat: { id: "goat", name: "GOAT", emblem: "GOAT", color: 0xffb020, paints: true, kind: "elo" },
+  idolo: { id: "idolo", name: "Ídolo", emblem: "ÍDOLO", color: 0xe67e22, paints: false, kind: "elo" },
+  estrela: { id: "estrela", name: "Estrela", emblem: "ESTRELA", color: 0xf39c12, paints: false, kind: "elo" },
+  craque: { id: "craque", name: "Craque", emblem: "CRAQUE", color: 0x3498db, paints: false, kind: "elo" },
+  novato: { id: "novato", name: "Novato", emblem: "NOVATO", color: 0xbdc3c7, paints: false, kind: "elo" },
+};
+
+function resolveEloTitle(status) {
+  if (status == null) return null;
+  const key = String(typeof status === "string" ? status : status.elo || "")
+    .trim()
+    .toLowerCase();
+  return SITE_ELO_TITLES[key] || null;
+}
+
 /** Cargo fixo concedido pelo Chefe (nível 4). A pessoa escolhe se quer usar. */
 const GIFT_TITLES = [
   {
@@ -399,10 +416,11 @@ function formatChatPrefix(title) {
   return emblem ? `[${emblem}] ` : "";
 }
 
-function formatChatHead(title, siteTitle) {
+function formatChatHead(title, siteTitle, eloTitle) {
   let head = "";
-  if (siteTitle?.emblem) head += `[${siteTitle.emblem}]`;
   if (title?.emblem) head += `[${title.emblem}]`;
+  if (eloTitle?.emblem) head += `[${eloTitle.emblem}]`;
+  if (siteTitle?.emblem) head += `[${siteTitle.emblem}]`;
   return head;
 }
 
@@ -462,9 +480,12 @@ function isTopChatTitle(title) {
  * Cor da linha do chat: time (vermelho / azul / spec).
  * Staff (todos amarelo), Craque, Lenda, Gordo, Aura e Em Streak pintam diferente.
  */
-function chatColor(title, team, siteTitle) {
+function chatColor(title, team, siteTitle, eloTitle) {
   if (title?.kind === "streak" || title?.id === "streak") {
     return title.color || 0xff1a1a;
+  }
+  if (eloTitle?.paints) {
+    return eloTitle.color;
   }
   if (siteTitle) {
     return siteTitle.color;
@@ -706,7 +727,9 @@ module.exports = {
   STREAK_TITLE_MIN,
   wearsStreakTitle,
   SITE_TITLES,
+  SITE_ELO_TITLES,
   resolveSiteTitle,
+  resolveEloTitle,
   formatChatHead,
   statsBag,
   meetsReq,
