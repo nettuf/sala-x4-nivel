@@ -27,7 +27,7 @@ const { createUniformManager, findKit } = require("./uniforms");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays, pruneStreakIfTooFewHolders } = require("./streak");
 const { createCommandHandler } = require("../commands");
 const { createGifClip } = require("./gifClip");
-const { postGifClip } = require("../haxbook/gifClipWebhook");
+const { postGifReplay } = require("../haxbook/gifClipWebhook");
 const { detectRageQuit, isChooseToken, rageQuitMessages, targetTeamSize } = require("../gameLogic");
 const { rememberIdentity, withIdentity } = require("./playerAuth");
 const { guardRoomApi } = require("./safeApi");
@@ -133,7 +133,7 @@ function createRoom(HBInit) {
       return { red: findKit(cur[1]), blue: findKit(cur[2]) };
     },
     roomLabel: config.haxbookRoomName || config.roomName,
-    postClip: (payload) => postGifClip(config.haxbookStatsUrl, config.haxbookApiKey, payload),
+    postClip: (payload) => postGifReplay(config.haxbookStatsUrl, config.haxbookApiKey, payload),
     announce: (text, to, color) => room.sendAnnouncement(text, to, color, "bold", 1),
   });
   const commands = createCommandHandler(room, ctx);

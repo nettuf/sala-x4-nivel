@@ -97,7 +97,7 @@ function playerHelpLines({
     "!zoeira — zoeiras da sala",
     "!ranking — tops e streak",
     "!calladm <motivo> — chamar staff no Discord",
-    "!gif — 5 pessoas ou Chefe, últimos 15s no Discord"
+    "!gif — 5 pessoas ou Chefe, 15s no Discord depois do apito"
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — uniforme do time (capitão/admin)");
@@ -732,8 +732,12 @@ function createCommandHandler(room, ctx) {
         room.sendAnnouncement("Esse GIF já fechou. Espera o próximo.", player.id, 0xf1c40f, "normal", 1);
         return true;
       }
+      if (result.reason === "match-full") {
+        room.sendAnnouncement("Já tem 3 GIFs nessa partida.", player.id, 0xf1c40f, "normal", 1);
+        return true;
+      }
       if (result.queued && result.staff) {
-        room.sendAnnouncement(`🎬 ${player.name} fechou o GIF (Chefe).`, null, 0x2ecc71, "bold", 1);
+        room.sendAnnouncement(`🎬 ${player.name} marcou o GIF (Chefe). Vai no apito.`, null, 0x2ecc71, "bold", 1);
         return true;
       }
       if (result.opened) {

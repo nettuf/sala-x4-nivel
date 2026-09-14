@@ -1,13 +1,12 @@
-const TICKS_PER_SAMPLE = 6;
-const MAX_FRAMES = 150;
-const MIN_FRAMES = 20;
-const MAX_DISCS = 30;
 const MAX_REQUESTERS = 5;
+const MAX_WINDOWS = 3;
 const WINDOW_MS = 15_000;
 const POST_MATCH_ACCEPT_MS = 20_000;
 const PLAYER_CD_MS = 2 * 60 * 1000;
 const ROOM_CD_MS = 3 * 60 * 1000;
 const STAFF_GIF_LEVEL = 4;
+const CLIP_SEC = 15;
+const MIN_LIVE_SEC = 2;
 
 function round1(n) {
   return Math.round(Number(n) * 10) / 10;
@@ -18,45 +17,28 @@ function waitSec(lastAt, ms, now) {
   return left > 0 ? Math.ceil(left / 1000) : 0;
 }
 
-const DEFAULT_KITS = {
-  red: { angle: 0, text: 0xffffff, colors: [0xe56e56], emoji: null },
-  blue: { angle: 0, text: 0xffffff, colors: [0x5689e5], emoji: null },
-};
-
-function packKit(kit, fallback) {
-  if (!kit) return fallback;
-  return {
-    angle: Number(kit.angle) || 0,
-    text: Number(kit.text) || 0xffffff,
-    colors: Array.isArray(kit.colors) && kit.colors.length ? kit.colors.map(Number) : fallback.colors,
-    emoji: kit.emoji || null,
-  };
-}
-
 function createGifClip({
   room,
   now = () => Date.now(),
   canClip = () => true,
-  bounds = () => ({ w: 700, h: 320 }),
-  stadium = () => "x4",
-  kits = () => DEFAULT_KITS,
   roomLabel = "",
   postClip = async () => ({ ok: true }),
   schedule = (fn, ms) => setTimeout(fn, ms),
   clearSchedule = (id) => clearTimeout(id),
   announce = () => {},
 } = {}) {
-  const frames = new Array(MAX_FRAMES);
-  let write = 0;
-  let count = 0;
-  let tick = 0;
-  /** @type {null | { requesters: Map<string, { id: number, name: string, auth: string|null }>, clip: object }} */
+  /** @type {null | { requesters: Map<string, { id: number, name: string, auth: string|null }>, endTime: number }} */
   let window = null;
   let timer = null;
   let lastRoomAt = 0;
   /** @type {Map<string, number>} */
   const lastPlayerAt = new Map();
   let flushing = false;
+  /** @type {{ endTime: number, startTime: number, requesters: object[] }[]} */
+  const pending = [];
+  let recording = null;
+  let matchEndTime = 0;
+  let held = false;
 
   function playerKey(player, auth) {
     if (auth) return `a:${auth}`;
@@ -67,113 +49,79 @@ function createGifClip({
     return typeof canClip === "function" ? !!canClip() : true;
   }
 
-  function snapshotFrames() {
-    const out = [];
-    const start = count < MAX_FRAMES ? 0 : write;
-    for (let i = 0; i < count; i++) {
-      const frame = frames[(start + i) % MAX_FRAMES];
-      if (frame) out.push(frame);
-    }
-    return out;
-  }
-
-  function resetFrames() {
-    write = 0;
-    count = 0;
-    tick = 0;
-  }
-
-  function sample() {
-    tick += 1;
-    if (tick % TICKS_PER_SAMPLE !== 0) return false;
+  function clipTime() {
     const scores = typeof room?.getScores === "function" ? room.getScores() : null;
-    if (!scores) return false;
-    const list = typeof room?.getPlayerList === "function" ? room.getPlayerList() : [];
-    const discs = [];
-    for (const raw of list) {
-      if (!raw || raw.id === 0 || raw.team === 0) continue;
-      let disc = null;
-      try {
-        disc = room.getPlayerDiscProperties(raw.id);
-      } catch {
-        disc = null;
-      }
-      if (!disc || !Number.isFinite(disc.x) || !Number.isFinite(disc.y)) continue;
-      discs.push([raw.id, raw.team, round1(disc.x), round1(disc.y)]);
-      if (discs.length >= MAX_DISCS) break;
-    }
-    if (discs.length === 0) return false;
-    const ball = typeof room.getBallPosition === "function" ? room.getBallPosition() : { x: 0, y: 0 };
-    frames[write] = {
-      t: round1(scores.time || 0),
-      bx: round1(ball?.x || 0),
-      by: round1(ball?.y || 0),
-      p: discs,
-    };
-    write = (write + 1) % MAX_FRAMES;
-    if (count < MAX_FRAMES) count += 1;
-    return true;
+    const t = Number(scores?.time);
+    if (Number.isFinite(t) && t > 0) return round1(t);
+    if (matchEndTime > 0) return round1(matchEndTime);
+    return 0;
   }
 
-  function freezeClip() {
-    const scores = typeof room?.getScores === "function" ? room.getScores() : null;
-    const list = typeof room?.getPlayerList === "function" ? room.getPlayerList() : [];
-    const players = [];
-    for (const raw of list) {
-      if (!raw || raw.id === 0 || raw.team === 0) continue;
-      players.push({
-        id: raw.id,
-        name: raw.name,
-        team: raw.team,
-        avatar: raw.avatar || null,
-      });
-    }
-    const packed = typeof kits === "function" ? kits() : kits;
-    return {
-      roomLabel,
-      stadium: typeof stadium === "function" ? stadium() : stadium || "x4",
-      kits: {
-        red: packKit(packed?.red, DEFAULT_KITS.red),
-        blue: packKit(packed?.blue, DEFAULT_KITS.blue),
-      },
-      bounds: bounds() || { w: 700, h: 320 },
-      score: { red: scores?.red || 0, blue: scores?.blue || 0, time: round1(scores?.time || 0) },
-      players,
-      frames: snapshotFrames().map((frame) => ({
-        ...frame,
-        p: (frame.p || []).map((disc) => disc.slice()),
-      })),
-    };
+  function clearTimer() {
+    if (!timer) return;
+    clearSchedule(timer);
+    timer = null;
   }
 
   function expireWindow() {
-    if (!window || flushing) return;
-    if (timer) {
-      clearSchedule(timer);
-      timer = null;
-    }
+    if (flushing) return;
+    const had = !!window;
     window = null;
-    announce("🎬 GIF cancelado — precisa de 5 pessoas diferentes.", null, 0xf1c40f);
+    clearTimer();
+    if (had) announce("🎬 GIF cancelado — precisa de 5 pessoas diferentes.", null, 0xf1c40f);
+    if (held) flushSoon();
   }
 
-  function sendClip() {
-    if (flushing || !window?.clip) return;
+  function commitWindow() {
+    if (!window) return;
     const requesters = [...window.requesters.values()];
-    const payload = { ...window.clip, requesters };
-    flushing = true;
-    if (timer) {
-      clearSchedule(timer);
-      timer = null;
-    }
-    window = null;
+    const endTime = Number(window.endTime) || 0;
+    pending.push({
+      endTime,
+      startTime: Math.max(0, endTime - CLIP_SEC),
+      requesters: requesters.map((row) => ({
+        id: row.id,
+        name: row.name,
+        auth: row.auth,
+      })),
+    });
     const ts = now();
     lastRoomAt = ts;
     for (const requester of requesters) {
       lastPlayerAt.set(playerKey({ id: requester.id }, requester.auth), ts);
     }
+    clearTimer();
+    window = null;
+    announce(
+      `🎬 GIF marcado (${pending.length}/${MAX_WINDOWS}) — vai no Discord depois do apito.`,
+      null,
+      0x2ecc71
+    );
+    if (held) flushSoon();
+  }
+
+  function flushSoon() {
     const run = () => {
+      if (flushing || window) return;
+      if (!pending.length) {
+        held = false;
+        recording = null;
+        return;
+      }
+      if (!recording || !recording.length) {
+        pending.length = 0;
+        held = false;
+        recording = null;
+        announce("Não deu pra gerar o GIF agora.", null, 0xe74c3c);
+        return;
+      }
+      flushing = true;
+      const windows = pending.splice(0, pending.length);
+      const file = recording;
+      recording = null;
+      held = false;
       Promise.resolve()
-        .then(() => postClip(payload))
+        .then(() => postClip({ recording: file, roomLabel, windows }))
         .then((res) => {
           if (res && res.ok === false && res.reason === "daily-cap") {
             announce("Acabou o GIF de hoje. Volta amanhã.", null, 0xf1c40f);
@@ -197,28 +145,36 @@ function createGifClip({
   }
 
   function resetPending() {
-    if (timer) {
-      clearSchedule(timer);
-      timer = null;
-    }
+    clearTimer();
     window = null;
-    resetFrames();
+    pending.length = 0;
+    recording = null;
+    matchEndTime = 0;
+    held = false;
   }
 
-  function holdReplay() {
-    if (!window || flushing) return;
-    if (timer) clearSchedule(timer);
-    timer = schedule(expireWindow, POST_MATCH_ACCEPT_MS);
-    announce("🎬 Partida acabou — ainda dá pra entrar no GIF (!gif).", null, 0x3498db);
+  function holdReplay(file, opts = {}) {
+    recording = file && file.length ? file : null;
+    const end = Number(opts.endTime);
+    matchEndTime = Number.isFinite(end) && end > 0 ? round1(end) : clipTime();
+    held = true;
+    if (window) {
+      clearTimer();
+      timer = schedule(expireWindow, POST_MATCH_ACCEPT_MS);
+      announce("🎬 Partida acabou — ainda dá pra entrar no GIF (!gif).", null, 0x3498db);
+      return;
+    }
+    flushSoon();
   }
 
   function request(player, { auth = null, staffLevel = 0 } = {}) {
     if (!player) return { ok: false, reason: "not-live" };
     const staff = (Number(staffLevel) || 0) >= STAFF_GIF_LEVEL;
     if (!window) {
+      if (pending.length >= MAX_WINDOWS) return { ok: false, reason: "match-full" };
       if (liveOk()) {
-        if (count < MIN_FRAMES) return { ok: false, reason: "empty" };
-      } else if (!(staff && count >= MIN_FRAMES)) {
+        if (clipTime() < MIN_LIVE_SEC) return { ok: false, reason: "empty" };
+      } else if (!(staff && (held || clipTime() >= MIN_LIVE_SEC))) {
         return { ok: false, reason: "not-live" };
       }
     }
@@ -240,7 +196,7 @@ function createGifClip({
       window.requesters.set(key, { id: player.id, name: player.name, auth: auth || null });
       const joinedCount = window.requesters.size;
       if (staff || joinedCount >= MAX_REQUESTERS) {
-        sendClip();
+        commitWindow();
         return { ok: true, joined: true, queued: true, staff, count: joinedCount };
       }
       return { ok: true, joined: true, count: joinedCount };
@@ -248,10 +204,10 @@ function createGifClip({
 
     window = {
       requesters: new Map([[key, { id: player.id, name: player.name, auth: auth || null }]]),
-      clip: freezeClip(),
+      endTime: clipTime(),
     };
     if (staff) {
-      sendClip();
+      commitWindow();
       return { ok: true, opened: true, queued: true, staff: true, count: 1 };
     }
     timer = schedule(expireWindow, WINDOW_MS);
@@ -263,29 +219,30 @@ function createGifClip({
   }
 
   return {
-    sample,
+    sample() {
+      return false;
+    },
     request,
     forget,
     finishWindow: expireWindow,
     resetPending,
-    resetFrames,
+    resetFrames() {},
     holdReplay,
-    frameCount: () => count,
+    frameCount: () => pending.length,
     windowCount: () => window?.requesters.size || 0,
+    pendingCount: () => pending.length,
   };
 }
 
 module.exports = {
   createGifClip,
-  packKit,
-  DEFAULT_KITS,
-  TICKS_PER_SAMPLE,
-  MAX_FRAMES,
-  MIN_FRAMES,
   MAX_REQUESTERS,
+  MAX_WINDOWS,
   WINDOW_MS,
   POST_MATCH_ACCEPT_MS,
   PLAYER_CD_MS,
   ROOM_CD_MS,
   STAFF_GIF_LEVEL,
+  CLIP_SEC,
+  MIN_LIVE_SEC,
 };

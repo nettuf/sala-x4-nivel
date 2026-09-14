@@ -4,27 +4,74 @@ function gifClipUrlFromStats(statsUrl) {
   return raw.replace(/\/stats\/?$/, "/gif-clip");
 }
 
-async function postGifClip(statsUrl, apiKey, payload, { fetchFn, timeoutMs = 12000 } = {}) {
+function gifClipUploadUrlFromStats(statsUrl) {
+  const clip = gifClipUrlFromStats(statsUrl);
+  if (!clip) return "";
+  return clip.replace(/\/gif-clip\/?$/, "/gif-clip/upload");
+}
+
+async function postGifReplay(statsUrl, apiKey, payload, { fetchFn, timeoutMs = 20000 } = {}) {
   if (process.env.NODE_TEST_CONTEXT && !fetchFn) {
     return { ok: true, skipped: true };
   }
-  const url = gifClipUrlFromStats(statsUrl);
+  const clipUrl = gifClipUrlFromStats(statsUrl);
+  const uploadEndpoint = gifClipUploadUrlFromStats(statsUrl);
   const key = String(apiKey || "").trim();
-  if (!url || !key) return { ok: false, reason: "unconfigured" };
+  if (!clipUrl || !key) return { ok: false, reason: "unconfigured" };
+  const recording = payload?.recording;
+  const windows = payload?.windows;
+  if (!recording || !recording.length || !Array.isArray(windows) || !windows.length) {
+    return { ok: false, reason: "empty" };
+  }
 
   const doFetch = fetchFn || fetch;
-  const res = await doFetch(url, {
+  const jsonHeaders = {
+    "Content-Type": "application/json",
+    "X-API-Key": key,
+  };
+
+  const upRes = await doFetch(uploadEndpoint, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-Key": key,
-    },
-    body: JSON.stringify(payload),
+    headers: jsonHeaders,
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (res?.status === 429) return { ok: false, reason: "daily-cap" };
-  if (!res?.ok) return { ok: false, reason: "error", status: res?.status || 0 };
+  if (upRes?.status === 429) return { ok: false, reason: "daily-cap" };
+  if (!upRes?.ok) return { ok: false, reason: "error", status: upRes?.status || 0 };
+  let up = {};
+  try {
+    up = await upRes.json();
+  } catch {
+    return { ok: false, reason: "error" };
+  }
+  if (!up.uploadUrl || !up.key) return { ok: false, reason: "error" };
+
+  const bytes = recording instanceof Uint8Array ? recording : new Uint8Array(recording);
+  const putRes = await doFetch(up.uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: bytes,
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!putRes?.ok) return { ok: false, reason: "error", status: putRes?.status || 0 };
+
+  const done = await doFetch(clipUrl, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({
+      key: up.key,
+      roomLabel: payload.roomLabel || "",
+      windows,
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (done?.status === 429) return { ok: false, reason: "daily-cap" };
+  if (!done?.ok) return { ok: false, reason: "error", status: done?.status || 0 };
   return { ok: true };
 }
 
-module.exports = { gifClipUrlFromStats, postGifClip };
+module.exports = {
+  gifClipUrlFromStats,
+  gifClipUploadUrlFromStats,
+  postGifReplay,
+  postGifClip: postGifReplay,
+};
