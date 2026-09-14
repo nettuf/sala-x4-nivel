@@ -268,6 +268,8 @@ function createRoom(HBInit) {
    * não pode agendar outro refreshLobby — isso dava 2× "4v4 pronto" / RR duplo.
    */
   let lobbyTransitionStop = false;
+  /** Evita 2× stopGame quando 3x1 já decidiu e o vencedor sai no meio. */
+  let decidedStopArmed = false;
   /** Pausa aberta pelo bot para reposição (não desfazer pausa de admin). */
   let replacementPauseActive = false;
   /** Trava a pausa até o spec entrar — mesmo se o choose cair no meio. */
@@ -748,10 +750,34 @@ function createRoom(HBInit) {
     match.start({ competitive: false });
   }
 
+  function stopDecidedLiveMatch() {
+    if (!match.isDecided() || !room.getScores()) {
+      decidedStopArmed = false;
+      return false;
+    }
+    if (postMatchBusy) return true;
+    if (decidedStopArmed) return true;
+    decidedStopArmed = true;
+    if (choose.isActive()) choose.deactivate();
+    releaseReplacementPause({ force: true });
+    match.markVictory();
+    const timer = setTimeout(() => {
+      if (!room.getScores()) return;
+      try {
+        room.stopGame();
+      } catch {
+        /* ignore */
+      }
+    }, 100);
+    if (typeof timer.unref === "function") timer.unref();
+    return true;
+  }
+
   function recoverCompetitiveLineup() {
-    // Gol da vitória / fim de tempo: o jogo ainda está "vivo" uns segundos.
-    // Reposição aqui pausa e pede pick no meio da comemoração.
-    if (postMatchBusy || match.isDecided()) return;
+    // Placar já fechou (3x1 etc.) e o jogo ainda está vivo: parar.
+    // Return seco deixava 3v4 pausado sem choose — health em loop.
+    if (postMatchBusy) return;
+    if (stopDecidedLiveMatch()) return;
 
     // Reposição em andamento: atualiza pick ou encerra se não há spec elegível.
     if (choose.isActive() && choose.isReplacement()) {
@@ -1283,7 +1309,8 @@ function createRoom(HBInit) {
     if (
       match.isCompetitive() &&
       room.getScores() &&
-      snapshot.team !== TEAM.SPEC
+      snapshot.team !== TEAM.SPEC &&
+      !match.isDecided()
     ) {
       pauseForReplacement();
     }
@@ -1586,6 +1613,7 @@ function createRoom(HBInit) {
   room.onTeamVictory = () => {
     match.markVictory();
     setTimeout(() => {
+      if (!room.getScores() || !match.isRunning()) return;
       room.stopGame();
     }, 2500);
   };
@@ -1801,6 +1829,7 @@ function createRoom(HBInit) {
   }
 
   async function handleGameStop(byPlayer) {
+    decidedStopArmed = false;
     holdUntilPick = false;
     replacementPauseActive = false;
     adminPauseOverride = false;
@@ -1858,6 +1887,9 @@ function createRoom(HBInit) {
   const health = createHealthMonitor({
     diagnose() {
       if (postMatchBusy || winnerStaysPending) return { action: "none" };
+      if (isGameLive() && match.isDecided()) {
+        return { action: "recover", reason: "placar já decidiu e o jogo segue vivo" };
+      }
       const { red, blue, specReady } = choose.list();
       return diagnoseRoom({
         live: isGameLive(),

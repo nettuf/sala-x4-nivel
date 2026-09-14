@@ -184,6 +184,13 @@ function classifyTouchChange(prev, next, { pendingKick = null, skipMisplacedForK
   };
 }
 
+/** Companheiro no bolo do chute: corpo perto não é passe recebido. */
+function shouldIgnoreClusteredTeammateReceive(kicker, receiver, { kind, ballAtKicker } = {}) {
+  if (kind !== "body" || !ballAtKicker || !kicker || !receiver) return false;
+  if (sameTouchPlayer(kicker, receiver)) return false;
+  return kicker.team === receiver.team;
+}
+
 function applyPlayEvents(map, events) {
   if (!map || !events) return;
   if (events.pass) bumpPlayStat(map, events.pass, "passes");
@@ -360,6 +367,7 @@ module.exports = {
   possessionPercents,
   bumpPlayStat,
   classifyTouchChange,
+  shouldIgnoreClusteredTeammateReceive,
   applyPlayEvents,
   formatPlayChatLines,
   formatPlaySummaryLines,

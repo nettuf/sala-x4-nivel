@@ -602,12 +602,15 @@ function formatWorstAnnounce(player) {
   const goals = Number(player?.goals) || 0;
   const assists = Number(player?.assists) || 0;
   const own = Number(player?.own_goals) || 0;
+  const passes = Number(player?.passes) || 0;
   const misplaced = Number(player?.misplaced) || 0;
-  const lost = Number(player?.lost) || 0;
+  const recoveries = Number(player?.recoveries) || 0;
   if (own) bits.push(`${own} GC`);
-  if (misplaced) bits.push(`${misplaced} passe err.`);
-  else if (lost) bits.push(`${lost} perda`);
-  if (!goals && !assists) bits.push("0G 0A");
+  if (goals) bits.push(`${goals}G`);
+  if (assists) bits.push(`${assists}A`);
+  const attempts = passes + misplaced;
+  if (attempts > 0) bits.push(`${passes}/${attempts} passe`);
+  if (recoveries > 0) bits.push(`${recoveries} rec`);
   return bits.length ? `💩 Pior: ${name} · ${bits.join(" · ")}` : `💩 Pior: ${name}`;
 }
 

@@ -8,6 +8,7 @@ const {
   possessionPercents,
   bumpPlayStat,
   classifyTouchChange,
+  shouldIgnoreClusteredTeammateReceive,
   applyPlayEvents,
   formatPlayChatLines,
   formatPlaySummaryLines,
@@ -220,10 +221,35 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     match.pendingKick = null;
   }
 
+  function isBallAtPlayer(playerId) {
+    if (playerId == null || typeof room.getPlayerDiscProperties !== "function") return false;
+    const ball = typeof room.getBallPosition === "function" ? room.getBallPosition() : null;
+    if (!ball) return false;
+    let disc = null;
+    try {
+      disc = room.getPlayerDiscProperties(playerId);
+    } catch {
+      disc = null;
+    }
+    if (!disc || !Number.isFinite(disc.x) || !Number.isFinite(disc.y)) return false;
+    const dx = disc.x - (ball.x || 0);
+    const dy = disc.y - (ball.y || 0);
+    return dx * dx + dy * dy <= TOUCH_RADIUS_SQ;
+  }
+
   function recordTouch(player, { kind = "kick" } = {}) {
     if (!match || !player || player.team === 0) return;
     const p = who(player);
     if (!p || p.team === 0) return;
+    const kickerNear = match.pendingKick;
+    if (
+      shouldIgnoreClusteredTeammateReceive(kickerNear, p, {
+        kind,
+        ballAtKicker: isBallAtPlayer(kickerNear?.id),
+      })
+    ) {
+      return;
+    }
     const last = match.touches[0];
     if (last && sameTouchPlayer(last, p)) {
       if (kind === "kick") last.kind = "kick";

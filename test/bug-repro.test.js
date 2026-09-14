@@ -202,6 +202,61 @@ describe("repro bugs reportados", () => {
     host.cleanup();
   });
 
+  it("4v4 3x1 vencedor sai → para o jogo, não trava 3v4 sem choose", async () => {
+    const host = await boot4v4WithSpec(1);
+    const scores = host.live();
+    scores.red = config.scoreLimit;
+    scores.blue = 1;
+    const winner = host.players.find((p) => p.team === TEAM.RED);
+    host.quit(winner);
+    await new Promise((r) => setTimeout(r, 250));
+
+    assert.equal(host.handles.choose.isReplacement(), false);
+    assert.equal(host.live(), null, "jogo parou em vez de ficar 3v4");
+
+    await host.room.onGameStop();
+    await waitLobby();
+
+    assert.ok(
+      host.live() || host.handles.choose.isActive(),
+      "remontou ou abriu choose depois do apito"
+    );
+    const f = field(host);
+    assert.ok(f.red === f.blue || host.handles.choose.isActive(), `times iguais ou pick, got ${f.red}v${f.blue}`);
+    host.cleanup();
+  });
+
+  it("4v4 3x1 sem spec, vencedor sai → para o jogo, não loopa recover", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 8; i++) {
+      host.addPlayer(TEAM.SPEC);
+      host.handles.refreshLobby();
+      await settle();
+    }
+    await waitLobby();
+    assert.equal(field(host).red, 4);
+    assert.equal(field(host).blue, 4);
+    assert.equal(field(host).spec, 0);
+
+    const scores = host.live();
+    scores.red = config.scoreLimit;
+    scores.blue = 1;
+    const winner = host.players.find((p) => p.team === TEAM.RED);
+    host.quit(winner);
+    await new Promise((r) => setTimeout(r, 250));
+
+    assert.equal(host.live(), null, "jogo parou");
+    assert.equal(host.handles.choose.isReplacement(), false);
+
+    await host.room.onGameStop();
+    await waitLobby();
+    assert.ok(
+      host.live() || host.handles.choose.isActive() || field(host).red === field(host).blue,
+      "não ficou 3v4 vivo preso"
+    );
+    host.cleanup();
+  });
+
   it("3v3 acaba com 7 (1 spec) → winner stays + capitão", async () => {
     const host = await boot3v3(1);
     finishWithRedWin(host);

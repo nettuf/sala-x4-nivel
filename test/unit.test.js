@@ -18,6 +18,7 @@ const {
   ballSpeedKmh,
   possessionPercents,
   classifyTouchChange,
+  shouldIgnoreClusteredTeammateReceive,
   applyPlayEvents,
   formatPlayChatLines,
   formatPlaySummaryLines,
@@ -305,6 +306,27 @@ describe("gameLogic", () => {
     applyPlayEvents(stats, steal);
     assert.equal(stats.get(1).misplaced, 1);
     assert.equal(stats.get(3).recoveries, 1);
+
+    assert.equal(
+      shouldIgnoreClusteredTeammateReceive(a, b, { kind: "body", ballAtKicker: true }),
+      true,
+      "companheiro no bolo do chute não é passe"
+    );
+    assert.equal(
+      shouldIgnoreClusteredTeammateReceive(a, b, { kind: "body", ballAtKicker: false }),
+      false,
+      "bola já saiu: corpo do companheiro é passe"
+    );
+    assert.equal(
+      shouldIgnoreClusteredTeammateReceive(a, b, { kind: "kick", ballAtKicker: true }),
+      false,
+      "chute do companheiro conta"
+    );
+    assert.equal(
+      shouldIgnoreClusteredTeammateReceive(a, c, { kind: "body", ballAtKicker: true }),
+      false,
+      "desarme no pé continua valendo"
+    );
   });
 
   it("monta líderes de passe/rec/posse no chat", () => {
@@ -775,8 +797,8 @@ describe("titles / cargos", () => {
       /⭐ MVP: João · 2G · 1A · CS · 5\/6 passe · 3 rec/
     );
     assert.match(
-      formatWorstAnnounce({ nick: "Pedro", goals: 0, assists: 0, own_goals: 1, misplaced: 4 }),
-      /💩 Pior: Pedro · 1 GC · 4 passe err\. · 0G 0A/
+      formatWorstAnnounce({ nick: "Pedro", goals: 0, assists: 0, own_goals: 1, passes: 2, misplaced: 4, recoveries: 1 }),
+      /💩 Pior: Pedro · 1 GC · 2\/6 passe · 1 rec/
     );
   });
 
