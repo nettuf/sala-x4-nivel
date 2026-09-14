@@ -8,7 +8,7 @@ const {
   possessionPercents,
   bumpPlayStat,
   classifyTouchChange,
-  shouldIgnoreClusteredTeammateReceive,
+  shouldIgnoreClusteredReceive,
   applyPlayEvents,
   formatPlayChatLines,
   formatPlaySummaryLines,
@@ -243,7 +243,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     if (!p || p.team === 0) return;
     const kickerNear = match.pendingKick;
     if (
-      shouldIgnoreClusteredTeammateReceive(kickerNear, p, {
+      shouldIgnoreClusteredReceive(kickerNear, p, {
         kind,
         ballAtKicker: isBallAtPlayer(kickerNear?.id),
       })

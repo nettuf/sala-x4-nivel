@@ -344,6 +344,7 @@ describe("uniformes: emoji do kit", () => {
       "gigachads",
       "gordo",
       "jalin",
+      "jota",
       "leao",
       "lionsa",
       "lionsh",
@@ -462,6 +463,11 @@ describe("uniformes: emoji do kit", () => {
     assert.equal(findKit("olympusguardians").emoji, "⚡");
     assert.equal(findKit("mdr").name, "Bigodes do MDR");
     assert.equal(findKit("mdr").emoji, "﷼");
+    assert.equal(findKit("jota").name, "Tropa do Jota Quest");
+    assert.equal(findKit("jota").angle, 135);
+    assert.equal(findKit("jota").text, 0xffffff);
+    assert.deepEqual(findKit("jota").colors, [0xa3ddff, 0xa0d9fa, 0x9bd2f2]);
+    assert.equal(findKit("jota").emoji, "𝔍");
   });
 
   it("kit com emoji marca o time inteiro e deixa o resto livre", () => {

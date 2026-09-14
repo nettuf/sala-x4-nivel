@@ -18,7 +18,7 @@ const {
   ballSpeedKmh,
   possessionPercents,
   classifyTouchChange,
-  shouldIgnoreClusteredTeammateReceive,
+  shouldIgnoreClusteredReceive,
   applyPlayEvents,
   formatPlayChatLines,
   formatPlaySummaryLines,
@@ -311,24 +311,34 @@ describe("gameLogic", () => {
     assert.equal(stats.get(3).recoveries, 1);
 
     assert.equal(
-      shouldIgnoreClusteredTeammateReceive(a, b, { kind: "body", ballAtKicker: true }),
+      shouldIgnoreClusteredReceive(a, b, { kind: "body", ballAtKicker: true }),
       true,
       "companheiro no bolo do chute não é passe"
     );
     assert.equal(
-      shouldIgnoreClusteredTeammateReceive(a, b, { kind: "body", ballAtKicker: false }),
+      shouldIgnoreClusteredReceive(a, b, { kind: "body", ballAtKicker: false }),
       false,
       "bola já saiu: corpo do companheiro é passe"
     );
     assert.equal(
-      shouldIgnoreClusteredTeammateReceive(a, b, { kind: "kick", ballAtKicker: true }),
+      shouldIgnoreClusteredReceive(a, b, { kind: "kick", ballAtKicker: true }),
       false,
       "chute do companheiro conta"
     );
     assert.equal(
-      shouldIgnoreClusteredTeammateReceive(a, c, { kind: "body", ballAtKicker: true }),
+      shouldIgnoreClusteredReceive(a, c, { kind: "body", ballAtKicker: true }),
+      true,
+      "adversário no bolo do chute não é rec"
+    );
+    assert.equal(
+      shouldIgnoreClusteredReceive(a, c, { kind: "body", ballAtKicker: false }),
       false,
-      "desarme no pé continua valendo"
+      "bola já saiu: corpo do adversário é rec"
+    );
+    assert.equal(
+      shouldIgnoreClusteredReceive(a, c, { kind: "kick", ballAtKicker: true }),
+      false,
+      "chute do adversário no pé conta como rec"
     );
   });
 

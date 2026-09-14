@@ -212,6 +212,14 @@ const COMMUNITY_KITS = [
     text: 0x1e9116,
     colors: [0x000000],
   },
+  {
+    id: "jota",
+    name: "Tropa do Jota Quest",
+    angle: 135,
+    text: 0xffffff,
+    colors: [0xa3ddff, 0xa0d9fa, 0x9bd2f2],
+    emoji: "𝔍",
+  },
 ];
 
 const KITS = [...COLOR_KITS, ...COMMUNITY_KITS];
