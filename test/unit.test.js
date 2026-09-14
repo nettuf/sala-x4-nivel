@@ -55,6 +55,9 @@ const {
   STREAK_TITLE,
   STREAK_TITLE_MIN,
   wearsStreakTitle,
+  SITE_TITLES,
+  resolveSiteTitle,
+  formatChatHead,
 } = require("../src/titles");
 const { stadiumForPlayerCount, stadiumKindForCount, needsTrainingX3Swap, reloadMaps, parseStadium } = require("../src/room/maps");
 const { buildSummary } = require("../src/discord/replay");
@@ -845,6 +848,20 @@ describe("titles / cargos", () => {
     assert.equal(chatColor({ id: "chefe", kind: "staff", level: 4 }, 2), CHAT_COLOR_CHEFE);
     assert.equal(chatColor(STREAK_TITLE, 1), STREAK_TITLE.color);
     assert.ok(STREAK_TITLE.color !== CHAT_COLOR_RED, "streak é vermelho mais destacado");
+  });
+
+  it("VIP/Booster/Aurora ficam do lado do cargo e pintam por cima do staff", () => {
+    assert.equal(resolveSiteTitle({ vip: true, booster: false }).id, "vip");
+    assert.equal(resolveSiteTitle({ vip: false, booster: true }).id, "booster");
+    assert.equal(resolveSiteTitle({ vip: true, booster: true }).id, "aurora");
+    assert.equal(resolveSiteTitle({ vip: false, booster: false }), null);
+    assert.equal(formatChatHead({ emblem: "👑" }, SITE_TITLES.vip), "[🩷][👑]");
+    assert.equal(chatColor({ kind: "staff", color: 0xd4a017 }, 2, SITE_TITLES.vip), SITE_TITLES.vip.color);
+    assert.equal(chatColor(STREAK_TITLE, 1, SITE_TITLES.aurora), STREAK_TITLE.color);
+    assert.equal(SITE_TITLES.vip.emblem, "🩷");
+    assert.equal(SITE_TITLES.vip.color, 0xff4fa8);
+    assert.equal(SITE_TITLES.booster.color, 0x9bb0ff);
+    assert.equal(SITE_TITLES.aurora.color, 0xff2ee8);
   });
 
   it("cargo Em Streak só no vermelho com streak ≥ 3 e sem AFK", () => {

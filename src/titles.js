@@ -219,6 +219,41 @@ const STREAK_TITLE = {
   kind: "streak",
 };
 
+/** Overlay de status do site: não entra em !cargo e some quando VIP/boost acaba. */
+const SITE_TITLES = {
+  vip: {
+    id: "vip",
+    name: "VIP",
+    emblem: "🩷",
+    color: 0xff4fa8,
+    kind: "site",
+  },
+  booster: {
+    id: "booster",
+    name: "Booster",
+    emblem: "🚀",
+    color: 0x9bb0ff,
+    kind: "site",
+  },
+  aurora: {
+    id: "aurora",
+    name: "Aurora",
+    emblem: "💫",
+    color: 0xff2ee8,
+    kind: "site",
+  },
+};
+
+function resolveSiteTitle(status) {
+  if (!status) return null;
+  const vip = !!status.vip;
+  const booster = !!status.booster;
+  if (vip && booster) return SITE_TITLES.aurora;
+  if (vip) return SITE_TITLES.vip;
+  if (booster) return SITE_TITLES.booster;
+  return null;
+}
+
 /** Cargo fixo concedido pelo Chefe (nível 4). A pessoa escolhe se quer usar. */
 const GIFT_TITLES = [
   {
@@ -364,6 +399,13 @@ function formatChatPrefix(title) {
   return emblem ? `[${emblem}] ` : "";
 }
 
+function formatChatHead(title, siteTitle) {
+  let head = "";
+  if (siteTitle?.emblem) head += `[${siteTitle.emblem}]`;
+  if (title?.emblem) head += `[${title.emblem}]`;
+  return head;
+}
+
 /** Lanches usados no lugar de UMA vogal quando o alvo está com !gordo. */
 const SNACK_EMOJIS = ["🍔", "🍟", "🌭", "🍕", "🌮", "🥪", "🍗", "🥓", "🧀", "🍿"];
 
@@ -420,7 +462,13 @@ function isTopChatTitle(title) {
  * Cor da linha do chat: time (vermelho / azul / spec).
  * Staff (todos amarelo), Craque, Lenda, Gordo, Aura e Em Streak pintam diferente.
  */
-function chatColor(title, team) {
+function chatColor(title, team, siteTitle) {
+  if (title?.kind === "streak" || title?.id === "streak") {
+    return title.color || 0xff1a1a;
+  }
+  if (siteTitle) {
+    return siteTitle.color;
+  }
   if (isTopChatTitle(title)) {
     return title.color || (title.kind === "staff" ? CHAT_COLOR_CHEFE : CHAT_COLOR_SPEC);
   }
@@ -657,6 +705,9 @@ module.exports = {
   STREAK_TITLE,
   STREAK_TITLE_MIN,
   wearsStreakTitle,
+  SITE_TITLES,
+  resolveSiteTitle,
+  formatChatHead,
   statsBag,
   meetsReq,
   getTitleById,

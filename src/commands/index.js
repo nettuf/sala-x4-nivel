@@ -20,6 +20,7 @@ const {
 const { formatCurrentStreak, formatBestStreak, formatTopStreaks } = require("../room/streak");
 const { formatBetLine, formatViadoLine, pickTeaseLine, pickPraiseLine, resolveTeaseTarget } = require("../room/bet");
 const { normalizeLinkCode, linkHaxballAuth } = require("../haxbook/authLink");
+const { fetchPlayerSiteStatus } = require("../haxbook/playerStatus");
 const {
   TITLES,
   STAFF_TITLES,
@@ -32,7 +33,9 @@ const {
   formatTitleCatalog,
   chatColor,
   formatChatPrefix,
+  formatChatHead,
   formatChatBody,
+  resolveSiteTitle,
   JOKE_TITLES,
   STREAK_TITLE,
   wearsStreakTitle,
@@ -285,6 +288,33 @@ function createCommandHandler(room, ctx) {
     return resolvePlayerAuth(player, ctx.auths, room.getPlayerList());
   }
 
+  function ensureSiteStatusMap() {
+    if (!ctx.siteStatus) ctx.siteStatus = new Map();
+    return ctx.siteStatus;
+  }
+
+  function siteTitleFor(player) {
+    const auth = resolveAuth(player);
+    if (!auth) return null;
+    return resolveSiteTitle(ensureSiteStatusMap().get(auth));
+  }
+
+  async function syncSiteStatus(players) {
+    const auths = [...new Set((players || []).map((p) => resolveAuth(p)).filter(Boolean))];
+    if (!auths.length) return;
+    const result = await fetchPlayerSiteStatus({
+      statsUrl: config.haxbookStatsUrl,
+      apiKey: config.haxbookApiKey,
+      auths,
+    });
+    if (!result.ok) return;
+    const map = ensureSiteStatusMap();
+    for (const auth of auths) {
+      const row = result.players[auth] || { vip: false, booster: false };
+      map.set(auth, { vip: !!row.vip, booster: !!row.booster });
+    }
+  }
+
   function jokeSubjectKey(player) {
     return resolveAuth(player) || `id:${player.id}`;
   }
@@ -525,9 +555,7 @@ function createCommandHandler(room, ctx) {
   function chatSpeaker(player, title) {
     const live = room.getPlayerList().find((p) => p.id === player.id);
     const name = live?.name ?? player.name;
-    const emblem = title?.emblem || "";
-    let head = "";
-    if (emblem) head += `[${emblem}]`;
+    let head = formatChatHead(title, siteTitleFor(player));
     if (ctx.afk?.isAfk?.(player.id)) head += "[AFK]";
     return head ? `${head} ${name}` : name;
   }
@@ -544,7 +572,7 @@ function createCommandHandler(room, ctx) {
     const team = live?.team ?? player.team;
     return {
       line: `${chatSpeaker(player, title)}: ${formatChatBody(title, message)}`,
-      color: chatColor(title, team),
+      color: chatColor(title, team, siteTitleFor(player)),
     };
   }
 
@@ -2092,6 +2120,8 @@ function createCommandHandler(room, ctx) {
     forgetPlayer,
     applyAdminLook,
     loadTitleForPlayer,
+    syncSiteStatus,
+    siteTitleFor,
     formatPlayerChat,
     handleWhisper,
     handleTeamChat,

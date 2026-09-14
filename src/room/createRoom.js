@@ -32,6 +32,7 @@ const { detectRageQuit, isChooseToken, rageQuitMessages, targetTeamSize } = requ
 const { rememberIdentity, withIdentity } = require("./playerAuth");
 const { guardRoomApi } = require("./safeApi");
 const { scheduleMidgameDisc } = require("./disc");
+const { gameIsLive } = require("../haxbook/playerStatus");
 
 function createRoom(HBInit) {
   const token = config.readToken();
@@ -64,6 +65,7 @@ function createRoom(HBInit) {
     admins: new Map(),
     mutes: new Map(),
     titles: new Map(),
+    siteStatus: new Map(),
     auths: new Map(),
     conns: new Map(),
     afk: null,
@@ -1144,11 +1146,15 @@ function createRoom(HBInit) {
     void (async () => {
       await upsertPlayer({ auth, nick: player.name, conn, ip });
       const bound = await bindIdentity(player);
+      if (!gameIsLive(room, match)) {
+        await commands.syncSiteStatus([bound]);
+      }
       const title = ctx.titles.get(player.id) || { emblem: "🌱", color: 0xbdc3c7 };
+      const site = commands.siteTitleFor(bound);
       room.sendAnnouncement(
         `Bem-vindo, ${player.name}! Crie sua conta no Haxbook — rankings, stats, sorteios e mais. !ajuda · !site`,
         player.id,
-        title.color,
+        site?.color || title.color,
         "normal",
         1
       );
@@ -1843,6 +1849,9 @@ function createRoom(HBInit) {
       postMatchBusy = false;
       return;
     }
+    void commands.syncSiteStatus(room.getPlayerList()).catch((err) => {
+      console.error("[site-status]", err?.message || err);
+    });
     // Stop pelo painel do admin: mantém times, não winner stays nem refreshLobby.
     if (isAdminManualAction(byPlayer)) {
       handleAdminManualStop();
