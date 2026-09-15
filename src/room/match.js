@@ -181,11 +181,13 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     const redN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 1).length;
     const blueN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 2).length;
     const startedFourOnFour = !!competitive && redN >= 4 && blueN >= 4;
-    const matchId = startedFourOnFour ? makeMatchId() : null;
+    const startedAt = startedFourOnFour ? Date.now() : null;
+    const matchId = startedFourOnFour ? makeMatchId(startedAt) : null;
     match = {
       competitive,
       everCompetitive: !!competitive,
       startedFourOnFour,
+      startedAt,
       matchId,
       formatBroken: false,
       recordingStarted: false,
@@ -638,6 +640,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     const haxbook = siteEligible
       ? buildStatsBody({
           matchId: match.matchId,
+          startedAt: match.startedAt,
           redScore: scoreRed,
           blueScore: scoreBlue,
           winner,
@@ -852,11 +855,13 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     const redN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 1).length;
     const blueN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 2).length;
     const startedFourOnFour = !!state.startedFourOnFour || (!!state.competitive && redN >= 4 && blueN >= 4);
-    const matchId = startedFourOnFour ? makeMatchId() : null;
+    const startedAt = startedFourOnFour ? Date.now() : null;
+    const matchId = startedFourOnFour ? makeMatchId(startedAt) : null;
     match = {
       competitive: !!state.competitive,
       everCompetitive: !!state.everCompetitive,
       startedFourOnFour,
+      startedAt,
       matchId,
       formatBroken: !!state.formatBroken,
       recordingStarted: false,
@@ -913,7 +918,8 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
           const blueN = playersOf(2).length;
           if (redN >= 4 && blueN >= 4) {
             match.startedFourOnFour = true;
-            match.matchId = makeMatchId();
+            match.startedAt = Date.now();
+            match.matchId = makeMatchId(match.startedAt);
             haxbooket.open({
               matchId: match.matchId,
               participants: room.getPlayerList().map((p) => who(p)),

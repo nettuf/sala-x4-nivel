@@ -286,6 +286,7 @@ describe("finish 4v4 → payload do site", () => {
     assert.equal(body.participants.every((p) => p.playTime === 0), true);
     assert.equal("ranked" in body, false);
     assert.match(body.matchId, /^\d+-/);
+    assert.equal(typeof body.startedAt, "number");
     assert.deepEqual(
       body.participants.filter((p) => p.team === "RED").map((p) => p.nickname),
       ["R1", "R2", "R3", "R4"]

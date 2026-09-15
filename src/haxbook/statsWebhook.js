@@ -102,8 +102,8 @@ function buildParticipants({ red, blue, tally, gk, redScore, blueScore } = {}) {
   return rows;
 }
 
-function buildStatsBody({ matchId, redScore, blueScore, winner, roomName, participants }) {
-  return {
+function buildStatsBody({ matchId, redScore, blueScore, winner, roomName, participants, startedAt }) {
+  const body = {
     matchId,
     redScore: Number(redScore) || 0,
     blueScore: Number(blueScore) || 0,
@@ -111,6 +111,8 @@ function buildStatsBody({ matchId, redScore, blueScore, winner, roomName, partic
     roomName,
     participants,
   };
+  if (startedAt != null) body.startedAt = Number(startedAt);
+  return body;
 }
 
 function delay(ms) {

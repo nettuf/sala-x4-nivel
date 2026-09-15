@@ -33,6 +33,7 @@ const { rememberIdentity, withIdentity } = require("./playerAuth");
 const { guardRoomApi } = require("./safeApi");
 const { scheduleMidgameDisc } = require("./disc");
 const { gameIsLive } = require("../haxbook/playerStatus");
+const { createRankedAnnouncer } = require("./rankedWindows");
 
 function createRoom(HBInit) {
   const token = config.readToken();
@@ -1163,6 +1164,10 @@ function createRoom(HBInit) {
         "normal",
         1
       );
+      const rankedJoin = rankedAnnouncer.joinLine();
+      if (rankedJoin) {
+        room.sendAnnouncement(rankedJoin, player.id, 0xf1c40f, "bold", 1);
+      }
       notifyJoin({
         playerId: player.id,
         nick: player.name,
@@ -1978,6 +1983,11 @@ function createRoom(HBInit) {
     },
   });
   const healthHandle = health.start();
+  const rankedAnnouncer = createRankedAnnouncer({
+    formatLabel: "4v4",
+    announce: (text) => room.sendAnnouncement(text, null, 0xf1c40f, "bold", 2),
+  });
+  const rankedHandle = rankedAnnouncer.start();
 
   applyStadium(room, 0);
   stadiumKind = "training";
@@ -2008,6 +2018,7 @@ function createRoom(HBInit) {
       stop() {
         stopHoldPauseLoop();
         healthHandle.stop();
+        rankedHandle.stop();
       },
       check: health.check,
     },
