@@ -1072,6 +1072,10 @@ function createRoom(HBInit) {
       if (tryEndAsRageQuit(player, scores, { fieldTeam: previousTeam })) return;
     }
 
+    if (choose.isActive() && (type === "auto-afk" || type === "voluntary-afk")) {
+      choose.handoffPick();
+    }
+
     if (match.isCompetitive()) {
       // Spec / fora do jogo: não pausa nem abre reposição. Só atualiza o pick se já está aberto.
       if (!leftField) {
@@ -1929,6 +1933,7 @@ function createRoom(HBInit) {
         holdingPause: replacementPauseActive || holdUntilPick,
         hasCaptain: !!choose.currentCaptain(),
         pickPromptStale: choose.isActive() && choose.pickPromptStale(),
+        pickCaptainMismatch: choose.isActive() && choose.needsPickHandoff(),
         capTimeoutLive: choose.isActive() && choose.isCapTimeoutLive(),
         competitive: match.isCompetitive(),
         winnerStaysPending: !!winnerStaysPending,
@@ -1966,7 +1971,7 @@ function createRoom(HBInit) {
         return;
       }
       if (action === "prompt-choose") {
-        if (!choose.beginCaptainPickTurn()) choose.promptCaptain();
+        if (!choose.handoffPick() && !choose.beginCaptainPickTurn()) choose.promptCaptain();
         return;
       }
       if (action === "refresh-lobby") refreshLobby();

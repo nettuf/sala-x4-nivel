@@ -1048,6 +1048,58 @@ describe("choose: pick do capitão", () => {
       assert.ok(!host.handles.choose.list().specReady.some((p) => p.id === cap.id));
       assert.equal(host.handles.choose.isActive(), true);
       assert.equal(host.handles.choose.currentCaptain()?.id, segundo.id, "o 2º do time herda o pick");
+      const lista = [...host.announcements].reverse().find((a) => a.to === segundo.id && /^Specs:/.test(a.msg));
+      assert.ok(lista, "o novo capitão precisa ver Specs: nome[1]");
+      assert.match(lista.msg, /\[1\]/);
+    } finally {
+      config.chooseTimeSec = anterior;
+      host.cleanup();
+    }
+  });
+
+  it("capitão !afk no choose: o próximo do time recebe a lista com números", async () => {
+    const host = bootRoom();
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+    const cap = host.addPlayer(TEAM.BLUE);
+    const segundo = host.addPlayer(TEAM.BLUE);
+    for (let i = 0; i < 4; i++) host.addPlayer(TEAM.SPEC);
+    host.handles.choose.continueFromField();
+    assert.equal(host.handles.choose.currentCaptain().id, cap.id);
+    assert.ok(host.lastSpecList()?.to === cap.id, "lista inicial vai ao 1º capitão");
+
+    host.chat(cap, "!afk");
+    await settle();
+
+    assert.equal(host.find(cap.id).team, TEAM.SPEC);
+    assert.equal(host.handles.choose.currentCaptain()?.id, segundo.id);
+    const lista = [...host.announcements].reverse().find((a) => a.to === segundo.id && /^Specs:/.test(a.msg));
+    assert.ok(lista, "depois do !afk o herdeiro precisa da lista numerada");
+    assert.match(lista.msg, /\[1\]/);
+    host.cleanup();
+  });
+
+  it("capitão ocioso com setPlayerTeam atrasado: o herdeiro ainda vê os números", async () => {
+    const host = bootRoom({ deferTeamChanges: true });
+    const anterior = config.chooseTimeSec;
+    config.chooseTimeSec = 0.2;
+    try {
+      for (let i = 0; i < 4; i++) host.addPlayer(TEAM.RED);
+      const cap = host.addPlayer(TEAM.BLUE);
+      const segundo = host.addPlayer(TEAM.BLUE);
+      for (let i = 0; i < 4; i++) host.addPlayer(TEAM.SPEC);
+      host.handles.choose.continueFromField();
+      host.flushTeams();
+      assert.equal(host.handles.choose.currentCaptain().id, cap.id);
+
+      await new Promise((r) => setTimeout(r, 250));
+      host.flushTeams();
+      await settle();
+
+      assert.equal(host.find(cap.id).team, TEAM.SPEC);
+      assert.equal(host.handles.choose.currentCaptain()?.id, segundo.id);
+      const lista = [...host.announcements].reverse().find((a) => a.to === segundo.id && /^Specs:/.test(a.msg));
+      assert.ok(lista, "mesmo com setPlayerTeam atrasado a lista vai ao herdeiro");
+      assert.match(lista.msg, /\[1\]/);
     } finally {
       config.chooseTimeSec = anterior;
       host.cleanup();

@@ -18,6 +18,9 @@ const {
   ballSpeedKmh,
   possessionPercents,
   classifyTouchChange,
+  classifyPendingKickOnGoal,
+  goalAreaFromStadium,
+  isInAttackingGoalArea,
   shouldIgnoreClusteredReceive,
   applyPlayEvents,
   formatPlayChatLines,
@@ -284,34 +287,82 @@ describe("gameLogic", () => {
     assert.deepEqual(possessionPercents(3, 1), { red: 75, blue: 25 });
   });
 
-  it("classifica passe, passe errado, recuperação e perda", () => {
+  it("classifica passe, steal, defesa, desarme e gol", () => {
     const a = { id: 1, name: "A", team: 1, kind: "kick" };
     const b = { id: 2, name: "B", team: 1, kind: "body" };
     const c = { id: 3, name: "C", team: 2, kind: "body" };
+    const area = goalAreaFromStadium({ bg: { width: 700, height: 320 } });
     const pass = classifyTouchChange(a, b, { pendingKick: a });
+    assert.equal(pass.kickType, "pass");
     assert.equal(pass.pass, a);
     assert.equal(pass.misplaced, null);
-    assert.equal(pass.recovery, null);
     assert.equal(pass.nextPendingKick, null);
 
-    const steal = classifyTouchChange(a, c, { pendingKick: a });
+    const steal = classifyTouchChange(a, c, { pendingKick: a, receiverPos: { x: 0, y: 0 }, goalArea: area });
+    assert.equal(steal.kickType, "steal");
     assert.equal(steal.misplaced, a);
-    assert.equal(steal.recovery, c);
+    assert.equal(steal.interception, c);
+    assert.equal(steal.recovery, null);
     assert.equal(steal.pass, null);
 
-    const gkClear = classifyTouchChange(a, c, { pendingKick: a, skipMisplacedForKicker: true });
-    assert.equal(gkClear.misplaced, null);
-    assert.equal(gkClear.recovery, c);
+    const saved = classifyTouchChange(a, c, {
+      pendingKick: a,
+      receiverPos: { x: 680, y: 10 },
+      goalArea: area,
+    });
+    assert.equal(saved.kickType, "save");
+    assert.equal(saved.save, c);
+    assert.equal(saved.shotSaved, a);
+    assert.equal(saved.misplaced, null);
+
+    const cleared = classifyTouchChange(a, c, {
+      pendingKick: a,
+      receiverPos: { x: 0, y: 0 },
+      kickerPos: { x: -640, y: 10 },
+      goalArea: area,
+    });
+    assert.equal(cleared.kickType, "steal");
+    assert.equal(cleared.misplaced, null);
+    assert.equal(cleared.clearance, a);
+    assert.equal(cleared.interception, c);
+
+    const gkSave = classifyTouchChange(a, c, {
+      pendingKick: a,
+      receiverPos: { x: 200, y: 0 },
+      goalArea: area,
+      receiverIsGk: true,
+    });
+    assert.equal(gkSave.kickType, "save");
+    assert.equal(gkSave.save, c);
+
+    const gkUpfield = classifyTouchChange(a, c, {
+      pendingKick: a,
+      receiverPos: { x: -200, y: 0 },
+      goalArea: area,
+      receiverIsGk: true,
+    });
+    assert.equal(gkUpfield.kickType, "steal");
+    assert.equal(gkUpfield.misplaced, a);
 
     const loose = classifyTouchChange(a, c, { pendingKick: null });
     assert.equal(loose.lost, a);
-    assert.equal(loose.recovery, c);
+    assert.equal(loose.tackle, c);
+    assert.equal(loose.recovery, null);
     assert.equal(loose.misplaced, null);
 
     const stats = new Map();
     applyPlayEvents(stats, steal);
     assert.equal(stats.get(1).misplaced, 1);
-    assert.equal(stats.get(3).recoveries, 1);
+    assert.equal(stats.get(3).interceptions, 1);
+
+    const goalKick = classifyPendingKickOnGoal(a, 1, [a]);
+    assert.equal(goalKick.kickType, "goal");
+    const ownKick = classifyPendingKickOnGoal(a, 2, [a]);
+    assert.equal(ownKick.kickType, "own_goal");
+    const errorKick = classifyPendingKickOnGoal(a, 2, [c, a]);
+    assert.equal(errorKick.kickType, "error");
+    assert.equal(isInAttackingGoalArea({ x: 680, y: 10 }, 1, area), true);
+    assert.equal(isInAttackingGoalArea({ x: 0, y: 0 }, 1, area), false);
 
     assert.equal(
       shouldIgnoreClusteredReceive(a, b, { kind: "body", ballAtKicker: true }),
@@ -347,17 +398,19 @@ describe("gameLogic", () => {
 
   it("monta líderes de passe/rec/posse no chat", () => {
     const map = new Map([
-      [1, { id: 1, name: "João", passes: 5, misplaced: 2, recoveries: 1, lost: 0, possTicks: 40 }],
-      [2, { id: 2, name: "Pedro", passes: 1, misplaced: 0, recoveries: 4, lost: 1, possTicks: 10 }],
+      [1, { id: 1, name: "João", passes: 5, misplaced: 2, tackles: 0, interceptions: 1, saves: 0, lost: 0, possTicks: 40 }],
+      [2, { id: 2, name: "Pedro", passes: 1, misplaced: 0, tackles: 4, interceptions: 0, saves: 1, lost: 1, possTicks: 10 }],
     ]);
     const lines = formatPlayChatLines(map, { red: 60, blue: 40 });
     assert.match(lines[0], /60\.0%/);
     assert.match(lines.find((l) => l.includes("Passe")), /João 5\/7/);
-    assert.match(lines.find((l) => l.includes("Rec")), /Pedro 4/);
+    assert.match(lines.find((l) => l.includes("Desarme")), /Pedro 4/);
+    assert.match(lines.find((l) => l.includes("Intercept")), /João 1/);
+    assert.match(lines.find((l) => l.includes("Defesa")), /Pedro 1/);
     assert.match(lines.find((l) => l.includes("Posse jogador")), /João 80%/);
     const discord = formatPlaySummaryLines(map).join("\n");
     assert.match(discord, /João — 5\/7 passe/);
-    assert.match(discord, /2 perda/);
+    assert.match(discord, /4 des/);
   });
 
   it("ballSpeedKmh cresce com deslocamento", () => {
@@ -820,12 +873,12 @@ describe("titles / cargos", () => {
 
   it("MVP anuncia stats boas; pior anuncia as ruins", () => {
     assert.match(
-      formatMvpAnnounce({ nick: "João", goals: 2, assists: 1, cleanSheet: true, passes: 5, misplaced: 1, recoveries: 3 }),
-      /⭐ MVP: João · 2G · 1A · CS · 5\/6 passe · 3 rec/
+      formatMvpAnnounce({ nick: "João", goals: 2, assists: 1, cleanSheet: true, passes: 5, misplaced: 1, tackles: 3 }),
+      /⭐ MVP: João · 2G · 1A · CS · 5\/6 passe · 3 des/
     );
     assert.match(
-      formatWorstAnnounce({ nick: "Pedro", goals: 0, assists: 0, own_goals: 1, passes: 2, misplaced: 4, recoveries: 1 }),
-      /💩 Pior: Pedro · 1 GC · 2\/6 passe · 1 rec/
+      formatWorstAnnounce({ nick: "Pedro", goals: 0, assists: 0, own_goals: 1, passes: 2, misplaced: 4, tackles: 1 }),
+      /💩 Pior: Pedro · 1 GC · 2\/6 passe · 1 des/
     );
   });
 
@@ -1065,9 +1118,9 @@ describe("replay summary", () => {
       redLineup: ["A"],
       blueLineup: ["B"],
       goals: [],
-      playLines: ["", "**Passe / rec / posse**", "· A — 3/4 passe · 1 rec · 1 perda · 55%"],
+      playLines: ["", "**Passe / desarme / intercept / defesa**", "· A — 3/4 passe · 1 des · 0 int · 0 def · 55%"],
     });
     assert.match(text, /3\/4 passe/);
-    assert.match(text, /1 rec/);
+    assert.match(text, /1 des/);
   });
 });

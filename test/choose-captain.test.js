@@ -169,6 +169,34 @@ describe("capitão e lista de pick", () => {
     assert.equal(players.find((row) => row.id === 5).team, TEAM.RED);
   });
 
+  it("capitão vira AFK: a lista numerada vai ao de baixo, não fica no anterior", () => {
+    const players = [
+      p(1, TEAM.RED),
+      p(11, TEAM.RED),
+      p(2, TEAM.BLUE),
+      p(3, TEAM.BLUE),
+      p(4),
+      p(5),
+      p(6),
+      p(7),
+    ];
+    const excluded = new Set();
+    const { choose, announcements } = setup(players, { excluded });
+    choose.startReplacement(TEAM.RED);
+    assert.equal(choose.currentCaptain().id, 1);
+    assert.equal(lastSpecs(announcements).to, 1);
+
+    excluded.add(1);
+    players.find((row) => row.id === 1).team = TEAM.SPEC;
+    assert.equal(choose.currentCaptain().id, 11);
+    assert.equal(choose.needsPickHandoff(), true, "lista ainda está no capitão AFK");
+
+    choose.handoffPick();
+    assert.equal(lastSpecs(announcements).to, 11);
+    assert.match(lastSpecs(announcements).msg, /\[1\]/);
+    assert.equal(choose.needsPickHandoff(), false);
+  });
+
   it("só 1 spec no pick → puxa automaticamente", () => {
     const players = [
       p(1, TEAM.RED),

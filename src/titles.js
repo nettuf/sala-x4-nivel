@@ -644,6 +644,9 @@ function withPlayStats(player, playMap) {
     ...player,
     passes: row.passes,
     misplaced: row.misplaced,
+    interceptions: row.interceptions,
+    tackles: row.tackles,
+    saves: row.saves,
     recoveries: row.recoveries,
     lost: row.lost,
   };
@@ -656,12 +659,16 @@ function formatMvpAnnounce(player) {
   const assists = Number(player?.assists) || 0;
   const passes = Number(player?.passes) || 0;
   const misplaced = Number(player?.misplaced) || 0;
-  const recoveries = Number(player?.recoveries) || 0;
   if (goals) bits.push(`${goals}G`);
   if (assists) bits.push(`${assists}A`);
   if (player?.cleanSheet) bits.push("CS");
-  if (passes > 0) bits.push(`${passes}/${passes + misplaced} passe`);
-  if (recoveries > 0) bits.push(`${recoveries} rec`);
+  const tackles = Number(player?.tackles) || 0;
+  const interceptions = Number(player?.interceptions) || 0;
+  const saves = Number(player?.saves) || 0;
+  if (passes > 0 || misplaced > 0) bits.push(`${passes}/${passes + misplaced} passe`);
+  if (tackles > 0) bits.push(`${tackles} des`);
+  if (interceptions > 0) bits.push(`${interceptions} int`);
+  if (saves > 0) bits.push(`${saves} def`);
   return bits.length ? `⭐ MVP: ${name} · ${bits.join(" · ")}` : `⭐ MVP: ${name}`;
 }
 
@@ -673,13 +680,17 @@ function formatWorstAnnounce(player) {
   const own = Number(player?.own_goals) || 0;
   const passes = Number(player?.passes) || 0;
   const misplaced = Number(player?.misplaced) || 0;
-  const recoveries = Number(player?.recoveries) || 0;
   if (own) bits.push(`${own} GC`);
   if (goals) bits.push(`${goals}G`);
   if (assists) bits.push(`${assists}A`);
+  const tackles = Number(player?.tackles) || 0;
+  const interceptions = Number(player?.interceptions) || 0;
+  const saves = Number(player?.saves) || 0;
   const attempts = passes + misplaced;
   if (attempts > 0) bits.push(`${passes}/${attempts} passe`);
-  if (recoveries > 0) bits.push(`${recoveries} rec`);
+  if (tackles > 0) bits.push(`${tackles} des`);
+  if (interceptions > 0) bits.push(`${interceptions} int`);
+  if (saves > 0) bits.push(`${saves} def`);
   return bits.length ? `💩 Pior: ${name} · ${bits.join(" · ")}` : `💩 Pior: ${name}`;
 }
 

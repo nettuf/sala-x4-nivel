@@ -137,10 +137,80 @@ function emptyPlayStat(player = {}) {
     team: player.team || 0,
     passes: 0,
     misplaced: 0,
+    interceptions: 0,
+    tackles: 0,
+    saves: 0,
+    shotSaved: 0,
+    kickGoals: 0,
+    ownKicks: 0,
+    errors: 0,
+    clearances: 0,
     recoveries: 0,
     lost: 0,
     possTicks: 0,
+    possCount: 0,
   };
+}
+
+function emptyPlayEvents() {
+  return {
+    kickType: null,
+    pass: null,
+    misplaced: null,
+    interception: null,
+    save: null,
+    shotSaved: null,
+    tackle: null,
+    lost: null,
+    clearance: null,
+    recovery: null,
+    kickGoal: null,
+    ownKick: null,
+    errors: null,
+  };
+}
+
+/** Área do gol atacado: vermelho vai à direita (+x), azul à esquerda (−x). */
+function goalAreaFromStadium(stadium) {
+  const obj = stadium && typeof stadium === "object" ? stadium : {};
+  const halfX = Number(obj.bg?.width) || Number(obj.width) || 700;
+  const halfY = Number(obj.bg?.height) || Number(obj.height) || 320;
+  return {
+    halfX,
+    boxDepth: Math.max(90, halfX * 0.18),
+    boxHalfY: Math.max(80, halfY * 0.42),
+  };
+}
+
+function isInAttackingGoalArea(pos, kickerTeam, area) {
+  if (!pos || !area || !kickerTeam) return false;
+  const x = Number(pos.x);
+  const y = Number(pos.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  if (Math.abs(y) > area.boxHalfY) return false;
+  if (kickerTeam === 1) return x >= area.halfX - area.boxDepth;
+  if (kickerTeam === 2) return x <= -area.halfX + area.boxDepth;
+  return false;
+}
+
+function isInDefensiveGoalArea(pos, team, area) {
+  if (!pos || !area || !team) return false;
+  const x = Number(pos.x);
+  const y = Number(pos.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  if (Math.abs(y) > area.boxHalfY) return false;
+  if (team === 1) return x <= -area.halfX + area.boxDepth;
+  if (team === 2) return x >= area.halfX - area.boxDepth;
+  return false;
+}
+
+function isInDefensiveHalf(pos, team) {
+  if (!pos || !team) return false;
+  const x = Number(pos.x);
+  if (!Number.isFinite(x)) return false;
+  if (team === 1) return x <= 0;
+  if (team === 2) return x >= 0;
+  return false;
 }
 
 function bumpPlayStat(map, player, key, n = 1) {
@@ -158,23 +228,41 @@ function bumpPlayStat(map, player, key, n = 1) {
 }
 
 /**
- * Novo toque de outro jogador. Passe/errado só depois de um chute;
- * recuperação é o primeiro toque após o adversário.
+ * Chute (Haxclass): passe / steal / save.
+ * Corpo sem chute pendente: desarme (tackle), não interceptação.
  */
-function classifyTouchChange(prev, next, { pendingKick = null, skipMisplacedForKicker = false } = {}) {
-  const events = { pass: null, misplaced: null, recovery: null, lost: null };
+function classifyTouchChange(prev, next, {
+  pendingKick = null,
+  receiverPos = null,
+  kickerPos = null,
+  goalArea = null,
+  receiverIsGk = false,
+} = {}) {
+  const events = emptyPlayEvents();
   if (!next) return { ...events, nextPendingKick: pendingKick };
 
   if (pendingKick && !sameTouchPlayer(pendingKick, next)) {
-    const sameTeam = pendingKick.team === next.team;
-    if (sameTeam) {
+    if (pendingKick.team === next.team) {
+      events.kickType = "pass";
       events.pass = pendingKick;
+    } else if (
+      isInAttackingGoalArea(receiverPos, pendingKick.team, goalArea)
+      || (receiverIsGk && isInDefensiveHalf(receiverPos, next.team))
+    ) {
+      events.kickType = "save";
+      events.save = next;
+      events.shotSaved = pendingKick;
+    } else if (isInDefensiveGoalArea(kickerPos, pendingKick.team, goalArea)) {
+      events.kickType = "steal";
+      events.clearance = pendingKick;
+      events.interception = next;
     } else {
-      if (!skipMisplacedForKicker) events.misplaced = pendingKick;
-      events.recovery = next;
+      events.kickType = "steal";
+      events.misplaced = pendingKick;
+      events.interception = next;
     }
   } else if (prev && !sameTouchPlayer(prev, next) && prev.team !== next.team) {
-    events.recovery = next;
+    events.tackle = next;
     events.lost = prev;
   }
 
@@ -182,6 +270,30 @@ function classifyTouchChange(prev, next, { pendingKick = null, skipMisplacedForK
     ...events,
     nextPendingKick: isKickTouch(next) ? next : null,
   };
+}
+
+/** Chute ainda sem destinatário no apito: gol, GC ou erro (desvio). */
+function classifyPendingKickOnGoal(pendingKick, scoringTeam, touches) {
+  const events = emptyPlayEvents();
+  if (!pendingKick) return { ...events, kicker: null, deflector: null };
+
+  if (pendingKick.team === scoringTeam) {
+    events.kickType = "goal";
+    events.kickGoal = pendingKick;
+    return { ...events, kicker: pendingKick, deflector: null };
+  }
+
+  const kickIdx = (touches || []).findIndex((t) => sameTouchPlayer(t, pendingKick) && isKickTouch(t));
+  const after = kickIdx >= 0 ? touches.slice(0, kickIdx) : [];
+  const deflector = after.find((t) => t && t.team === scoringTeam) || null;
+  if (deflector) {
+    events.kickType = "error";
+    events.errors = pendingKick;
+    return { ...events, kicker: pendingKick, deflector };
+  }
+  events.kickType = "own_goal";
+  events.ownKick = pendingKick;
+  return { ...events, kicker: pendingKick, deflector: null };
 }
 
 /** Corpo no bolo do chute: perto do pé do batedor não é passe nem rec. */
@@ -196,8 +308,16 @@ function applyPlayEvents(map, events) {
   if (!map || !events) return;
   if (events.pass) bumpPlayStat(map, events.pass, "passes");
   if (events.misplaced) bumpPlayStat(map, events.misplaced, "misplaced");
-  if (events.recovery) bumpPlayStat(map, events.recovery, "recoveries");
+  if (events.interception) bumpPlayStat(map, events.interception, "interceptions");
+  if (events.save) bumpPlayStat(map, events.save, "saves");
+  if (events.shotSaved) bumpPlayStat(map, events.shotSaved, "shotSaved");
+  if (events.tackle) bumpPlayStat(map, events.tackle, "tackles");
   if (events.lost) bumpPlayStat(map, events.lost, "lost");
+  if (events.clearance) bumpPlayStat(map, events.clearance, "clearances");
+  if (events.recovery) bumpPlayStat(map, events.recovery, "recoveries");
+  if (events.kickGoal) bumpPlayStat(map, events.kickGoal, "kickGoals");
+  if (events.ownKick) bumpPlayStat(map, events.ownKick, "ownKicks");
+  if (events.errors) bumpPlayStat(map, events.errors, "errors");
 }
 
 function playStatsList(map) {
@@ -227,9 +347,11 @@ function formatPlayChatLines(map, teamPoss) {
   const passLeader = pickPlayLeader(rows, (row) => {
     const n = passAttempts(row);
     if (n <= 0) return 0;
-    return row.passes + row.passes / n / 1000;
+    return (Number(row.passes) || 0) + (Number(row.passes) || 0) / n / 1000;
   });
-  const recLeader = pickPlayLeader(rows, (row) => Number(row.recoveries) || 0);
+  const tackleLeader = pickPlayLeader(rows, (row) => Number(row.tackles) || 0);
+  const interceptLeader = pickPlayLeader(rows, (row) => Number(row.interceptions) || 0);
+  const saveLeader = pickPlayLeader(rows, (row) => Number(row.saves) || 0);
   const possLeader = pickPlayLeader(rows, (row) => Number(row.possTicks) || 0);
 
   const lines = [];
@@ -240,8 +362,14 @@ function formatPlayChatLines(map, teamPoss) {
   if (passLeader && attempts > 0) {
     lines.push(`🎯 Passe: ${passLeader.name} ${passLeader.passes}/${attempts}`);
   }
-  if (recLeader) {
-    lines.push(`🛡️ Rec: ${recLeader.name} ${recLeader.recoveries}`);
+  if (tackleLeader) {
+    lines.push(`🛡️ Desarme: ${tackleLeader.name} ${tackleLeader.tackles}`);
+  }
+  if (interceptLeader) {
+    lines.push(`✂️ Intercept: ${interceptLeader.name} ${interceptLeader.interceptions}`);
+  }
+  if (saveLeader) {
+    lines.push(`🧤 Defesa: ${saveLeader.name} ${saveLeader.saves}`);
   }
   if (possLeader && totalPoss > 0) {
     const pct = (100 * possLeader.possTicks) / totalPoss;
@@ -250,20 +378,29 @@ function formatPlayChatLines(map, teamPoss) {
   return lines;
 }
 
+function playRowHasAction(row) {
+  return passAttempts(row) > 0
+    || (Number(row?.tackles) || 0) > 0
+    || (Number(row?.interceptions) || 0) > 0
+    || (Number(row?.saves) || 0) > 0
+    || (Number(row?.possTicks) || 0) > 0;
+}
+
 function formatPlaySummaryLines(map) {
   const rows = playStatsList(map)
-    .filter((row) => passAttempts(row) > 0 || row.recoveries > 0 || row.possTicks > 0)
-    .sort((a, b) => (b.passes - a.passes) || (b.recoveries - a.recoveries) || (b.possTicks - a.possTicks));
+    .filter(playRowHasAction)
+    .sort((a, b) => (b.passes - a.passes) || (b.tackles - a.tackles) || (b.interceptions - a.interceptions) || (b.possTicks - a.possTicks));
   if (!rows.length) return [];
   const totalPoss = rows.reduce((sum, row) => sum + (Number(row.possTicks) || 0), 0);
-  const lines = ["", "**Passe / rec / posse**"];
+  const lines = ["", "**Passe / desarme / intercept / defesa**"];
   for (const row of rows.slice(0, 12)) {
     const n = passAttempts(row);
     const pass = n > 0 ? `${row.passes}/${n} passe` : "— passe";
-    const rec = `${row.recoveries || 0} rec`;
-    const lost = (row.misplaced || 0) + (row.lost || 0);
+    const des = `${row.tackles || 0} des`;
+    const inter = `${row.interceptions || 0} int`;
+    const def = `${row.saves || 0} def`;
     const poss = totalPoss > 0 ? `${((100 * (row.possTicks || 0)) / totalPoss).toFixed(0)}%` : "0%";
-    lines.push(`· ${row.name} — ${pass} · ${rec} · ${lost} perda · ${poss}`);
+    lines.push(`· ${row.name} — ${pass} · ${des} · ${inter} · ${def} · ${poss}`);
   }
   return lines;
 }
@@ -368,6 +505,11 @@ module.exports = {
   possessionPercents,
   bumpPlayStat,
   classifyTouchChange,
+  classifyPendingKickOnGoal,
+  goalAreaFromStadium,
+  isInAttackingGoalArea,
+  isInDefensiveGoalArea,
+  isInDefensiveHalf,
   shouldIgnoreClusteredReceive,
   shouldIgnoreClusteredTeammateReceive,
   applyPlayEvents,

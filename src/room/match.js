@@ -8,6 +8,8 @@ const {
   possessionPercents,
   bumpPlayStat,
   classifyTouchChange,
+  classifyPendingKickOnGoal,
+  goalAreaFromStadium,
   shouldIgnoreClusteredReceive,
   applyPlayEvents,
   formatPlayChatLines,
@@ -29,6 +31,7 @@ const {
 } = require("../haxbook/statsWebhook");
 const { createHaxbooket, marketParticipants } = require("../haxbook/haxbooket");
 const { createPostMatchInsights } = require("../haxbook/insight");
+const maps = require("./maps");
 
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
@@ -188,6 +191,8 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       recordingStarted: false,
       touches: [],
       pendingKick: null,
+      kicks: [],
+      goalArea: resolveGoalArea(redN + blueN),
       playStats: new Map(),
       goals: [],
       lastGoal: null,
@@ -209,10 +214,45 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     room.startGame();
   }
 
-  function skipMisplacedFor(kicker) {
-    if (!kicker) return false;
-    const gk = gkFromSamples();
-    return (kicker.team === 1 && gk.redId === kicker.id) || (kicker.team === 2 && gk.blueId === kicker.id);
+  function resolveGoalArea(playerCount) {
+    try {
+      const raw = maps.stadiumForPlayerCount(playerCount);
+      return goalAreaFromStadium(raw ? maps.parseStadium(raw) : null);
+    } catch {
+      return goalAreaFromStadium(null);
+    }
+  }
+
+  function receiverPoint(playerId) {
+    if (playerId != null && typeof room.getPlayerDiscProperties === "function") {
+      try {
+        const disc = room.getPlayerDiscProperties(playerId);
+        if (disc && Number.isFinite(disc.x) && Number.isFinite(disc.y)) {
+          return { x: disc.x, y: disc.y };
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (typeof room.getBallPosition === "function") return room.getBallPosition();
+    return null;
+  }
+
+  function rememberKick(classified, from, to, toPos) {
+    if (!match || !classified?.kickType) return;
+    const time = room.getScores()?.time ?? 0;
+    match.kicks.push({
+      time,
+      type: classified.kickType,
+      fromId: from?.id ?? null,
+      fromName: from?.name ?? null,
+      fromTeam: from?.team ?? null,
+      toId: to?.id ?? null,
+      toName: to?.name ?? null,
+      toTeam: to?.team ?? null,
+      toX: toPos?.x ?? null,
+      toY: toPos?.y ?? null,
+    });
   }
 
   function clearPlaySequence() {
@@ -267,11 +307,20 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       kind,
     };
     const kicker = match.pendingKick;
+    const toPos = receiverPoint(p.id);
+    const kickerPos = kicker ? receiverPoint(kicker.id) : null;
+    const gk = gkFromSamples();
+    const receiverIsGk = p.team === 1 ? gk.redId === p.id : gk.blueId === p.id;
     const classified = classifyTouchChange(last, next, {
       pendingKick: kicker,
-      skipMisplacedForKicker: skipMisplacedFor(kicker),
+      receiverPos: toPos,
+      kickerPos,
+      goalArea: match.goalArea,
+      receiverIsGk,
     });
     applyPlayEvents(match.playStats, classified);
+    if (!last || !sameTouchPlayer(last, next)) bumpPlayStat(match.playStats, next, "possCount");
+    rememberKick(classified, kicker, next, toPos);
     match.pendingKick = classified.nextPendingKick;
     match.touches.unshift(next);
     if (match.touches.length > TOUCH_HISTORY) match.touches.length = TOUCH_HISTORY;
@@ -343,6 +392,9 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     };
     match.goals.push(goal);
     match.lastGoal = { scoringTeam: team, at: Date.now() };
+    const kickGoal = classifyPendingKickOnGoal(match.pendingKick, team, match.touches);
+    applyPlayEvents(match.playStats, kickGoal);
+    rememberKick(kickGoal, kickGoal.kicker, kickGoal.deflector, null);
 
     if (isOwnGoal) {
       room.sendAnnouncement(
@@ -624,19 +676,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       recording,
       playLines,
     };
-    if (valid) {
-      try {
-        onReplayHold?.(recording, { endTime: Number(finalScores?.time) || 0 });
-      } catch (e) {
-        console.warn("[match] gif hold", e.message);
-      }
-    } else {
-      try {
-        onReplayCancel?.();
-      } catch {
-        /* ignore */
-      }
-    }
+    releaseRecordingForGif(recording, Number(finalScores?.time) || 0);
 
     match = null;
     lastScores = null;
@@ -766,13 +806,13 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     return `abandonou perdendo ${resolved.red}x${resolved.blue}`;
   }
 
-  function cancelRecordingOnly(reason = "rr-ou-desmontagem") {
-    if (match?.matchId) haxbooket.void(reason);
-    if (match?.recordingStarted) {
+  function releaseRecordingForGif(recording, endTime) {
+    if (recording && recording.length) {
       try {
-        room.stopRecording();
-      } catch {
-        /* ignore */
+        onReplayHold?.(recording, { endTime: Number(endTime) || 0 });
+        return;
+      } catch (e) {
+        console.warn("[match] gif hold", e.message);
       }
     }
     try {
@@ -780,6 +820,19 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     } catch {
       /* ignore */
     }
+  }
+
+  function cancelRecordingOnly(reason = "rr-ou-desmontagem") {
+    if (match?.matchId) haxbooket.void(reason);
+    let recording = null;
+    if (match?.recordingStarted) {
+      try {
+        recording = room.stopRecording();
+      } catch {
+        /* ignore */
+      }
+    }
+    releaseRecordingForGif(recording, Number(snapshotScores()?.time) || 0);
     match = null;
   }
 
@@ -809,6 +862,8 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       recordingStarted: false,
       touches: [],
       pendingKick: null,
+      kicks: [],
+      goalArea: resolveGoalArea(redN + blueN),
       playStats: new Map(),
       goals: [],
       lastGoal: null,

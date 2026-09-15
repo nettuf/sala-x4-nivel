@@ -270,6 +270,20 @@ describe("diagnóstico da sala", () => {
       }).action,
       "prompt-choose"
     );
+    assert.equal(
+      diagnoseRoom({
+        chooseActive: true,
+        hasCaptain: true,
+        redCount: 4,
+        blueCount: 1,
+        specReadyCount: 2,
+        pickPromptStale: false,
+        pickCaptainMismatch: true,
+        capTimeoutLive: true,
+      }).action,
+      "prompt-choose",
+      "capitão novo sem lista: reenvia mesmo com o timer do anterior"
+    );
   });
 
   it("sem jogo e sem choose com gente suficiente volta ao lobby", () => {

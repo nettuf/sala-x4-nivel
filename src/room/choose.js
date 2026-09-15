@@ -190,7 +190,29 @@ function createChooseController(room, {
 
   function pickPromptStale(maxAgeMs = 4000) {
     if (!active || !lastPickCaptainId) return true;
+    if (needsPickHandoff()) return true;
     return Date.now() - lastPickPromptAt >= maxAgeMs;
+  }
+
+  /** A lista/timer ainda estão no capitão anterior (AFK, timeout, saída). */
+  function needsPickHandoff() {
+    if (!active) return false;
+    const cap = currentCaptain();
+    return !!cap && lastPickCaptainId !== cap.id;
+  }
+
+  /** Manda Specs[1][2]… ao capitão da vez. Troca de capitão recomeça o relógio. */
+  function handoffPick() {
+    if (!active) return false;
+    if (tryFinishChoose()) return true;
+    if (tryFillExactHoles()) return true;
+    const cap = currentCaptain() || ensureCaptain();
+    if (!cap) return false;
+    if (lastPickCaptainId === cap.id && !pickPromptStale(800)) return false;
+    const refreshOnly = lastPickCaptainId === cap.id && isCapTimeoutLive();
+    const ok = beginCaptainPickTurn({ refreshOnly });
+    if (ok && !refreshOnly) schedulePickPromptNudge();
+    return ok;
   }
 
   function scheduleCaptainTimeouts(cap) {
@@ -201,19 +223,19 @@ function createChooseController(room, {
     const quarterMs = (chooseTime / 4) * 1000;
     timeout = setTimeout(() => {
       if (!active || currentCaptain()?.id !== capId) {
-        promptCaptain();
+        handoffPick();
         return;
       }
       beginCaptainPickTurn({ refreshOnly: true });
       timeout = setTimeout(() => {
         if (!active || currentCaptain()?.id !== capId) {
-          promptCaptain();
+          handoffPick();
           return;
         }
         beginCaptainPickTurn({ refreshOnly: true });
         timeout = setTimeout(() => {
           if (!active || currentCaptain()?.id !== capId) {
-            promptCaptain();
+            handoffPick();
             return;
           }
           if (tryFinishChoose()) return;
@@ -579,20 +601,24 @@ function createChooseController(room, {
     );
     if (side.length) {
       room.sendAnnouncement(
-        `${side[0].name} é o novo capitão e escolhe agora.`,
+        `${side[0].name} é o novo capitão e escolhe agora — a lista foi no chat dele.`,
         null,
         0x3498db,
         "bold",
         1
       );
-      promptCaptain();
+      lastPickCaptainId = 0;
+      handoffPick();
+      if (active) announceSpecList(side[0].id);
       return;
     }
 
     // Time ficou vazio: sobe alguém do spec como capitão (nunca deixa sem pick).
     const promoted = ensureCaptain();
     if (promoted) {
-      promptCaptain();
+      lastPickCaptainId = 0;
+      handoffPick();
+      if (active) announceSpecList(promoted.id);
       return;
     }
     // Sem spec pronto: auto-completa se der; senão cancela a reposição/choose.
@@ -767,6 +793,11 @@ function createChooseController(room, {
     const cap = currentCaptain();
     if (!cap) {
       promptCaptain();
+      return;
+    }
+
+    if (needsPickHandoff()) {
+      handoffPick();
       return;
     }
 
@@ -1066,6 +1097,8 @@ function createChooseController(room, {
     bothFull,
     list,
     promptCaptain,
+    handoffPick,
+    needsPickHandoff,
     currentCaptain,
     pickPromptStale,
     isCapTimeoutLive,

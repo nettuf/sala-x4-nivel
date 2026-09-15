@@ -337,15 +337,13 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
-  it("!gif abre janela só em partida e junta 5 pessoas", async () => {
+  it("!gif só o Chefe marca; jogador comum é recusado", async () => {
     const room = mockRoom();
     room.getScores = () => ({ red: 1, blue: 0, time: 30 });
-    const requests = [];
     const gifClip = {
-      request: (player) => {
-        requests.push(player.id);
-        if (requests.length === 1) return { ok: true, opened: true, count: 1 };
-        return { ok: true, joined: true, count: requests.length };
+      request: (player, opts) => {
+        if ((opts?.staffLevel || 0) < 4) return { ok: false, reason: "staff-only" };
+        return { ok: true, queued: true, staff: true, count: 1 };
       },
       forget: () => {},
     };
@@ -353,9 +351,11 @@ describe("comandos (mock room)", () => {
     const ctx = { admins: new Map(), mutes: new Map(), afk, gifClip };
     const cmd = createCommandHandler(room, ctx);
     await cmd.handle(room._players[0], "!gif");
-    await cmd.handle(room._players[1], "!gif");
-    assert.ok(room.announcements.some((a) => /pediu GIF/i.test(a.msg)));
-    assert.ok(room.announcements.some((a) => /entrou no GIF/i.test(a.msg)));
+    assert.ok(room.announcements.some((a) => /só o Chefe/i.test(a.msg)));
+    room.announcements.length = 0;
+    ctx.admins.set(room._players[0].id, { level: 4, title: "Chefe" });
+    await cmd.handle(room._players[0], "!gif");
+    assert.ok(room.announcements.some((a) => /marcou o GIF \(Chefe\)/i.test(a.msg)));
     afk.stop();
   });
 

@@ -101,7 +101,7 @@ function playerHelpLines({
     "!zoeira — zoeiras da sala",
     "!ranking — tops e streak",
     "!calladm <motivo> — chamar staff no Discord",
-    "!gif — 5 pessoas ou Chefe, 15s no Discord depois do apito"
+    "!gif — só Chefe (nv.4), 15s no Discord depois do apito"
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — uniforme do time (capitão/admin)");
@@ -249,7 +249,8 @@ function adminHelpText(level = 0) {
       "— Chefe —",
       "!parca <#id|nick> — dá 🐋 Parça do Baleia (fixo)",
       "!tirarparca <#id|nick> — remove o cargo",
-      "!provocaradm <texto> — provoca com texto livre"
+      "!provocaradm <texto> — provoca com texto livre",
+      "!gif — marca 15s de replay; vai no Discord no apito"
     );
   }
   return lines.join("\n");
@@ -314,12 +315,22 @@ function createCommandHandler(room, ctx) {
   async function syncSiteStatus(players) {
     const auths = [...new Set((players || []).map((p) => resolveAuth(p)).filter(Boolean))];
     if (!auths.length) return;
+    if (!config.haxbookStatsUrl || !config.haxbookApiKey) {
+      console.warn("[site-status] sem HAXBOOK_STATS_URL ou HAXBOOK_API_KEY");
+      return;
+    }
     const result = await fetchPlayerSiteStatus({
       statsUrl: config.haxbookStatsUrl,
       apiKey: config.haxbookApiKey,
       auths,
     });
-    if (!result.ok) return;
+    if (!result.ok) {
+      console.warn(
+        "[site-status]",
+        result.status ? `HTTP ${result.status}` : result.message || "falhou"
+      );
+      return;
+    }
     const map = ensureSiteStatusMap();
     for (const auth of auths) {
       const row = result.players[auth] || { vip: false, booster: false, elo: null };
@@ -753,6 +764,10 @@ function createCommandHandler(room, ctx) {
           ok: false,
           reason: "not-live",
         };
+      if (result.reason === "staff-only") {
+        room.sendAnnouncement("!gif só o Chefe (nv.4) por enquanto.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
       if (result.reason === "not-live") {
         room.sendAnnouncement(
           "!gif só na partida ou nos 20s depois do apito (não no treino).",
@@ -777,42 +792,12 @@ function createCommandHandler(room, ctx) {
         );
         return true;
       }
-      if (result.reason === "already") {
-        room.sendAnnouncement("Você já entrou nesse GIF.", player.id, 0xf1c40f, "normal", 1);
-        return true;
-      }
-      if (result.reason === "full") {
-        room.sendAnnouncement("Esse GIF já fechou. Espera o próximo.", player.id, 0xf1c40f, "normal", 1);
-        return true;
-      }
       if (result.reason === "match-full") {
         room.sendAnnouncement("Já tem 3 GIFs nessa partida.", player.id, 0xf1c40f, "normal", 1);
         return true;
       }
-      if (result.queued && result.staff) {
+      if (result.queued) {
         room.sendAnnouncement(`🎬 ${player.name} marcou o GIF (Chefe). Vai no apito.`, null, 0x2ecc71, "bold", 1);
-        return true;
-      }
-      if (result.opened) {
-        room.sendAnnouncement(
-          `🎬 ${player.name} pediu GIF dos últimos 15s — faltam 4 pessoas (!gif).`,
-          null,
-          0x3498db,
-          "bold",
-          1
-        );
-        return true;
-      }
-      if (result.joined) {
-        room.sendAnnouncement(
-          result.queued
-            ? `🎬 ${player.name} entrou no GIF (5/5).`
-            : `🎬 ${player.name} entrou no GIF (${result.count}/5).`,
-          null,
-          0x3498db,
-          "normal",
-          1
-        );
         return true;
       }
       return true;
