@@ -563,6 +563,12 @@ function createCommandHandler(room, ctx) {
     return true;
   }
 
+  async function refreshEnteringSpec(player) {
+    if (!player?.id) return;
+    await loadTitleForPlayer(player);
+    await syncSiteStatus([player]);
+  }
+
   async function loadTitleForPlayer(player) {
     const adminLevel = ctx.admins.get(player.id)?.level || 0;
     const auth = resolveAuth(player);
@@ -2130,6 +2136,7 @@ function createCommandHandler(room, ctx) {
     forgetPlayer,
     applyAdminLook,
     loadTitleForPlayer,
+    refreshEnteringSpec,
     syncSiteStatus,
     siteTitleFor,
     formatPlayerChat,

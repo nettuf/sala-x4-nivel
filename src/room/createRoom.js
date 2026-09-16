@@ -1490,6 +1490,12 @@ function createRoom(HBInit) {
       return;
     }
 
+    if (changedPlayer.team === TEAM.SPEC) {
+      void commands.refreshEnteringSpec(changedPlayer).catch((err) => {
+        console.error("[title] spec", err?.message || err);
+      });
+    }
+
     uniforms.syncAvatars();
     if (room.getScores() || match.isRunning()) {
       scheduleMidgameDisc(room, changedPlayer.id, stadiumKind);

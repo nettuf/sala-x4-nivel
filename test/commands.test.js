@@ -955,6 +955,35 @@ describe("comandos (mock room)", () => {
     assert.equal(ctx.titles.get(3).id, "gordo");
   });
 
+  it("refreshEnteringSpec relê só quem foi pro spec", async () => {
+    resetStatsMemory();
+    await persistPlayerStatsRow("auth3", {
+      games: 200,
+      wins: 120,
+      goals: 200,
+      selected_title: "artilheiro",
+    });
+    const room = mockRoom();
+    const kept = { id: "lenda", emblem: "🐉", name: "Lenda" };
+    const ctx = {
+      admins: new Map(),
+      mutes: new Map(),
+      titles: new Map([
+        [1, kept],
+        [2, kept],
+        [3, { id: "novato", emblem: "🌱", name: "Novato" }],
+      ]),
+    };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.refreshEnteringSpec(room._players[2]);
+    assert.equal(ctx.titles.get(3).id, "artilheiro");
+    assert.equal(ctx.titles.get(1), kept);
+    assert.equal(ctx.titles.get(2), kept);
+    await cmd.refreshEnteringSpec({ id: 0, name: "host" });
+    assert.equal(ctx.titles.get(1), kept);
+    resetStatsMemory();
+  });
+
   it("chat usa só emoji + nick, sem escrever Novato", () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
