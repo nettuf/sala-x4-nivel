@@ -65,6 +65,10 @@ describe("uniformes: catálogo e regras puras", () => {
     assert.deepEqual(findKit("haxbook1").colors, [0x104c33, 0x76a938, 0x104c33]);
     assert.deepEqual(findKit("haxbook2").colors, [0xffffff]);
     assert.deepEqual(findKit("haxbook3").colors, [0x000000]);
+    assert.equal(findKit("unde").name, "Indefinidos");
+    assert.equal(findKit("unde").angle, 60);
+    assert.equal(findKit("unde").text, 0x970fff);
+    assert.deepEqual(findKit("unde").colors, [0xffffff, 0xffffff, 0x970fff]);
     assert.equal(findKit("naoexiste"), null);
   });
 

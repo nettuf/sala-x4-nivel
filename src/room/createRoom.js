@@ -7,6 +7,7 @@ const { createChatLogger } = require("../discord/chatLog");
 const { applyStadium, stadiumKindForCount, needsTrainingX3Swap } = require("./maps");
 const { createAfkTracker, shouldCountAutoAfk } = require("./afk");
 const { createChatFloodGuard } = require("./chatFlood");
+const { rejectBlockedLink } = require("./chatLinks");
 const { diagnoseRoom, createHealthMonitor } = require("./health");
 const { createChooseController, TEAM } = require("./choose");
 const { planWarmup, applyWarmupMoves, planPromoteToX4, planHeldWinnersToChoose, warmupNeedsLiveFill } = require("./warmupFlow");
@@ -1604,6 +1605,7 @@ function createRoom(HBInit) {
     }
 
     if (choose.handleCaptainChat(who, message)) return false;
+    if (rejectBlockedLink(room, who, message)) return false;
 
     if (commands.handleTeamChat(who, message)) return false;
     if (commands.handleStaffChat(who, message)) return false;

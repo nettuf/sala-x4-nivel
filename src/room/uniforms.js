@@ -220,6 +220,13 @@ const COMMUNITY_KITS = [
     colors: [0xa3ddff, 0xa0d9fa, 0x9bd2f2],
     emoji: "𝔍",
   },
+  {
+    id: "unde",
+    name: "Indefinidos",
+    angle: 60,
+    text: 0x970fff,
+    colors: [0xffffff, 0xffffff, 0x970fff],
+  },
 ];
 
 const KITS = [...COLOR_KITS, ...COMMUNITY_KITS];
