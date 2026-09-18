@@ -227,6 +227,21 @@ const COMMUNITY_KITS = [
     text: 0x970fff,
     colors: [0xffffff, 0xffffff, 0x970fff],
   },
+  {
+    id: "zezo",
+    name: "Zezos ruelas",
+    angle: 359,
+    text: 0x330000,
+    colors: [0x020905, 0x000a03],
+    emoji: "Z",
+  },
+  {
+    id: "magic",
+    name: "MAGIC O IDOLO E ADMINISTRADOR",
+    angle: 127,
+    text: 0xd81818,
+    colors: [0x000000],
+  },
 ];
 
 const KITS = [...COLOR_KITS, ...COMMUNITY_KITS];

@@ -355,7 +355,10 @@ describe("comandos (mock room)", () => {
     room.announcements.length = 0;
     ctx.admins.set(room._players[0].id, { level: 4, title: "Chefe" });
     await cmd.handle(room._players[0], "!gif");
-    assert.ok(room.announcements.some((a) => /marcou o GIF \(Chefe\)/i.test(a.msg)));
+    assert.equal(
+      room.announcements.some((a) => /marcou o GIF|Vai no apito/i.test(a.msg)),
+      false
+    );
     afk.stop();
   });
 

@@ -936,14 +936,18 @@ describe("titles / cargos", () => {
     assert.equal(formatChatHead({ emblem: "⚽" }, SITE_TITLES.vip, null), "[⚽][🩷]");
     assert.equal(
       formatChatHead({ emblem: "⚽" }, SITE_TITLES.vip, SITE_ELO_TITLES.goat),
-      "[⚽][GOAT][🩷]"
+      "[⚽][🐐][🩷]"
     );
-    assert.equal(resolveEloTitle({ elo: "novato" }).emblem, "NOVATO");
-    assert.equal(resolveEloTitle("idolo").emblem, "ÍDOLO");
+    assert.equal(formatChatHead({ emblem: "⚽" }, SITE_TITLES.vip, resolveEloTitle({ rating: 80 })), "[⚽][80][🩷]");
+    assert.equal(formatChatHead({ emblem: "⚽" }, null, resolveEloTitle({ rating: 54 })), "[⚽][💩]");
+    assert.equal(resolveEloTitle({ elo: "goat", rating: 40 }).emblem, "🐐");
+    assert.equal(resolveEloTitle({ rating: 55 }).emblem, "55");
+    assert.equal(resolveEloTitle({ elo: "novato" }), null);
+    assert.equal(resolveEloTitle("idolo"), null);
     assert.equal(resolveEloTitle(null), null);
     assert.equal(chatColor({ kind: "staff", color: 0xd4a017 }, 2, SITE_TITLES.vip), SITE_TITLES.vip.color);
     assert.equal(
-      chatColor({ kind: "staff", color: 0xd4a017 }, 2, SITE_TITLES.vip, SITE_ELO_TITLES.novato),
+      chatColor({ kind: "staff", color: 0xd4a017 }, 2, SITE_TITLES.vip, SITE_ELO_TITLES.poop),
       SITE_TITLES.vip.color
     );
     assert.equal(

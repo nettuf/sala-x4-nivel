@@ -29,7 +29,7 @@ describe("playerStatus", () => {
       assert.ok(opts.signal, "timeout de 8s para a API não prender o bot");
       return {
         ok: true,
-        json: async () => ({ players: { abc: { vip: true, booster: false, elo: "idolo" } } }),
+        json: async () => ({ players: { abc: { vip: true, booster: false, elo: "idolo", rating: 91 } } }),
       };
     };
     const result = await fetchPlayerSiteStatus({
@@ -42,6 +42,7 @@ describe("playerStatus", () => {
     assert.equal(result.players.abc.vip, true);
     assert.equal(result.players.abc.booster, false);
     assert.equal(result.players.abc.elo, "idolo");
+    assert.equal(result.players.abc.rating, 91);
   });
 
   it("rede lenta ou API fora não explode e não inventa cargo", async () => {
@@ -93,5 +94,11 @@ describe("playerStatus", () => {
     const refreshAt = join.indexOf("refreshLobby()");
     const syncAt = join.indexOf("syncSiteStatus");
     assert.ok(refreshAt >= 0 && syncAt > refreshAt);
+  });
+
+  it("fim de jogo não consulta o site de novo", () => {
+    const roomSrc = fs.readFileSync(path.join(__dirname, "../src/room/createRoom.js"), "utf8");
+    const stop = roomSrc.split("room.onGameStop")[1] || "";
+    assert.equal(stop.includes("syncSiteStatus"), false);
   });
 });

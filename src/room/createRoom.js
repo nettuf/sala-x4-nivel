@@ -1887,9 +1887,6 @@ function createRoom(HBInit) {
       postMatchBusy = false;
       return;
     }
-    void commands.syncSiteStatus(room.getPlayerList()).catch((err) => {
-      console.error("[site-status]", err?.message || err);
-    });
     // Stop pelo painel do admin: mantém times, não winner stays nem refreshLobby.
     if (isAdminManualAction(byPlayer)) {
       handleAdminManualStop();

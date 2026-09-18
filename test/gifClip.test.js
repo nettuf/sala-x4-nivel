@@ -169,6 +169,21 @@ describe("gifClip", () => {
     assert.equal(clip.pendingCount(), 3);
     assert.equal(clip.request({ id: 99, name: "Chefe" }, { auth: "c9", staffLevel: 4 }).reason, "match-full");
   });
+
+  it("no apito só anuncia GIF enviado", async () => {
+    const notes = [];
+    const clip = createGifClip({
+      room: mockRoom(),
+      canClip: () => true,
+      announce: (msg) => notes.push(msg),
+      postClip: async () => ({ ok: true }),
+    });
+    markChief(clip);
+    assert.equal(notes.some((m) => /marcado|apito/i.test(m)), false);
+    clip.holdReplay(FILE, { endTime: 99 });
+    await waitFlush();
+    assert.deepEqual(notes, ["🎬 GIF enviado."]);
+  });
 });
 
 describe("gifClipWebhook", () => {

@@ -333,8 +333,14 @@ function createCommandHandler(room, ctx) {
     }
     const map = ensureSiteStatusMap();
     for (const auth of auths) {
-      const row = result.players[auth] || { vip: false, booster: false, elo: null };
-      map.set(auth, { vip: !!row.vip, booster: !!row.booster, elo: row.elo || null });
+      const row = result.players[auth] || { vip: false, booster: false, elo: null, rating: null };
+      const rating = Number(row.rating);
+      map.set(auth, {
+        vip: !!row.vip,
+        booster: !!row.booster,
+        elo: row.elo || null,
+        rating: Number.isFinite(rating) && rating >= 1 ? rating : null,
+      });
     }
   }
 
@@ -803,7 +809,6 @@ function createCommandHandler(room, ctx) {
         return true;
       }
       if (result.queued) {
-        room.sendAnnouncement(`🎬 ${player.name} marcou o GIF (Chefe). Vai no apito.`, null, 0x2ecc71, "bold", 1);
         return true;
       }
       return true;

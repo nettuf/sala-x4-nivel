@@ -67,11 +67,6 @@ function createGifClip({
     const ts = now();
     lastRoomAt = ts;
     lastPlayerAt.set(playerKey(player, auth), ts);
-    announce(
-      `🎬 GIF marcado (${pending.length}/${MAX_WINDOWS}) — vai no Discord depois do apito.`,
-      null,
-      0x2ecc71
-    );
     if (held) flushSoon();
   }
 
@@ -110,7 +105,7 @@ function createGifClip({
             return;
           }
           console.log("[gif] aceito pelo site");
-          announce("🎬 GIF a caminho do Discord.", null, 0x2ecc71);
+          announce("🎬 GIF enviado.", null, 0x2ecc71);
         })
         .catch((err) => {
           console.warn("[gif] post erro", err?.message || err);

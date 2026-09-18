@@ -254,21 +254,33 @@ function resolveSiteTitle(status) {
   return null;
 }
 
-/** Faixas do ranking do site (mesmo cargo do Discord). Texto no [] — não entra em !cargo. */
+/** Prefixos do site no chat. Top 1 = cabra; rating < 55 = coco; senão o número. */
+const RATING_POOP_BELOW = 55;
 const SITE_ELO_TITLES = {
-  goat: { id: "goat", name: "GOAT", emblem: "GOAT", color: 0xffb020, paints: true, kind: "elo" },
-  idolo: { id: "idolo", name: "Ídolo", emblem: "ÍDOLO", color: 0xe67e22, paints: false, kind: "elo" },
-  estrela: { id: "estrela", name: "Estrela", emblem: "ESTRELA", color: 0xf39c12, paints: false, kind: "elo" },
-  craque: { id: "craque", name: "Craque", emblem: "CRAQUE", color: 0x3498db, paints: false, kind: "elo" },
-  novato: { id: "novato", name: "Novato", emblem: "NOVATO", color: 0xbdc3c7, paints: false, kind: "elo" },
+  goat: { id: "goat", name: "GOAT", emblem: "🐐", color: 0xffb020, paints: true, kind: "elo" },
+  poop: { id: "poop", name: "Coco", emblem: "💩", color: 0x8b5a2b, paints: false, kind: "elo" },
 };
+
+function parseSiteRating(status) {
+  const n = Number(status?.rating);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.round(n);
+}
+
+function isGoatStatus(status) {
+  const key = String(typeof status === "string" ? status : status?.elo || "")
+    .trim()
+    .toLowerCase();
+  return key === "goat";
+}
 
 function resolveEloTitle(status) {
   if (status == null) return null;
-  const key = String(typeof status === "string" ? status : status.elo || "")
-    .trim()
-    .toLowerCase();
-  return SITE_ELO_TITLES[key] || null;
+  if (isGoatStatus(status)) return SITE_ELO_TITLES.goat;
+  const rating = parseSiteRating(status);
+  if (rating == null) return null;
+  if (rating < RATING_POOP_BELOW) return SITE_ELO_TITLES.poop;
+  return { id: "rating", name: String(rating), emblem: String(rating), color: 0xbdc3c7, paints: false, kind: "elo" };
 }
 
 /** Cargo fixo concedido pelo Chefe (nível 4). A pessoa escolhe se quer usar. */
@@ -739,6 +751,7 @@ module.exports = {
   wearsStreakTitle,
   SITE_TITLES,
   SITE_ELO_TITLES,
+  RATING_POOP_BELOW,
   resolveSiteTitle,
   resolveEloTitle,
   formatChatHead,

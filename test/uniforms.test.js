@@ -69,6 +69,16 @@ describe("uniformes: catálogo e regras puras", () => {
     assert.equal(findKit("unde").angle, 60);
     assert.equal(findKit("unde").text, 0x970fff);
     assert.deepEqual(findKit("unde").colors, [0xffffff, 0xffffff, 0x970fff]);
+    assert.equal(findKit("zezo").name, "Zezos ruelas");
+    assert.equal(findKit("zezo").angle, 359);
+    assert.equal(findKit("zezo").text, 0x330000);
+    assert.deepEqual(findKit("zezo").colors, [0x020905, 0x000a03]);
+    assert.equal(findKit("zezo").emoji, "Z");
+    assert.equal(findKit("magic").name, "MAGIC O IDOLO E ADMINISTRADOR");
+    assert.equal(findKit("magic").angle, 127);
+    assert.equal(findKit("magic").text, 0xd81818);
+    assert.deepEqual(findKit("magic").colors, [0x000000]);
+    assert.equal(findKit("magic").emoji, undefined);
     assert.equal(findKit("naoexiste"), null);
   });
 
@@ -366,6 +376,7 @@ describe("uniformes: emoji do kit", () => {
       "tigre",
       "tulio",
       "whales",
+      "zezo",
     ]);
     assert.equal(findKit("baleio").emoji, "🐋");
     assert.equal(findKit("artemis").name, "Artemis FC");
