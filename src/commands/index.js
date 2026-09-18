@@ -84,7 +84,7 @@ function playerHelpLines({
 } = {}) {
   const lines = [
     "— Sala —",
-    "!bb · !discord · !site · !ids · !calladm · !gif",
+    "!bb · !discord · !site · !video · !ids · !calladm · !gif",
   ];
   if (isAfk) lines.push("!voltar — sair do AFK");
   else if (canAfk) lines.push("!afk — ficar AFK / voltar");
@@ -171,6 +171,8 @@ function canVoluntaryAfk(player, room, ctx) {
 
 const MOD_LIST_PAGE_SIZE = 6;
 const MOD_ADMIN_CMDS = new Set([
+  "adm",
+  "admin",
   "ban",
   "banlist",
   "unban",
@@ -222,6 +224,7 @@ function adminHelpText(level = 0) {
   const lines = [
     "— Admin —",
     "!ajudaadm — este menu",
+    "!adm — liga ou tira a estrela amarela",
     "— Ban —",
     "!ban <#id|nick> [tempo] [motivo] — 30m, 2h, 1d, perm",
     "!banauth <auth> [tempo] [motivo]",
@@ -921,6 +924,11 @@ function createCommandHandler(room, ctx) {
       return true;
     }
 
+    if (cmd === "adm" || cmd === "admin") {
+      toggleUiAdminStar(player);
+      return true;
+    }
+
     if (cmd === "bb") {
       try {
         ctx.selfLeaves?.add(player.id);
@@ -935,6 +943,18 @@ function createCommandHandler(room, ctx) {
       if (blockPublicFun(player)) return true;
       const url = config.discordInviteUrl;
       room.sendAnnouncement(`Entre em nosso Discord: ${url}`, null, 0x5865f2, "bold", 1);
+      return true;
+    }
+
+    if (cmd === "video" || cmd === "clips") {
+      if (blockPublicFun(player)) return true;
+      room.sendAnnouncement(
+        `🎬 Veja os melhores clips do mês: ${config.clipsVideoUrl}`,
+        null,
+        0xe74c3c,
+        "bold",
+        1
+      );
       return true;
     }
 
@@ -2127,11 +2147,40 @@ function createCommandHandler(room, ctx) {
     return null;
   }
 
-  function applyAdminLook(player, adminRow) {
-    if (!adminRow) return;
-    if (adminRow.level >= 1) {
-      room.setPlayerAdmin(player.id, true);
+  function setNativeAdminStar(player, enabled) {
+    if (!player || player.id === 0) return;
+    try {
+      room.setPlayerAdmin(player.id, enabled);
+    } catch {
+      /* ignore */
     }
+    const live = room.getPlayerList().find((p) => p.id === player.id);
+    if (live) live.admin = enabled;
+    player.admin = enabled;
+  }
+
+  function toggleUiAdminStar(player) {
+    const live = room.getPlayerList().find((p) => p.id === player.id) || player;
+    const next = !live.admin;
+    setNativeAdminStar(player, next);
+    room.sendAnnouncement(
+      next ? "Estrela ligada. !adm de novo desliga." : "Estrela desligada.",
+      player.id,
+      next ? 0xf1c40f : 0x95a5a6,
+      "normal",
+      1
+    );
+  }
+
+  function applyAdminLook(player, adminRow) {
+    if (!player || !adminRow) return;
+    setNativeAdminStar(player, false);
+  }
+
+  function stripForeignAdminStar(player) {
+    if (!player || player.id === 0 || !player.admin) return;
+    if (ctx.admins.has(player.id)) return;
+    setNativeAdminStar(player, false);
   }
 
   return {
@@ -2140,6 +2189,7 @@ function createCommandHandler(room, ctx) {
     peekMute,
     forgetPlayer,
     applyAdminLook,
+    stripForeignAdminStar,
     loadTitleForPlayer,
     refreshEnteringSpec,
     syncSiteStatus,

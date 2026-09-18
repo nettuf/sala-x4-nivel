@@ -1469,6 +1469,7 @@ function createRoom(HBInit) {
 
   room.onPlayerAdminChange = (changedPlayer, byPlayer) => {
     if (byPlayer) afk.touch(byPlayer.id);
+    commands.stripForeignAdminStar(changedPlayer);
   };
 
   room.onPlayerTeamChange = (changedPlayer, byPlayer) => {
@@ -1605,7 +1606,7 @@ function createRoom(HBInit) {
     }
 
     if (choose.handleCaptainChat(who, message)) return false;
-    if (rejectBlockedLink(room, who, message)) return false;
+    if (rejectBlockedLink(room, who, message, () => (ctx.admins.get(who.id)?.level || 0) >= 3)) return false;
 
     if (commands.handleTeamChat(who, message)) return false;
     if (commands.handleStaffChat(who, message)) return false;
@@ -2003,6 +2004,7 @@ function createRoom(HBInit) {
       buildCarouselSlides({
         discordUrl: config.discordInviteUrl,
         siteUrl: config.siteUrl,
+        clipsUrl: config.clipsVideoUrl,
         ...roomStats.snapshot(),
       }),
   });

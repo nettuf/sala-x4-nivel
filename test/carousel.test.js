@@ -20,21 +20,24 @@ describe("carrossel da sala", () => {
     assert.equal(formatRoomCount(1234), "1.234");
   });
 
-  it("ordem: discord, site, gols, partidas", () => {
+  it("ordem: discord, site, clips, gols, partidas", () => {
     const slides = buildCarouselSlides({
       discordUrl: "https://discord.gg/abc",
       siteUrl: "https://www.haxbook.com.br",
+      clipsUrl: "https://www.youtube.com/watch?v=IY62yLibmew",
       goals: 10,
       games: 3,
     });
     assert.deepEqual(
       slides.map((s) => s.key),
-      ["discord", "site", "goals", "games"]
+      ["discord", "site", "clips", "goals", "games"]
     );
     assert.match(slides[0].text, /discord\.gg\/abc/);
     assert.match(slides[1].text, /www\.haxbook\.com\.br/);
-    assert.match(slides[2].text, /10 gols/);
-    assert.match(slides[3].text, /3 partidas completas/);
+    assert.match(slides[2].text, /clips do mês/);
+    assert.match(slides[2].text, /IY62yLibmew/);
+    assert.match(slides[3].text, /10 gols/);
+    assert.match(slides[4].text, /3 partidas completas/);
   });
 
   it("roda um slide por vez e usa os totais atualizados", () => {

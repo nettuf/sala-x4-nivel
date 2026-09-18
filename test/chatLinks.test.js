@@ -29,4 +29,15 @@ describe("filtro de links no chat", () => {
     assert.match(announcements[0].msg, /Links não são permitidos/);
     assert.equal(rejectBlockedLink(room, player, "eae"), false);
   });
+
+  it("gerente e chefe podem mandar link", () => {
+    const announcements = [];
+    const room = {
+      sendAnnouncement: (msg, to) => announcements.push({ msg, to }),
+    };
+    const player = { id: 3, name: "Gerente" };
+    assert.equal(rejectBlockedLink(room, player, "https://youtu.be/abc", true), false);
+    assert.equal(announcements.length, 0);
+    assert.equal(rejectBlockedLink(room, player, "https://youtu.be/abc", () => true), false);
+  });
 });

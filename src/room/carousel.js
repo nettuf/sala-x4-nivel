@@ -10,12 +10,13 @@ function displayUrl(url) {
 }
 
 /**
- * Um texto a cada intervalo, em ordem: Discord → site → gols → partidas.
+ * Um texto a cada intervalo, em ordem: Discord → site → clips → gols → partidas.
  */
-function buildCarouselSlides({ discordUrl, siteUrl, goals = 0, games = 0 } = {}) {
+function buildCarouselSlides({ discordUrl, siteUrl, clipsUrl, goals = 0, games = 0 } = {}) {
   const slides = [];
   const discord = displayUrl(discordUrl);
   const site = displayUrl(siteUrl);
+  const clips = String(clipsUrl || "").trim();
   if (discord) {
     slides.push({
       key: "discord",
@@ -28,6 +29,13 @@ function buildCarouselSlides({ discordUrl, siteUrl, goals = 0, games = 0 } = {})
       key: "site",
       text: `🌐 Stats, rankings e mais: ${site}`,
       color: 0x1abc9c,
+    });
+  }
+  if (clips) {
+    slides.push({
+      key: "clips",
+      text: `🎬 Veja os melhores clips do mês: ${clips}`,
+      color: 0xe74c3c,
     });
   }
   slides.push({

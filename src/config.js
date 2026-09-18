@@ -102,6 +102,8 @@ const config = {
   pm2ProcessName: process.env.PM2_PROCESS_NAME || "sala-x4",
   discordInviteUrl: process.env.DISCORD_INVITE_URL || "https://discord.gg/ZTu7zwgvhm",
   siteUrl: process.env.SITE_URL || "https://www.haxbook.com.br",
+  clipsVideoUrl:
+    process.env.CLIPS_VIDEO_URL || "https://www.youtube.com/watch?v=IY62yLibmew",
   // Stats 4v4 do site (além do Discord/Supabase). Sem API key não envia.
   haxbookStatsUrl:
     process.env.HAXBOOK_STATS_URL ||

@@ -24,7 +24,11 @@ function mockRoom() {
       if (p) p.team = team;
     },
     kickPlayer: (id, reason, ban) => kicks.push({ id, reason, ban }),
-    setPlayerAdmin: (id, value) => adminFlags.push({ id, value }),
+    setPlayerAdmin: (id, value) => {
+      adminFlags.push({ id, value });
+      const p = players.find((x) => x.id === id);
+      if (p) p.admin = !!value;
+    },
     _players: players,
     kicks,
     adminFlags,
@@ -464,6 +468,7 @@ describe("comandos (mock room)", () => {
     assert.match(msg, /!gerlogin/);
     assert.match(msg, /!revoke/);
     assert.match(msg, /!moverstats/);
+    assert.match(msg, /!adm/);
     afk.stop();
   });
 
@@ -1084,6 +1089,16 @@ describe("comandos (mock room)", () => {
     afk.stop();
   });
 
+  it("!video anuncia os clips do mês", async () => {
+    const room = mockRoom();
+    const afk = createAfkTracker(room);
+    const ctx = { admins: new Map(), mutes: new Map(), afk };
+    const cmd = createCommandHandler(room, ctx);
+    await cmd.handle(room._players[0], "!video");
+    assert.ok(room.announcements.some((a) => /IY62yLibmew/i.test(a.msg)));
+    afk.stop();
+  });
+
   it("!site anuncia o Haxbook", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
@@ -1280,22 +1295,38 @@ describe("comandos (mock room)", () => {
     assert.ok(room.announcements.some((a) => /logado no Haxball/i.test(a.msg)));
   });
 
-  it("os 4 cargos de staff recebem admin nativo do Haxball", () => {
+  it("staff entra sem estrela; !adm liga e desliga; quem não é staff não pega", async () => {
     const room = mockRoom();
     const afk = createAfkTracker(room);
-    const ctx = { admins: new Map(), mutes: new Map(), afk };
+    const ctx = { admins: new Map([[1, { level: 1, title: "Mod" }]]), mutes: new Map(), afk };
     const cmd = createCommandHandler(room, ctx);
     const player = room._players[0];
     for (const level of [1, 2, 3, 4]) {
       room.adminFlags.length = 0;
       cmd.applyAdminLook(player, { level, title: `nv${level}` });
-      assert.deepEqual(room.adminFlags, [{ id: 1, value: true }], `nível ${level}`);
-      assert.equal(
-        room.announcements.some((a) => /entrou/.test(a.msg)),
-        false,
-        "não anuncia entrada de staff"
-      );
+      assert.deepEqual(room.adminFlags, [{ id: 1, value: false }], `nível ${level}`);
     }
+    room.adminFlags.length = 0;
+    await cmd.handle(player, "!adm");
+    assert.deepEqual(room.adminFlags, [{ id: 1, value: true }]);
+    assert.equal(player.admin, true);
+    assert.ok(room.announcements.some((a) => /Estrela ligada/i.test(a.msg)));
+    room.adminFlags.length = 0;
+    await cmd.handle(player, "!admin");
+    assert.deepEqual(room.adminFlags, [{ id: 1, value: false }]);
+    assert.ok(room.announcements.some((a) => /Estrela desligada/i.test(a.msg)));
+    room.announcements.length = 0;
+    room.adminFlags.length = 0;
+    await cmd.handle(room._players[2], "!adm");
+    assert.ok(room.announcements.some((a) => /Sem permissão/i.test(a.msg)));
+    assert.equal(room.adminFlags.length, 0);
+    room._players[2].admin = true;
+    cmd.stripForeignAdminStar(room._players[2]);
+    assert.deepEqual(room.adminFlags, [{ id: 3, value: false }]);
+    room.adminFlags.length = 0;
+    player.admin = true;
+    cmd.stripForeignAdminStar(player);
+    assert.equal(room.adminFlags.length, 0);
     afk.stop();
   });
 
@@ -1358,7 +1389,7 @@ describe("comandos (mock room)", () => {
     await cmd.handle(spec, `!login ${code2}`);
     assert.equal(ctx.admins.get(3)?.level, 2);
     assert.ok(room.announcements.some((a) => a.to === 3 && /Cargo ativo/.test(a.msg)));
-    assert.ok(room.adminFlags.some((f) => f.id === 3 && f.value === true));
+    assert.ok(room.adminFlags.some((f) => f.id === 3 && f.value === false));
 
     room.announcements.length = 0;
     await cmd.handle(spec, `!login ${code2}`);

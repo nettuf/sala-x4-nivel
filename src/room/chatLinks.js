@@ -8,8 +8,10 @@ function messageHasBlockedLink(text) {
   return false;
 }
 
-function rejectBlockedLink(room, player, message) {
+function rejectBlockedLink(room, player, message, canPost) {
   if (!messageHasBlockedLink(message)) return false;
+  if (canPost === true) return false;
+  if (typeof canPost === "function" && canPost(player)) return false;
   room.sendAnnouncement("Links não são permitidos no chat.", player.id, 0xe74c3c, "normal", 1);
   return true;
 }
