@@ -35,6 +35,8 @@ const { guardRoomApi } = require("./safeApi");
 const { scheduleMidgameDisc } = require("./disc");
 const { gameIsLive } = require("../haxbook/playerStatus");
 const { createRankedAnnouncer } = require("./rankedWindows");
+const { setRoomControl } = require("../server/tokenServer");
+const { createLobbyRoomAdmin } = require("../server/roomAdmin");
 
 function createRoom(HBInit) {
   const token = config.readToken();
@@ -2009,6 +2011,8 @@ function createRoom(HBInit) {
       }),
   });
   const carouselHandle = carousel.start(room, config.carouselMs);
+
+  setRoomControl(createLobbyRoomAdmin(room, ctx));
 
   return {
     room,

@@ -2,6 +2,7 @@ const express = require("express");
 const crypto = require("crypto");
 const { execFile } = require("child_process");
 const config = require("../config");
+const { setRoomControl, attachRoomAdminRoutes } = require("./roomAdmin");
 
 /** Comparação de tamanho fixo: não vaza o segredo pelo tempo de resposta. */
 function secretMatches(given, expected) {
@@ -81,6 +82,8 @@ function startTokenServer() {
     });
   });
 
+  attachRoomAdminRoutes(app, auth);
+
   const server = app.listen(config.tokenApiPort, config.tokenApiHost, () => {
     console.log(`[token-api] listening ${config.tokenApiHost}:${config.tokenApiPort}`);
   });
@@ -88,4 +91,4 @@ function startTokenServer() {
   return server;
 }
 
-module.exports = { startTokenServer };
+module.exports = { startTokenServer, setRoomControl };
