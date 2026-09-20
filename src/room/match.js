@@ -30,13 +30,14 @@ const {
   postMatchStats,
 } = require("../haxbook/statsWebhook");
 const { createHaxbooket, marketParticipants } = require("../haxbook/haxbooket");
+const { liveStoreEffects, storeGoalPhrase } = require("../haxbook/store");
 const { createPostMatchInsights } = require("../haxbook/insight");
 const maps = require("./maps");
 
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
  */
-function createMatchController(room, { identify, onCompletedMatch, getStreak, onReplayHold, onReplayCancel } = {}) {
+function createMatchController(room, { identify, onCompletedMatch, getStreak, onReplayHold, onReplayCancel, storeEffectsForAuth } = {}) {
   const haxbooket = createHaxbooket(room, {
     statsUrl: config.haxbookStatsUrl,
     apiKey: config.haxbookApiKey,
@@ -407,8 +408,12 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
         2
       );
     } else if (scorer) {
+      const store = typeof storeEffectsForAuth === "function"
+        ? liveStoreEffects(storeEffectsForAuth(scorer.auth))
+        : null;
+      const phrase = storeGoalPhrase(scorer.name, store?.goalTemplate) || `Gol de ${scorer.name}`;
       room.sendAnnouncement(
-        `⚽ [${clock}] Gol de ${scorer.name}${assistText} ${side}`,
+        `⚽ [${clock}] ${phrase}${assistText} ${side}`,
         null,
         0x2ecc71,
         "bold",

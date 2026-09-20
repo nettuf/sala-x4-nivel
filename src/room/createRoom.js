@@ -112,6 +112,7 @@ function createRoom(HBInit) {
     .catch(() => {});
   const match = createMatchController(room, {
     getStreak: () => streak.get(),
+    storeEffectsForAuth: (auth) => (auth ? ctx.siteStatus?.get(auth)?.store : null),
     identify: (player) =>
       withIdentity(player, {
         auths: ctx.auths,
@@ -1167,6 +1168,7 @@ function createRoom(HBInit) {
         "normal",
         1
       );
+      commands.announceStoreJoin(bound);
       const rankedJoin = rankedAnnouncer.joinLine();
       if (rankedJoin) {
         room.sendAnnouncement(rankedJoin, player.id, 0xf1c40f, "bold", 1);

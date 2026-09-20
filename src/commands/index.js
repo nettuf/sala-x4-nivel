@@ -22,6 +22,13 @@ const { formatBetLine, formatViadoLine, pickTeaseLine, pickPraiseLine, resolveTe
 const { normalizeLinkCode, linkHaxballAuth } = require("../haxbook/authLink");
 const { fetchPlayerSiteStatus } = require("../haxbook/playerStatus");
 const {
+  redeemStoreCode,
+  liveStoreEffects,
+  parseStoreColor,
+  formatStoreTemplate,
+  normalizeStoreCode,
+} = require("../haxbook/store");
+const {
   TITLES,
   STAFF_TITLES,
   listUnlocked,
@@ -90,6 +97,7 @@ function playerHelpLines({
   else if (canAfk) lines.push("!afk — ficar AFK / voltar");
   lines.push("!afks — quem está AFK");
   lines.push("!vincular CÓDIGO — sincronizar conta Haxbook");
+  lines.push("!ativar CÓDIGO — cosmético da loja (haxbook.com.br/loja)");
   lines.push("@nick msg — mensagem privada");
   if (onField) lines.push("t <msg> — chat do time");
   if (isAdmin) lines.push("% <msg> — chat só de staff");
@@ -315,6 +323,38 @@ function createCommandHandler(room, ctx) {
     return resolveEloTitle(ensureSiteStatusMap().get(auth));
   }
 
+  function storeEffectsFor(player, now = clock()) {
+    const auth = resolveAuth(player);
+    if (!auth) return null;
+    return liveStoreEffects(ensureSiteStatusMap().get(auth)?.store, now);
+  }
+
+  function applyStoreEffects(auth, store) {
+    if (!auth) return;
+    const map = ensureSiteStatusMap();
+    const current = map.get(auth) || { vip: false, booster: false, elo: null, rating: null, store: null };
+    map.set(auth, { ...current, store: store || null });
+  }
+
+  const joinAnnounced = new Set();
+
+  function announceStoreJoin(player) {
+    const auth = resolveAuth(player);
+    if (!auth || joinAnnounced.has(auth)) return false;
+    const store = storeEffectsFor(player);
+    if (!store?.joinTemplate) return false;
+    joinAnnounced.add(auth);
+    const color = parseStoreColor(store.chatColor);
+    room.sendAnnouncement(
+      formatStoreTemplate(store.joinTemplate, player.name),
+      null,
+      Number.isFinite(color) ? color : 0xf1c40f,
+      "bold",
+      1
+    );
+    return true;
+  }
+
   async function syncSiteStatus(players) {
     const auths = [...new Set((players || []).map((p) => resolveAuth(p)).filter(Boolean))];
     if (!auths.length) return;
@@ -343,6 +383,7 @@ function createCommandHandler(room, ctx) {
         booster: !!row.booster,
         elo: row.elo || null,
         rating: Number.isFinite(rating) && rating >= 1 ? rating : null,
+        store: row.store || null,
       });
     }
   }
@@ -593,7 +634,7 @@ function createCommandHandler(room, ctx) {
   function chatSpeaker(player, title) {
     const live = room.getPlayerList().find((p) => p.id === player.id);
     const name = live?.name ?? player.name;
-    let head = formatChatHead(title, siteTitleFor(player), eloTitleFor(player));
+    let head = formatChatHead(title, siteTitleFor(player), eloTitleFor(player), storeEffectsFor(player)?.emoji);
     if (ctx.afk?.isAfk?.(player.id)) head += "[AFK]";
     return head ? `${head} ${name}` : name;
   }
@@ -623,7 +664,13 @@ function createCommandHandler(room, ctx) {
     const team = live?.team ?? player.team;
     return {
       line: `${chatSpeaker(player, title)}: ${formatChatBody(title, message)}`,
-      color: chatColor(title, team, siteTitleFor(player), eloTitleFor(player)),
+      color: chatColor(
+        title,
+        team,
+        siteTitleFor(player),
+        eloTitleFor(player),
+        parseStoreColor(storeEffectsFor(player)?.chatColor)
+      ),
     };
   }
 
@@ -962,6 +1009,35 @@ function createCommandHandler(room, ctx) {
       if (blockPublicFun(player)) return true;
       const url = config.siteUrl;
       room.sendAnnouncement(`🌐 Stats, rankings e mais: ${url}`, null, 0x1abc9c, "bold", 1);
+      return true;
+    }
+
+    if (cmd === "ativar" || cmd === "activate" || cmd === "redeem") {
+      const auth = resolveAuth(player);
+      if (!auth) {
+        room.sendAnnouncement(noAuthMsg, player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      const code = normalizeStoreCode(args.join(""));
+      if (!code) {
+        room.sendAnnouncement("Uso: !ativar CÓDIGO — compre em haxbook.com.br/loja", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      if (blockLookup(player, "ativar")) return true;
+      const redeem = ctx.redeemStoreCode || ((payload) => redeemStoreCode({
+        statsUrl: config.haxbookStatsUrl,
+        apiKey: config.haxbookApiKey,
+        fetchImpl: ctx.fetch,
+        ...payload,
+      }));
+      const result = await redeem({ code, auth });
+      if (!result?.ok) {
+        room.sendAnnouncement(result?.message || "Não deu para ativar esse código.", player.id, 0xe74c3c, "normal", 1);
+        return true;
+      }
+      applyStoreEffects(auth, result.store);
+      room.sendAnnouncement(result.message || "Ativo por 1 dia.", player.id, 0x2ecc71, "bold", 1);
+      announceStoreJoin(player);
       return true;
     }
 
@@ -2194,6 +2270,8 @@ function createCommandHandler(room, ctx) {
     refreshEnteringSpec,
     syncSiteStatus,
     siteTitleFor,
+    storeEffectsFor,
+    announceStoreJoin,
     formatPlayerChat,
     maybeBaleioChat,
     handleWhisper,

@@ -428,9 +428,10 @@ function formatChatPrefix(title) {
   return emblem ? `[${emblem}] ` : "";
 }
 
-function formatChatHead(title, siteTitle, eloTitle) {
+function formatChatHead(title, siteTitle, eloTitle, storeEmoji) {
   let head = "";
   if (title?.emblem) head += `[${title.emblem}]`;
+  if (storeEmoji) head += `[${storeEmoji}]`;
   if (eloTitle?.emblem) head += `[${eloTitle.emblem}]`;
   if (siteTitle?.emblem) head += `[${siteTitle.emblem}]`;
   return head;
@@ -492,9 +493,12 @@ function isTopChatTitle(title) {
  * Cor da linha do chat: time (vermelho / azul / spec).
  * Staff (todos amarelo), Craque, Lenda, Gordo, Aura e Em Streak pintam diferente.
  */
-function chatColor(title, team, siteTitle, eloTitle) {
+function chatColor(title, team, siteTitle, eloTitle, storeColor) {
   if (title?.kind === "streak" || title?.id === "streak") {
     return title.color || 0xff1a1a;
+  }
+  if (Number.isFinite(storeColor)) {
+    return storeColor;
   }
   if (eloTitle?.paints) {
     return eloTitle.color;
