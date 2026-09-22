@@ -733,7 +733,6 @@ function createRoom(HBInit) {
     winnerStaysPending = null;
     if (match.isRunning()) return;
     parkAfkOnField();
-    pruneStreakIfTooFewHolders(room, streak, { isExcluded: (p) => afk.isAfk(p.id) });
     const eligible = room
       .getPlayerList()
       .filter((p) => p.id !== 0 && !afk.isAfk(p.id));
@@ -745,6 +744,7 @@ function createRoom(HBInit) {
       laterForCurrentLobby(refreshLobby);
       return;
     }
+    pruneStreakIfTooFewHolders(room, streak, { isExcluded: (p) => afk.isAfk(p.id) });
     if (size >= config.teamSize) {
       room.sendAnnouncement("4v4 pronto — iniciando!", null, 0x2ecc71, "bold", 2);
       applyStadium(room, config.teamSize * 2);

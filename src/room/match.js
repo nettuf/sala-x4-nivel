@@ -642,6 +642,8 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     const fieldIds = siteEligible
       ? new Set([...fieldEight.red, ...fieldEight.blue].map((p) => p.id))
       : null;
+    const mvps = valid ? pickMatchMvps(playersForTitles) : [];
+    const worst = valid ? pickMatchWorst(playersForTitles) : [];
     const haxbook = siteEligible
       ? buildStatsBody({
           matchId: match.matchId,
@@ -657,6 +659,10 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
             gk: gkFromSamples(fieldIds),
             redScore: scoreRed,
             blueScore: scoreBlue,
+            playMap: match.playStats,
+            mvpAuths: new Set(mvps.map((p) => p.auth).filter(Boolean)),
+            worstAuths: new Set(worst.map((p) => p.auth).filter(Boolean)),
+            playTime: Math.max(0, Math.round(Number(finalScores?.time) || 0)),
           }),
         })
       : null;
@@ -668,8 +674,6 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       if (valid && decided && !match.formatBroken) haxbooket.finish(winner, marketFinalists);
       else haxbooket.void(match.formatBroken ? "format-broken" : "stop-invalido");
     }
-    const mvps = valid ? pickMatchMvps(playersForTitles) : [];
-    const worst = valid ? pickMatchWorst(playersForTitles) : [];
     const poss = possessionPercents(redPoss, bluePoss);
     const playMap = match.playStats;
     const chatLines = formatPlayChatLines(playMap, poss);

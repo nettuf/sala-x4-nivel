@@ -11,8 +11,13 @@ const { STREAK_TITLE_MIN } = require("../titles");
 
 const STREAK_MILESTONE_EVERY = 5;
 const STREAK_BREAK_MIN = 5;
-/** Streak só conta / segue se ≥2 vencedores (elegíveis) permanecerem. */
+/** Em 2v2+ a campanha segue com ≥2 originais no vermelho. 1v1 segue se for o mesmo. */
 const MIN_STREAK_HOLDERS = 2;
+
+function holdersNeededToKeep(redCount, previousHolderCount = 0) {
+  if (redCount <= 1 && previousHolderCount <= 1) return 1;
+  return MIN_STREAK_HOLDERS;
+}
 /** !topstreak: até 5 campanhas; só entra com 3 ou mais. */
 const TOP_STREAKS = 5;
 const MIN_BOARD_STREAK = 3;
@@ -320,6 +325,12 @@ function createStreakTracker({ best = 0, bestHolders = [], board = [], onBest, o
     return streak;
   }
 
+  function adoptHolders(holders = [], ids = []) {
+    if (streak <= 0) return;
+    holderIds = uniqIds(ids);
+    if (live) live = { n: live.n, holders: sanitizeHolders(holders) };
+  }
+
   function label() {
     if (streak <= 0) return "sem streak";
     return `streak ${streak}`;
@@ -335,6 +346,7 @@ function createStreakTracker({ best = 0, bestHolders = [], board = [], onBest, o
     hydrateBoard,
     reset,
     recordWin,
+    adoptHolders,
     label,
   };
 }
@@ -398,7 +410,8 @@ function applyWinnerStays(
   const keptCount = continuing
     ? kept.filter((p) => prevHolderIds.has(p.id)).length
     : kept.length;
-  const enoughHolders = keptCount >= MIN_STREAK_HOLDERS;
+  const enoughHolders =
+    keptCount >= holdersNeededToKeep(kept.length, continuing ? prevHolderIds.size : 0);
   if (recordStreak && !enoughHolders) {
     streakTracker.reset();
   }
@@ -462,7 +475,11 @@ function applyWinnerStays(
   return { mode: "choose", streak: nextStreak };
 }
 
-function pruneStreakIfTooFewHolders(room, streakTracker, { isExcluded } = {}) {
+/**
+ * Só no kickoff (times prontos). Spec no choose não zera.
+ * 4v4/3v3/2v2: segue com ≥2 da campanha no vermelho; 1v1: o mesmo jogador.
+ */
+function pruneStreakIfTooFewHolders(room, streakTracker, { isExcluded, quiet = false } = {}) {
   if (!streakTracker || streakTracker.get() <= 0) return false;
   const ids = new Set(
     typeof streakTracker.getHolderIds === "function" ? streakTracker.getHolderIds() : []
@@ -470,11 +487,29 @@ function pruneStreakIfTooFewHolders(room, streakTracker, { isExcluded } = {}) {
   if (!ids.size) return false;
   const eligible = (p) =>
     p && p.id !== 0 && !(typeof isExcluded === "function" && isExcluded(p));
-  const still = room
-    .getPlayerList()
-    .filter((p) => p.team === TEAM.RED && eligible(p) && ids.has(p.id));
-  if (still.length >= MIN_STREAK_HOLDERS) return false;
+  const red = room.getPlayerList().filter((p) => p.team === TEAM.RED && eligible(p));
+  const originals = red.filter((p) => ids.has(p.id));
+  const needed = holdersNeededToKeep(red.length, ids.size);
+  if (originals.length >= needed) {
+    if (typeof streakTracker.adoptHolders === "function") {
+      streakTracker.adoptHolders(
+        red.map((p) => p.name),
+        red.map((p) => p.id)
+      );
+    }
+    return false;
+  }
+  const prev = streakTracker.get();
   streakTracker.reset();
+  if (!quiet && prev > 0 && room && typeof room.sendAnnouncement === "function") {
+    room.sendAnnouncement(
+      "🔁 Streak encerrada — menos de 2 da campanha no vermelho.",
+      null,
+      0xe67e22,
+      "bold",
+      1
+    );
+  }
   return true;
 }
 
@@ -492,6 +527,7 @@ module.exports = {
   createStreakTracker,
   applyWinnerStays,
   pruneStreakIfTooFewHolders,
+  holdersNeededToKeep,
   shouldUseWinnerStays,
   formatCurrentStreak,
   formatBestStreak,

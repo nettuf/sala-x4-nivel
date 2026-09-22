@@ -179,6 +179,35 @@ describe("payload haxbook", () => {
     assert.equal(rows.find((p) => p.nickname === "R2").goals, 2);
     assert.equal(rows.find((p) => p.nickname === "R3").assists, 1);
   });
+
+  it("manda play-stats, tempo e flags de MVP/WoM", () => {
+    const { red, blue } = fieldEightAtWhistle(eightOnField());
+    const playMap = new Map([
+      [2, { id: 2, auth: "auth-r2", passes: 6, misplaced: 2, tackles: 3, possTicks: 40 }],
+    ]);
+    const rows = buildParticipants({
+      red,
+      blue,
+      tally: () => ({ goals: 0, assists: 0, own_goals: 0 }),
+      gk: { redId: 1, blueId: 5 },
+      redScore: 1,
+      blueScore: 0,
+      playMap,
+      mvpAuths: new Set(["auth-r2"]),
+      worstAuths: new Set(["auth-b5"]),
+      playTime: 187,
+    });
+    const passer = rows.find((p) => p.nickname === "R2");
+    const worst = rows.find((p) => p.nickname === "B5");
+    assert.equal(passer.passes, 6);
+    assert.equal(passer.misplaced, 2);
+    assert.equal(passer.tackles, 3);
+    assert.equal(passer.possTicks, 40);
+    assert.equal(passer.mvp, true);
+    assert.equal(passer.playTime, 187);
+    assert.equal(worst.worst, true);
+    assert.equal(worst.passes, 0);
+  });
 });
 
 describe("POST stats haxbook", () => {
@@ -283,7 +312,7 @@ describe("finish 4v4 → payload do site", () => {
     assert.equal(body.blueScore, 1);
     assert.equal(body.roomName, "Comunismo x4");
     assert.equal(body.participants.length, 8);
-    assert.equal(body.participants.every((p) => p.playTime === 0), true);
+    assert.equal(body.participants.every((p) => p.playTime === 200), true);
     assert.equal("ranked" in body, false);
     assert.match(body.matchId, /^\d+-/);
     assert.equal(typeof body.startedAt, "number");

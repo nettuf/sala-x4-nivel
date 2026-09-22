@@ -12,6 +12,16 @@ const PARTICIPANT_KEYS = [
   "ownGoals",
   "playTime",
   "isGoalkeeper",
+  "mvp",
+  "worst",
+  "passes",
+  "misplaced",
+  "tackles",
+  "interceptions",
+  "saves",
+  "recoveries",
+  "lost",
+  "possTicks",
 ];
 
 function lastFourOnTeam(players, team) {
@@ -49,7 +59,35 @@ function makeMatchId(now = Date.now(), random = Math.random) {
   return `${now}-${rand}`;
 }
 
-function participantRow({ nickname, auth, team, goals, assists, ownGoals, cleanSheet, isGoalkeeper }) {
+function intStat(value) {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function playForPlayer(player, playMap) {
+  if (!player || !playMap) return null;
+  if (player.id != null && playMap.has?.(player.id)) return playMap.get(player.id);
+  if (player.auth) {
+    for (const row of playMap.values()) {
+      if (row?.auth && row.auth === player.auth) return row;
+    }
+  }
+  return null;
+}
+
+function participantRow({
+  nickname,
+  auth,
+  team,
+  goals,
+  assists,
+  ownGoals,
+  cleanSheet,
+  isGoalkeeper,
+  playTime,
+  play,
+  mvp,
+  worst,
+}) {
   return {
     nickname: nickname == null ? "" : String(nickname),
     auth: auth == null ? null : String(auth),
@@ -58,12 +96,33 @@ function participantRow({ nickname, auth, team, goals, assists, ownGoals, cleanS
     assists: Number(assists) || 0,
     cleanSheet: cleanSheet ? 1 : 0,
     ownGoals: Number(ownGoals) || 0,
-    playTime: 0,
+    playTime: intStat(playTime),
     isGoalkeeper: !!isGoalkeeper,
+    mvp: !!mvp,
+    worst: !!worst,
+    passes: intStat(play?.passes),
+    misplaced: intStat(play?.misplaced),
+    tackles: intStat(play?.tackles),
+    interceptions: intStat(play?.interceptions),
+    saves: intStat(play?.saves),
+    recoveries: intStat(play?.recoveries),
+    lost: intStat(play?.lost),
+    possTicks: intStat(play?.possTicks),
   };
 }
 
-function buildParticipants({ red, blue, tally, gk, redScore, blueScore } = {}) {
+function buildParticipants({
+  red,
+  blue,
+  tally,
+  gk,
+  redScore,
+  blueScore,
+  playMap,
+  mvpAuths,
+  worstAuths,
+  playTime,
+} = {}) {
   const rows = [];
   const redGk = gk?.redId ?? null;
   const blueGk = gk?.blueId ?? null;
@@ -80,6 +139,10 @@ function buildParticipants({ red, blue, tally, gk, redScore, blueScore } = {}) {
         ownGoals: t.own_goals,
         cleanSheet: Number(blueScore) === 0 && isGk,
         isGoalkeeper: isGk,
+        playTime,
+        play: playForPlayer(p, playMap),
+        mvp: !!(p.auth && mvpAuths?.has(p.auth)),
+        worst: !!(p.auth && worstAuths?.has(p.auth)),
       })
     );
   }
@@ -96,6 +159,10 @@ function buildParticipants({ red, blue, tally, gk, redScore, blueScore } = {}) {
         ownGoals: t.own_goals,
         cleanSheet: Number(redScore) === 0 && isGk,
         isGoalkeeper: isGk,
+        playTime,
+        play: playForPlayer(p, playMap),
+        mvp: !!(p.auth && mvpAuths?.has(p.auth)),
+        worst: !!(p.auth && worstAuths?.has(p.auth)),
       })
     );
   }

@@ -463,6 +463,7 @@ describe("streak / winner stays", () => {
   const {
     createStreakTracker,
     applyWinnerStays,
+    pruneStreakIfTooFewHolders,
   } = require("../src/room/streak");
   const { TEAM } = require("../src/room/choose");
 
@@ -614,7 +615,7 @@ describe("streak / winner stays", () => {
     assert.equal(players.find((p) => p.id === 6).team, TEAM.SPEC);
   });
 
-  it("1 vencedor só não inicia streak (precisa de 2 mantidos)", () => {
+  it("1v1: um vencedor inicia e segue a streak se for o mesmo", () => {
     const players = [
       { id: 1, name: "R1", team: TEAM.RED },
       { id: 2, name: "B1", team: TEAM.BLUE },
@@ -630,7 +631,9 @@ describe("streak / winner stays", () => {
     };
     const streak = createStreakTracker();
     applyWinnerStays(room, TEAM.RED, streak);
-    assert.equal(streak.get(), 0);
+    assert.equal(streak.get(), 1);
+    applyWinnerStays(room, TEAM.RED, streak);
+    assert.equal(streak.get(), 2);
   });
 
   it("2 vencedores mantidos começam e seguem a streak; 1 original restante zera", () => {
@@ -657,6 +660,68 @@ describe("streak / winner stays", () => {
     players.find((p) => p.id === 2).team = TEAM.SPEC;
     applyWinnerStays(room, TEAM.RED, streak);
     assert.equal(streak.get(), 0, "1 original no vermelho não mantém a streak");
+  });
+
+  it("kickoff 4v4: spec no choose não zera; 2 iguais seguem; 3 novos zera", () => {
+    const players = [
+      { id: 1, name: "A", team: TEAM.RED },
+      { id: 2, name: "B", team: TEAM.RED },
+      { id: 3, name: "C", team: TEAM.RED },
+      { id: 4, name: "D", team: TEAM.RED },
+      { id: 5, name: "E", team: TEAM.BLUE },
+      { id: 6, name: "F", team: TEAM.BLUE },
+      { id: 7, name: "G", team: TEAM.SPEC },
+      { id: 8, name: "H", team: TEAM.SPEC },
+    ];
+    const room = {
+      getPlayerList: () => players,
+      setPlayerTeam: (id, team) => {
+        const p = players.find((x) => x.id === id);
+        if (p) p.team = team;
+      },
+      sendAnnouncement: () => {},
+    };
+    const streak = createStreakTracker();
+    for (let i = 0; i < 10; i++) streak.recordWin(TEAM.RED, ["A", "B", "C", "D"], [1, 2, 3, 4]);
+    assert.equal(streak.get(), 10);
+
+    players.find((p) => p.id === 1).team = TEAM.SPEC;
+    players.find((p) => p.id === 2).team = TEAM.SPEC;
+    players.find((p) => p.id === 3).team = TEAM.SPEC;
+    assert.equal(
+      pruneStreakIfTooFewHolders(room, streak, { quiet: true }),
+      true,
+      "1 original sozinho no vermelho (campanha 4) zera se avaliássemos agora"
+    );
+
+    const again = createStreakTracker();
+    for (let i = 0; i < 10; i++) again.recordWin(TEAM.RED, ["A", "B", "C", "D"], [1, 2, 3, 4]);
+    players.find((p) => p.id === 1).team = TEAM.RED;
+    players.find((p) => p.id === 2).team = TEAM.RED;
+    players.find((p) => p.id === 3).team = TEAM.RED;
+    players.find((p) => p.id === 4).team = TEAM.RED;
+    assert.equal(pruneStreakIfTooFewHolders(room, again, { quiet: true }), false);
+    assert.equal(again.get(), 10, "mesmo time após re-pick mantém a 10");
+
+    players.find((p) => p.id === 3).team = TEAM.SPEC;
+    players.find((p) => p.id === 4).team = TEAM.SPEC;
+    players.find((p) => p.id === 7).team = TEAM.RED;
+    players.find((p) => p.id === 8).team = TEAM.RED;
+    assert.equal(pruneStreakIfTooFewHolders(room, again, { quiet: true }), false);
+    assert.equal(again.get(), 10, "2 iguais + 2 novos mantém");
+    assert.deepEqual(again.getHolderIds().sort(), [1, 2, 7, 8]);
+
+    const third = createStreakTracker();
+    for (let i = 0; i < 10; i++) third.recordWin(TEAM.RED, ["A", "B", "C", "D"], [1, 2, 3, 4]);
+    players.find((p) => p.id === 1).team = TEAM.RED;
+    players.find((p) => p.id === 2).team = TEAM.SPEC;
+    players.find((p) => p.id === 3).team = TEAM.SPEC;
+    players.find((p) => p.id === 4).team = TEAM.SPEC;
+    players.find((p) => p.id === 7).team = TEAM.RED;
+    players.find((p) => p.id === 8).team = TEAM.RED;
+    players.push({ id: 9, name: "I", team: TEAM.RED });
+    assert.equal(pruneStreakIfTooFewHolders(room, third, { quiet: true }), true);
+    assert.equal(third.get(), 0, "1 original + 3 novos zera");
   });
 });
 
