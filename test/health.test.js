@@ -14,6 +14,20 @@ describe("diagnóstico da sala", () => {
     assert.equal(d.action, "none");
   });
 
+  it("4v4 cheio com pick aberto solta e não corta o jogo", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      chooseActive: true,
+      paused: false,
+      replacement: false,
+      redCount: 4,
+      blueCount: 4,
+      teamSize: 4,
+    });
+    assert.equal(d.action, "release-full");
+  });
+
   it("choose aberto com jogo rolando para o jogo", () => {
     const d = diagnoseRoom({
       live: true,
@@ -374,7 +388,28 @@ describe("monitor de saúde", () => {
       apply: (r) => applied.push(r.action),
     });
     assert.equal(monitor.check()?.action, "prompt-choose");
+    assert.equal(monitor.check(), null);
     assert.deepEqual(applied, ["prompt-choose"]);
+  });
+
+  it("o mesmo problema não repete até a sala voltar ao normal", () => {
+    const applied = [];
+    let state = { action: "recover", reason: "reposição caiu (3v4)" };
+    const monitor = createHealthMonitor({
+      diagnose: () => state,
+      apply: (r) => applied.push(r.reason),
+    });
+    monitor.check();
+    monitor.check();
+    monitor.check();
+    monitor.check();
+    assert.deepEqual(applied, ["reposição caiu (3v4)"]);
+    state = { action: "none" };
+    monitor.check();
+    state = { action: "recover", reason: "reposição caiu (2v4)" };
+    monitor.check();
+    assert.equal(monitor.check().reason, "reposição caiu (2v4)");
+    assert.deepEqual(applied, ["reposição caiu (3v4)", "reposição caiu (2v4)"]);
   });
 
   it("problema que muda no meio não dispara", () => {

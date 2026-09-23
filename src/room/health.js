@@ -40,6 +40,20 @@ function diagnoseRoom({
   const waitingOnPick = !!(replacement || holdingPause);
 
   if (live) {
+    // 4 e 4 elegíveis: o jogo segue. Pick aberto só fecha uma vez.
+    if (redCount === teamSize && blueCount === teamSize) {
+      if (chooseActive) {
+        return { action: "release-full", reason: "times cheios com pick aberto" };
+      }
+      if (paused && waitingOnPick) {
+        return { action: "unpause", reason: "formato completo com reposição órfã" };
+      }
+      if (paused && !chooseActive) {
+        return { action: "unpause", reason: "pausa sem reposição pendente" };
+      }
+      return { action: "none" };
+    }
+
     if (official && chooseActive && !replacement && !paused) {
       return { action: "stop-game", reason: "choose aberto com jogo rolando" };
     }
@@ -133,6 +147,7 @@ function createHealthMonitor({
 } = {}) {
   let lastAction = "";
   let repeats = 0;
+  let heldKey = "";
 
   function needed(action) {
     const n = Number(actionStrikes?.[action]);
@@ -144,8 +159,11 @@ function createHealthMonitor({
     if (result.action === "none") {
       lastAction = "";
       repeats = 0;
+      heldKey = "";
       return null;
     }
+    const key = `${result.action}\n${result.reason || ""}`;
+    if (heldKey === key) return null;
     if (result.action === lastAction) repeats += 1;
     else {
       lastAction = result.action;
@@ -154,6 +172,7 @@ function createHealthMonitor({
     if (repeats < needed(result.action)) return null;
     lastAction = "";
     repeats = 0;
+    heldKey = key;
     if (typeof apply === "function") apply(result);
     return result;
   }

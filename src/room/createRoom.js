@@ -1151,14 +1151,6 @@ function createRoom(HBInit) {
     const conn = player.conn || ctx.conns.get(player.id) || null;
     const ip = connToIp(conn);
 
-    const ban = await findActiveBan({ auth, conn });
-    if (ban) {
-      const until = ban.ends_at ? ` até ${ban.ends_at}` : " (permanente)";
-      logRejectedEntry(player, `Banido${until}: ${ban.reason || ""}`.trim());
-      room.kickPlayer(player.id, kickReason(`Banido${until}: ${ban.reason || ""}`), false);
-      return;
-    }
-
     // Uma sessão por auth e até duas pessoas por IP
     const guard = applyJoinGuards(room, identified(player), identified, (result) => {
       logRejectedEntry(player, result.reason);
@@ -1175,6 +1167,17 @@ function createRoom(HBInit) {
     if (!auth) retryAuth(player.id);
 
     void (async () => {
+      const ban = await findActiveBan({ auth, conn });
+      if (ban) {
+        const until = ban.ends_at ? ` até ${ban.ends_at}` : " (permanente)";
+        logRejectedEntry(player, `Banido${until}: ${ban.reason || ""}`.trim());
+        try {
+          room.kickPlayer(player.id, kickReason(`Banido${until}: ${ban.reason || ""}`), false);
+        } catch {
+          /* já saiu */
+        }
+        return;
+      }
       await upsertPlayer({ auth, nick: player.name, conn, ip });
       const bound = await bindIdentity(player);
       if (!gameIsLive(room, match)) {

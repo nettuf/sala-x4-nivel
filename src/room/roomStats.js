@@ -89,7 +89,10 @@ async function persistViados(n) {
   if (error) console.warn("[room-stats] persist viados", error.message);
 }
 
+let totalsSchemaMissing = false;
+
 async function persistTotals(games, goals) {
+  if (totalsSchemaMissing) return;
   const sb = getSupabase();
   if (!sb) return;
   const { error } = await sb.from("room_meta").upsert({
@@ -98,7 +101,13 @@ async function persistTotals(games, goals) {
     goals: Math.max(0, Math.floor(Number(goals) || 0)),
     updated_at: new Date().toISOString(),
   });
-  if (error) console.warn("[room-stats] persist totals", error.message);
+  if (!error) return;
+  if (/games/i.test(error.message || "") && /schema cache|column/i.test(error.message || "")) {
+    totalsSchemaMissing = true;
+    console.warn("[room-stats] persist totals desligado: coluna games ausente em room_meta");
+    return;
+  }
+  console.warn("[room-stats] persist totals", error.message);
 }
 
 /**

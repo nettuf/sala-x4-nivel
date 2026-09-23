@@ -3,6 +3,7 @@ require("dotenv").config();
 const config = require("./config");
 const { startTokenServer } = require("./server/tokenServer");
 const { createRoom } = require("./room/createRoom");
+const { installWebRtcSendGuard } = require("./room/webrtcSend");
 
 // Um erro solto (Supabase/Discord fora do ar) não pode reiniciar a sala no meio da partida.
 process.on("unhandledRejection", (reason) => {
@@ -14,6 +15,7 @@ process.on("uncaughtException", (err) => {
 });
 
 async function main() {
+  installWebRtcSendGuard();
   startTokenServer();
 
   if (!config.readToken()) {
