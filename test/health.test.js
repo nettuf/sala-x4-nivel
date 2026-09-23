@@ -140,6 +140,23 @@ describe("diagnóstico da sala", () => {
     assert.equal(d.action, "unpause");
   });
 
+  it("4v4 completo com pick aberto solta a pausa em vez de cobrar o capitão", () => {
+    const d = diagnoseRoom({
+      live: true,
+      competitive: true,
+      paused: true,
+      chooseActive: true,
+      replacement: true,
+      holdingPause: true,
+      hasCaptain: true,
+      capTimeoutLive: true,
+      redCount: 4,
+      blueCount: 4,
+      specReadyCount: 2,
+    });
+    assert.equal(d.action, "release-full");
+  });
+
   it("4v4 completo com reposição órfã despausa; não fica em recover", () => {
     const d = diagnoseRoom({
       live: true,
@@ -186,7 +203,7 @@ describe("diagnóstico da sala", () => {
     assert.equal(d.action, "pause");
   });
 
-  it("reposição despausada não libera mesmo se os counts parecem 4v4", () => {
+  it("reposição despausada com 4 e 4 elegíveis solta o pick", () => {
     const d = diagnoseRoom({
       live: true,
       competitive: true,
@@ -198,7 +215,7 @@ describe("diagnóstico da sala", () => {
       blueCount: 4,
       specReadyCount: 1,
     });
-    assert.equal(d.action, "pause");
+    assert.equal(d.action, "release-full");
   });
 
   it("pausa com holdingPause não despausa mesmo sem choose ativo", () => {

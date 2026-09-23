@@ -228,8 +228,10 @@ function bumpPlayStat(map, player, key, n = 1) {
 }
 
 /**
- * Chute (Haxclass): passe / steal / save.
- * Corpo sem chute pendente: desarme (tackle), não interceptação.
+ * Chute: companheiro = passe certo; adversário no campo = passe errado.
+ * Saída da própria área = alívio, fora do passe.
+ * Chegada na área atacada: goleiro = defesa; linha = interceptação. Fora do passe.
+ * Corpo sem chute pendente: desarme, não passe.
  */
 function classifyTouchChange(prev, next, {
   pendingKick = null,
@@ -245,17 +247,19 @@ function classifyTouchChange(prev, next, {
     if (pendingKick.team === next.team) {
       events.kickType = "pass";
       events.pass = pendingKick;
-    } else if (
-      isInAttackingGoalArea(receiverPos, pendingKick.team, goalArea)
-      || (receiverIsGk && isInDefensiveHalf(receiverPos, next.team))
-    ) {
-      events.kickType = "save";
-      events.save = next;
-      events.shotSaved = pendingKick;
     } else if (isInDefensiveGoalArea(kickerPos, pendingKick.team, goalArea)) {
       events.kickType = "steal";
       events.clearance = pendingKick;
       events.interception = next;
+    } else if (isInAttackingGoalArea(receiverPos, pendingKick.team, goalArea)) {
+      if (receiverIsGk) {
+        events.kickType = "save";
+        events.save = next;
+        events.shotSaved = pendingKick;
+      } else {
+        events.kickType = "block";
+        events.interception = next;
+      }
     } else {
       events.kickType = "steal";
       events.misplaced = pendingKick;

@@ -14,7 +14,7 @@
 const HEALTH_CHECK_MS = 5000;
 const HEALTH_STRIKES = 2;
 /** Pausa de admin tem corda longa: só é desfeita depois de ~30s esquecida. */
-const HEALTH_ACTION_STRIKES = { unpause: 6, pause: 1, "prompt-choose": 1 };
+const HEALTH_ACTION_STRIKES = { unpause: 6, pause: 1, "prompt-choose": 1, "release-full": 1 };
 
 function diagnoseRoom({
   live = false,
@@ -61,6 +61,9 @@ function diagnoseRoom({
     // Reposição: o Haxball despausa no setPlayerTeam. Segura a pausa até o
     // pick — mesmo se os counts “parecem” 4v4 (AFK ainda listado no time).
     if (waitingOnPick) {
+      if (official && redCount === teamSize && blueCount === teamSize && chooseActive) {
+        return { action: "release-full", reason: "times cheios com pick aberto" };
+      }
       if (official && redCount >= teamSize && blueCount >= teamSize && !chooseActive) {
         return paused
           ? { action: "unpause", reason: "4v4 completo com reposição órfã" }

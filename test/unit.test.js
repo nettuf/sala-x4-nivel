@@ -310,10 +310,11 @@ describe("gameLogic", () => {
       receiverPos: { x: 680, y: 10 },
       goalArea: area,
     });
-    assert.equal(saved.kickType, "save");
-    assert.equal(saved.save, c);
-    assert.equal(saved.shotSaved, a);
+    assert.equal(saved.kickType, "block");
+    assert.equal(saved.save, null);
+    assert.equal(saved.shotSaved, null);
     assert.equal(saved.misplaced, null);
+    assert.equal(saved.interception, c);
 
     const cleared = classifyTouchChange(a, c, {
       pendingKick: a,
@@ -328,12 +329,26 @@ describe("gameLogic", () => {
 
     const gkSave = classifyTouchChange(a, c, {
       pendingKick: a,
-      receiverPos: { x: 200, y: 0 },
+      receiverPos: { x: 680, y: 10 },
       goalArea: area,
       receiverIsGk: true,
     });
     assert.equal(gkSave.kickType, "save");
     assert.equal(gkSave.save, c);
+    assert.equal(gkSave.shotSaved, a);
+    assert.equal(gkSave.misplaced, null);
+    assert.equal(gkSave.interception, null);
+
+    const gkUpfieldHalf = classifyTouchChange(a, c, {
+      pendingKick: a,
+      receiverPos: { x: 200, y: 0 },
+      goalArea: area,
+      receiverIsGk: true,
+    });
+    assert.equal(gkUpfieldHalf.kickType, "steal");
+    assert.equal(gkUpfieldHalf.save, null);
+    assert.equal(gkUpfieldHalf.misplaced, a);
+    assert.equal(gkUpfieldHalf.interception, c);
 
     const gkUpfield = classifyTouchChange(a, c, {
       pendingKick: a,

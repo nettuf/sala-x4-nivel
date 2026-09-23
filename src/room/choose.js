@@ -584,6 +584,7 @@ function createChooseController(room, {
    */
   function parkTimedOutCaptain(cap) {
     if (!cap) return;
+    if (tryFinishChoose()) return;
     clearCapTimeout();
     const team = replacement?.targetTeam || cap.team;
     setTeam(cap.id, TEAM.SPEC);
@@ -633,6 +634,12 @@ function createChooseController(room, {
     );
   }
 
+  /** 4 e 4 elegíveis. 3v4 ou AFK ainda no campo não conta. */
+  function evenFull() {
+    const size = currentTeamSize();
+    return teamCount(TEAM.RED) === size && teamCount(TEAM.BLUE) === size;
+  }
+
   function replacementTeamFull() {
     if (!replacement) return false;
     return teamCount(replacement.targetTeam) >= currentTeamSize();
@@ -642,9 +649,9 @@ function createChooseController(room, {
   function tryFinishChoose(movedPlayer) {
     if (!active) return false;
     if (replacement) {
-      // Ao vivo: counts “4v4” (jogador ainda na lista) não fecham o pick.
-      // Só vale se alguém do spec de fato entrou no time.
-      if (isLiveReplacement() && !movedPlayer) return false;
+      // Ao vivo, sem alguém entrando agora, o pick só fecha se os dois times
+      // já estão cheios de jogadores elegíveis. AFK ainda no campo não conta.
+      if (isLiveReplacement() && !movedPlayer && !evenFull()) return false;
       if (!replacementTeamFull() && !bothFull()) return false;
       const onReady = replacement.onReady;
       const target = replacement.targetTeam;
@@ -697,6 +704,7 @@ function createChooseController(room, {
     replacement = { targetTeam, onReady, teamSize };
     active = true;
     lockedSize = teamSize;
+    if (tryFinishChoose()) return;
     const { specReady } = list();
     const have = teamCount(targetTeam);
     const need = Math.max(0, teamSize - have);
@@ -1095,6 +1103,7 @@ function createChooseController(room, {
     onPlayerJoin,
     onTeamChange,
     bothFull,
+    evenFull,
     list,
     promptCaptain,
     handoffPick,

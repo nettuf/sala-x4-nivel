@@ -1588,6 +1588,7 @@ function createRoom(HBInit) {
     movedThisMatch.clear();
     kickoffFieldIds.clear();
     kickoffAfkRestart = false;
+    if (choose.isReplacement() && choose.evenFull()) choose.deactivate();
     afk.setPaused(false);
     afk.resetClocks();
     ctx.gifClip?.resetFrames?.();
@@ -1996,6 +1997,12 @@ function createRoom(HBInit) {
       }
       if (action === "pause") {
         pauseForReplacement();
+        return;
+      }
+      if (action === "release-full") {
+        choose.deactivate();
+        if (!match.isCompetitive()) match.setCompetitive(true);
+        releaseReplacementPause({ force: true });
         return;
       }
       if (action === "unpause") {

@@ -245,7 +245,7 @@ describe("capitão e lista de pick", () => {
     assert.ok(announcements.some((row) => /única opção/i.test(row.msg)));
   });
 
-  it("reposição AO VIVO com specs não fecha sozinha só porque o time ainda conta 4", () => {
+  it("reposição AO VIVO com os dois times cheios encerra o pick e não tira o capitão", () => {
     const players = [
       p(1, TEAM.RED),
       p(11, TEAM.RED),
@@ -263,9 +263,10 @@ describe("capitão e lista de pick", () => {
     choose.startReplacement(TEAM.RED, (payload) => {
       resolved = payload;
     });
-    assert.equal(choose.isReplacement(), true, "4 no time + spec não encerra o pick ao vivo");
+    assert.equal(choose.isActive(), false);
+    assert.equal(players.find((row) => row.id === 1).team, TEAM.RED);
     assert.equal(players.find((row) => row.id === 5).team, TEAM.SPEC);
-    assert.equal(resolved, null);
+    assert.equal(resolved?.chosen?.team, TEAM.RED);
   });
 
   it("reposição ao vivo: lista aparece na hora após cada pick (sem esperar defer)", () => {
