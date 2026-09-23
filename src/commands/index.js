@@ -16,6 +16,7 @@ const {
   emptyPlayerStats,
   getLeaderboard,
   formatTop5,
+  resetPlayerCareer,
 } = require("../db/stats");
 const { formatCurrentStreak, formatBestStreak, formatTopStreaks } = require("../room/streak");
 const { formatBetLine, formatViadoLine, pickTeaseLine, pickPraiseLine, resolveTeaseTarget } = require("../room/bet");
@@ -27,6 +28,7 @@ const {
   parseStoreColor,
   formatStoreTemplate,
   normalizeStoreCode,
+  roomCodeFromStatsUrl,
 } = require("../haxbook/store");
 const {
   TITLES,
@@ -109,7 +111,7 @@ function playerHelpLines({
     "!zoeira — zoeiras da sala",
     "!ranking — tops e streak",
     "!calladm <motivo> — chamar staff no Discord",
-    "!gif — só Chefe (nv.4), 15s no Discord depois do apito"
+    "!gif — Chefe de graça, ou vale da loja nesta sala"
   );
   if (canChangeUni) {
     lines.push("!uni <kit> — uniforme do time (capitão/admin)");
@@ -327,6 +329,12 @@ function createCommandHandler(room, ctx) {
     const auth = resolveAuth(player);
     if (!auth) return null;
     return liveStoreEffects(ensureSiteStatusMap().get(auth)?.store, now);
+  }
+
+  function playerHasGifCredit(player) {
+    const bound = String(storeEffectsFor(player)?.gifRoom || "").trim().toLowerCase();
+    if (!bound) return false;
+    return bound === roomCodeFromStatsUrl(config.haxbookStatsUrl).toLowerCase();
   }
 
   function applyStoreEffects(auth, store) {
@@ -821,8 +829,10 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "gif" || cmd === "clip") {
       const auth = resolvePlayerAuth(player, ctx.auths, room.getPlayerList());
+      const staffLevel = admin?.level || 0;
+      const paidCredit = staffLevel < 4 && playerHasGifCredit(player);
       const result =
-        ctx.gifClip?.request?.(player, { auth, staffLevel: admin?.level || 0 }) || {
+        ctx.gifClip?.request?.(player, { auth, staffLevel, paidCredit }) || {
           ok: false,
           reason: "not-live",
         };
@@ -1036,6 +1046,14 @@ function createCommandHandler(room, ctx) {
         return true;
       }
       applyStoreEffects(auth, result.store);
+      if (result.roomReset) {
+        const wiped = await resetPlayerCareer(auth);
+        room.sendAnnouncement(result.message || "Carreira desta sala zerada.", player.id, 0x2ecc71, "bold", 1);
+        if (!wiped) {
+          room.sendAnnouncement("Não consegui zerar a carreira desta sala. Chame um admin.", player.id, 0xe74c3c, "normal", 1);
+        }
+        return true;
+      }
       room.sendAnnouncement(result.message || "Ativo por 1 dia.", player.id, 0x2ecc71, "bold", 1);
       announceStoreJoin(player);
       return true;

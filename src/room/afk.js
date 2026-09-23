@@ -126,7 +126,31 @@ function createAfkTracker(room, opts = {}) {
     afks.delete(p.id);
   }
 
+  function kickExpiredAfks(wallNow) {
+    const maxMs = Number(config.afkMaxMs) || 20 * 60 * 1000;
+    const due = humans().filter((p) => {
+      if (pendingKicks.has(p.id)) return false;
+      const entry = afks.get(p.id);
+      return entry && wallNow - entry.since >= maxMs;
+    });
+    for (const p of due) {
+      pendingKicks.add(p.id);
+      onStateChange?.({ type: "kick", player: p, previousTeam: p.team });
+      room.sendAnnouncement(
+        `${p.name} foi kickado por AFK (20 min).`,
+        null,
+        0xe67e22,
+        "normal",
+        1
+      );
+      room.kickPlayer(p.id, kickReason("AFK (20 min)"), false);
+      state.delete(p.id);
+      afks.delete(p.id);
+    }
+  }
+
   function ensureReserveSlots(wallNow = Date.now()) {
+    kickExpiredAfks(wallNow);
     const kickAt = Number(config.afkSpecKickAt) || 28;
     const overflow = countedHumans().length - (kickAt - 1);
     if (overflow <= 0) return;

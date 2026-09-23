@@ -682,6 +682,39 @@ async function transferPlayerStats(targetAuth, sourceAuth) {
   };
 }
 
+async function resetPlayerCareer(auth) {
+  const id = String(auth || "").trim();
+  if (!id) return false;
+  const gifted = normalizeGiftedIds(mergeGiftedTitles(id, readStatsMemory(id).gifted_titles));
+  const blank = { ...emptyPlayerStats(), gifted_titles: gifted, selected_title: null };
+  patchStatsMemory(id, { ...blank, _full: true });
+  const sb = getSupabase();
+  if (!sb) return true;
+  try {
+    const { data: cur } = await sb.from("player_stats").select("gifted_titles").eq("auth", id).maybeSingle();
+    const kept = mergeGiftedTitles(id, cur?.gifted_titles);
+    const row = {
+      auth: id,
+      ...emptyPlayerStats(),
+      gifted_titles: kept,
+      selected_title: null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await sb.from("player_stats").upsert(row);
+    if (error) {
+      console.error("[stats] reset career", error.message);
+      return false;
+    }
+    const deleted = await sb.from("match_players").delete().eq("auth", id);
+    if (deleted.error) console.warn("[stats] reset history", deleted.error.message);
+    invalidateLeaderboards();
+    return true;
+  } catch (err) {
+    console.error("[stats] reset career", err?.message || err);
+    return false;
+  }
+}
+
 module.exports = {
   saveMatch,
   getPlayerStats,
@@ -692,6 +725,7 @@ module.exports = {
   resetStatsMemory,
   persistPlayerStatsRow,
   transferPlayerStats,
+  resetPlayerCareer,
   pickMatchMvps,
   emptyPlayerStats,
   formatStatusCard,

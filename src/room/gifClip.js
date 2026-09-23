@@ -20,6 +20,7 @@ function createGifClip({
   canClip = () => true,
   roomLabel = "",
   postClip = async () => ({ ok: true }),
+  onPosted = null,
   schedule = (fn, ms) => setTimeout(fn, ms),
   clearSchedule = (id) => clearTimeout(id),
   announce = () => {},
@@ -51,7 +52,7 @@ function createGifClip({
     return 0;
   }
 
-  function markClip(player, auth) {
+  function markClip(player, auth, paid) {
     const endTime = clipTime();
     pending.push({
       endTime,
@@ -61,6 +62,7 @@ function createGifClip({
           id: player.id,
           name: player.name,
           auth: auth || null,
+          paid: !!paid,
         },
       ],
     });
@@ -106,6 +108,11 @@ function createGifClip({
           }
           console.log("[gif] aceito pelo site");
           announce("🎬 GIF enviado.", null, 0x2ecc71);
+          if (typeof onPosted === "function") {
+            Promise.resolve(onPosted(windows)).catch((err) => {
+              console.warn("[gif] consume", err?.message || err);
+            });
+          }
         })
         .catch((err) => {
           console.warn("[gif] post erro", err?.message || err);
@@ -135,9 +142,11 @@ function createGifClip({
     flushSoon();
   }
 
-  function request(player, { auth = null, staffLevel = 0 } = {}) {
+  function request(player, { auth = null, staffLevel = 0, paidCredit = false } = {}) {
     if (!player) return { ok: false, reason: "not-live" };
-    if ((Number(staffLevel) || 0) < STAFF_GIF_LEVEL) {
+    const staff = (Number(staffLevel) || 0) >= STAFF_GIF_LEVEL;
+    const paid = !staff && paidCredit === true;
+    if (!staff && !paid) {
       return { ok: false, reason: "staff-only" };
     }
     if (pending.length >= MAX_WINDOWS) return { ok: false, reason: "match-full" };
@@ -155,8 +164,8 @@ function createGifClip({
       if (roomWait > 0) return { ok: false, reason: "room-cd", wait: roomWait };
     }
 
-    markClip(player, auth);
-    return { ok: true, queued: true, staff: true, count: 1 };
+    markClip(player, auth, paid);
+    return { ok: true, queued: true, staff, paid, count: 1 };
   }
 
   function forget(playerId) {

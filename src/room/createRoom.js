@@ -29,6 +29,7 @@ const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays, pruneStreak
 const { createCommandHandler } = require("../commands");
 const { createGifClip } = require("./gifClip");
 const { postGifReplay } = require("../haxbook/gifClipWebhook");
+const { consumeStoreGif } = require("../haxbook/store");
 const { detectRageQuit, isChooseToken, rageQuitMessages, targetTeamSize } = require("../gameLogic");
 const { rememberIdentity, withIdentity } = require("./playerAuth");
 const { guardRoomApi } = require("./safeApi");
@@ -37,6 +38,25 @@ const { gameIsLive } = require("../haxbook/playerStatus");
 const { createRankedAnnouncer } = require("./rankedWindows");
 const { setRoomControl } = require("../server/tokenServer");
 const { createLobbyRoomAdmin } = require("../server/roomAdmin");
+
+async function consumePaidGifCredits(ctx, windows) {
+  const auths = new Set();
+  for (const clip of windows || []) {
+    for (const requester of clip.requesters || []) {
+      if (requester?.paid && requester.auth) auths.add(requester.auth);
+    }
+  }
+  for (const auth of auths) {
+    const result = await consumeStoreGif({
+      statsUrl: config.haxbookStatsUrl,
+      apiKey: config.haxbookApiKey,
+      auth,
+    });
+    if (!result?.ok || !ctx.siteStatus) continue;
+    const current = ctx.siteStatus.get(auth) || { vip: false, booster: false, elo: null, rating: null, store: null };
+    ctx.siteStatus.set(auth, { ...current, store: result.store || null });
+  }
+}
 
 function createRoom(HBInit) {
   const token = config.readToken();
@@ -141,6 +161,7 @@ function createRoom(HBInit) {
     },
     roomLabel: config.haxbookRoomName || config.roomName,
     postClip: (payload) => postGifReplay(config.haxbookStatsUrl, config.haxbookApiKey, payload),
+    onPosted: (windows) => consumePaidGifCredits(ctx, windows),
     announce: (text, to, color) => room.sendAnnouncement(text, to, color, "bold", 1),
   });
   const commands = createCommandHandler(room, ctx);

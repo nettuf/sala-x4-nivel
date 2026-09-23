@@ -469,6 +469,35 @@ describe("AFK: ações e pausa", () => {
     afk.stop();
   });
 
+  it("AFK há 20 min toma kick mesmo com a sala folgada", () => {
+    const { room, players } = afkSetup(4);
+    const afk = createAfkTracker(room);
+    const t0 = 5_000_000;
+    const p = players[0];
+    afk.setAfk(p, true, t0);
+    afk.ensureReserveSlots(t0 + 19 * 60 * 1000);
+    assert.equal(room.kicks.length, 0);
+    afk.ensureReserveSlots(t0 + config.afkMaxMs);
+    assert.deepEqual(room.kicks.map((k) => k.id), [p.id]);
+    assert.equal(afk.isAfk(p.id), false);
+    afk.stop();
+  });
+
+  it("voltar do AFK recomeça os 20 min", () => {
+    const { room, players } = afkSetup(4);
+    const afk = createAfkTracker(room);
+    const t0 = 6_000_000;
+    const p = players[1];
+    afk.setAfk(p, true, t0);
+    afk.setAfk(p, false, t0 + 10 * 60 * 1000);
+    afk.setAfk(p, true, t0 + 10 * 60 * 1000);
+    afk.ensureReserveSlots(t0 + config.afkMaxMs);
+    assert.equal(room.kicks.length, 0);
+    afk.ensureReserveSlots(t0 + 10 * 60 * 1000 + config.afkMaxMs);
+    assert.deepEqual(room.kicks.map((k) => k.id), [p.id]);
+    afk.stop();
+  });
+
   it("8s parado avisa; 12s manda para o spec", () => {
     const { room, players } = afkSetup(4);
     const afk = createAfkTracker(room);
