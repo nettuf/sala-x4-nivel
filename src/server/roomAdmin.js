@@ -2,7 +2,9 @@ const { createBan, deactivateBan } = require("../db/bans");
 const { createMute, unmute } = require("../db/mutes");
 const { connToIp, kickReason, formatDuration } = require("../utils");
 const { withIdentity } = require("../room/playerAuth");
-const { notifyBan, notifyUnmute, notifyMute, notifyUnban } = require("../discord/webhook");
+const config = require("../config");
+const { createRoleCode, generateLoginCode } = require("../db/players");
+const { notifyBan, notifyUnmute, notifyMute, notifyUnban, notifyStaffAudit } = require("../discord/webhook");
 
 let control = null;
 
@@ -160,6 +162,47 @@ function createLobbyRoomAdmin(room, ctx) {
       room.sendAnnouncement(text, null, 0x2ecc71, "bold", 1);
       return { ok: true };
     },
+
+    status() {
+      const people = room.getPlayerList().filter((p) => p && p.id !== 0);
+      return {
+        ok: true,
+        players: people.length,
+        max: config.maxPlayers,
+        list: people.map((p) => ({
+          id: p.id,
+          name: p.name,
+          place: p.team === 1 ? "vermelho" : p.team === 2 ? "azul" : "spec",
+        })),
+      };
+    },
+
+    async login({ level, by } = {}) {
+      const grantLevel = Math.floor(Number(level));
+      if (![1, 2, 3].includes(grantLevel)) return { ok: false, error: "nível inválido" };
+      const who = String(by || "").trim().slice(0, 120);
+      if (!who) return { ok: false, error: "informe quem gerou" };
+      const meta = config.adminLevels[grantLevel] || { title: `nv.${grantLevel}` };
+      let created = null;
+      for (let i = 0; i < 6 && !created; i++) {
+        created = await createRoleCode({
+          code: generateLoginCode(),
+          level: grantLevel,
+          title: meta.title,
+          createdBy: who,
+        });
+      }
+      if (!created) return { ok: false, error: "não deu para gerar a senha" };
+      notifyStaffAudit({
+        title: "🔑 **Login gerado**",
+        lines: [
+          `Por: ${who}`,
+          `Nível: ${grantLevel} ${meta.title}`,
+          "Origem: Discord /login",
+        ],
+      }).catch(() => {});
+      return { ok: true, code: created.code, level: grantLevel, title: meta.title };
+    },
   };
 }
 
@@ -179,6 +222,8 @@ function attachRoomAdminRoutes(app, auth) {
     };
   }
 
+  app.get("/status", auth, run("status"));
+  app.post("/login", auth, run("login"));
   app.post("/ban", auth, run("ban"));
   app.post("/unban", auth, run("unban"));
   app.post("/mute", auth, run("mute"));
