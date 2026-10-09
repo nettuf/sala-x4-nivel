@@ -107,6 +107,8 @@ function trimNick(nick) {
 function formatHallLines(hall, marks) {
   const groups = [];
   for (const mark of marks || []) {
+    const slot = hall?.slots?.[mark.id];
+    if (!slot?.auth && !slot?.nick) continue;
     let group = groups.find((item) => item.name === mark.group);
     if (!group) {
       group = { name: mark.group, marks: [] };
@@ -115,12 +117,9 @@ function formatHallLines(hall, marks) {
     group.marks.push(mark);
   }
 
-  const lines = ["🏆 Hall da Fama"];
+  const lines = groups.length ? ["🏆 Hall da Fama"] : ["Hall da Fama ainda está vazio."];
   for (const group of groups) {
-    const parts = group.marks.map((mark) => {
-      const nick = hall?.slots?.[mark.id]?.nick;
-      return `${mark.at} ${nick ? trimNick(nick) : "—"}`;
-    });
+    const parts = group.marks.map((mark) => `${mark.at} ${trimNick(hall?.slots?.[mark.id]?.nick)}`);
     lines.push(`${group.name}: ${parts.join(" · ")}`);
   }
   if (!hall?.done) lines.push("Mural antigo ainda está sendo montado.");
