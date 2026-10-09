@@ -155,11 +155,13 @@ function createLobbyRoomAdmin(room, ctx) {
       return { ok: true, online: !!target };
     },
 
-    async call({ message } = {}) {
+    async call({ message, by } = {}) {
       const text = String(message || "").trim();
       if (!text) return { ok: false, error: "mensagem vazia" };
       if (text.length > 300) return { ok: false, error: "mensagem longa demais" };
-      room.sendAnnouncement(text, null, 0x2ecc71, "bold", 1);
+      const name = String(by || "").replace(/\s+/g, " ").trim().slice(0, 32);
+      const line = name ? `Discord · ${name}: ${text}` : text;
+      room.sendAnnouncement(line, null, 0x5865f2, "bold", 1);
       return { ok: true };
     },
 
