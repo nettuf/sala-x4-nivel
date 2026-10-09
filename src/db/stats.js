@@ -1,6 +1,7 @@
 const { getSupabase } = require("./supabase");
 const { dedupeMatchPlayers } = require("../gameLogic");
 const { pickMatchMvps, pickMatchWorst, applyUnlockUpgrade, newlyUnlockedPlayerTitles } = require("../titles");
+const { noteHallCrossing } = require("./hall");
 
 function emptyPlayerStats() {
   return {
@@ -234,6 +235,7 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
   }
 
   const titleUnlocks = [];
+  const hallClaims = [];
   if (valid && players?.length) {
     for (const p of players) {
       if (!p.auth) continue;
@@ -251,13 +253,22 @@ async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals })
           equippedChanged: bump.equippedChanged,
         });
       }
+      if (bump) {
+        const claimed = await noteHallCrossing({
+          auth: p.auth,
+          nick: p.nick,
+          prev: bump.prev,
+          next: bump.next,
+        });
+        if (claimed?.length) hallClaims.push(...claimed);
+      }
     }
   }
 
   if (valid && players?.length) invalidateLeaderboards();
   cleanupOldMatches().catch(() => {});
 
-  return { match, mvpAuths: [...mvpAuths], womAuths: [...womAuths], titleUnlocks };
+  return { match, mvpAuths: [...mvpAuths], womAuths: [...womAuths], titleUnlocks, hallClaims };
 }
 
 async function bumpPlayerStats(p) {
@@ -313,6 +324,8 @@ async function bumpPlayerStats(p) {
     unlockedTitles,
     selectedTitle: row.selected_title,
     equippedChanged: nextSelected !== (prev.selected_title || null),
+    prev,
+    next: row,
   };
 }
 

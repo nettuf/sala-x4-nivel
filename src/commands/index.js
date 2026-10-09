@@ -18,6 +18,7 @@ const {
   formatTop5,
   resetPlayerCareer,
 } = require("../db/stats");
+const { hallLines } = require("../db/hall");
 const { formatCurrentStreak, formatBestStreak, formatTopStreaks } = require("../room/streak");
 const { formatBetLine, formatViadoLine, pickTeaseLine, pickPraiseLine, resolveTeaseTarget } = require("../room/bet");
 const { normalizeLinkCode, linkHaxballAuth } = require("../haxbook/authLink");
@@ -27,6 +28,8 @@ const {
   liveStoreEffects,
   parseStoreColor,
   formatStoreTemplate,
+  JOIN_HIGHLIGHT_MS,
+  pickVipJoinPhrase,
   normalizeStoreCode,
   roomCodeFromStatsUrl,
 } = require("../haxbook/store");
@@ -106,6 +109,7 @@ function playerHelpLines({
   lines.push(
     "— Categorias —",
     "!status / !stats — vitórias, gols, hat-tricks, CS, MVP, WR",
+    "!hall — hall da fama",
     "!cargos · !listacargos · !cargo — emblemas",
     "!unis — uniformes · !cores1 · !cores2",
     "!zoeira — zoeiras da sala",
@@ -344,22 +348,29 @@ function createCommandHandler(room, ctx) {
     map.set(auth, { ...current, store: store || null });
   }
 
-  const joinAnnounced = new Set();
+  const joinHighlightAt = new Map();
 
-  function announceStoreJoin(player) {
+  function announceStoreJoin(player, opts = {}) {
     const auth = resolveAuth(player);
-    if (!auth || joinAnnounced.has(auth)) return false;
-    const store = storeEffectsFor(player);
-    if (!store?.joinTemplate) return false;
-    joinAnnounced.add(auth);
-    const color = parseStoreColor(store.chatColor);
-    room.sendAnnouncement(
-      formatStoreTemplate(store.joinTemplate, player.name),
-      null,
-      Number.isFinite(color) ? color : 0xf1c40f,
-      "bold",
-      1
-    );
+    if (!auth) return false;
+    const now = clock();
+    const last = joinHighlightAt.get(auth) || 0;
+    if (!opts.force && now - last < JOIN_HIGHLIGHT_MS) return false;
+    const row = ensureSiteStatusMap().get(auth);
+    const store = liveStoreEffects(row?.store, now);
+    let text = null;
+    let color = 0xf1c40f;
+    if (store?.joinTemplate) {
+      text = formatStoreTemplate(store.joinTemplate, player.name);
+      const parsed = parseStoreColor(store.chatColor);
+      if (Number.isFinite(parsed)) color = parsed;
+    } else if (row?.vip || row?.booster) {
+      text = pickVipJoinPhrase(player.name);
+      if (!row.vip) color = 0xc39bd3;
+    }
+    if (!text) return false;
+    joinHighlightAt.set(auth, now);
+    room.sendAnnouncement(text, null, color, "bold", 1);
     return true;
   }
 
@@ -1055,7 +1066,7 @@ function createCommandHandler(room, ctx) {
         return true;
       }
       room.sendAnnouncement(result.message || "Ativo por 1 dia.", player.id, 0x2ecc71, "bold", 1);
-      announceStoreJoin(player);
+      announceStoreJoin(player, { force: true });
       return true;
     }
 
@@ -1496,6 +1507,15 @@ function createCommandHandler(room, ctx) {
 
     if (cmd === "aura" || cmd === "ego") {
       return applyJokeTitle(player, args, "aura");
+    }
+
+    if (cmd === "hall" || cmd === "halldafama" || cmd === "mural") {
+      if (blockLookup(player, "hall")) return true;
+      const lines = await hallLines();
+      for (const line of lines) {
+        room.sendAnnouncement(line, player.id, 0xf1c40f, "bold", 1);
+      }
+      return true;
     }
 
     if (cmd === "status" || cmd === "stats" || cmd === "stat" || cmd === "elo") {

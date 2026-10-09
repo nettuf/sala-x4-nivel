@@ -30,14 +30,14 @@ const {
   postMatchStats,
 } = require("../haxbook/statsWebhook");
 const { createHaxbooket, marketParticipants } = require("../haxbook/haxbooket");
-const { liveStoreEffects, storeGoalPhrase } = require("../haxbook/store");
+const { liveStoreEffects, storeGoalPhrase, vipGoalPhrase, vipAssistPhrase, vipCleanSheetPhrase } = require("../haxbook/store");
 const { createPostMatchInsights } = require("../haxbook/insight");
 const maps = require("./maps");
 
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
  */
-function createMatchController(room, { identify, onCompletedMatch, getStreak, onReplayHold, onReplayCancel, storeEffectsForAuth } = {}) {
+function createMatchController(room, { identify, onCompletedMatch, getStreak, onReplayHold, onReplayCancel, storeEffectsForAuth, siteStatusForAuth } = {}) {
   const haxbooket = createHaxbooket(room, {
     statsUrl: config.haxbookStatsUrl,
     apiKey: config.haxbookApiKey,
@@ -371,6 +371,22 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     recordTouch(player);
   }
 
+  function vipAssistLine(player) {
+    if (!player?.name) return null;
+    const site = typeof siteStatusForAuth === "function" ? siteStatusForAuth(player.auth) : null;
+    return vipAssistPhrase(player.name, site);
+  }
+
+  function announceCleanSheets(roster) {
+    for (const player of roster || []) {
+      if (!player?.cleanSheet || !player.nick) continue;
+      const site = typeof siteStatusForAuth === "function" ? siteStatusForAuth(player.auth) : null;
+      const line = vipCleanSheetPhrase(player.nick, site);
+      if (!line) continue;
+      room.sendAnnouncement(line, null, 0x1abc9c, "bold", 2);
+    }
+  }
+
   function onTeamGoal(team) {
     if (!match) return;
     haxbooket.goal(team);
@@ -380,7 +396,8 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     const { scorer, assist, isOwnGoal } = attributeGoal(match.touches, team);
     const clock = formatMatchClock(time);
     const side = team === 1 ? "🔴" : "🔵";
-    const assistText = assist?.name ? ` · Assist: ${assist.name}` : "";
+    const assistLine = !isOwnGoal ? vipAssistLine(assist) : null;
+    const assistText = assist?.name && !assistLine ? ` · Assist: ${assist.name}` : "";
 
     const goal = {
       team,
@@ -408,10 +425,10 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
         2
       );
     } else if (scorer) {
-      const store = typeof storeEffectsForAuth === "function"
-        ? liveStoreEffects(storeEffectsForAuth(scorer.auth))
-        : null;
-      const phrase = storeGoalPhrase(scorer.name, store?.goalTemplate) || `Gol de ${scorer.name}`;
+      const site = typeof siteStatusForAuth === "function" ? siteStatusForAuth(scorer.auth) : null;
+      const rawStore = site?.store || (typeof storeEffectsForAuth === "function" ? storeEffectsForAuth(scorer.auth) : null);
+      const store = liveStoreEffects(rawStore);
+      const phrase = storeGoalPhrase(scorer.name, store?.goalTemplate) || vipGoalPhrase(scorer.name, site) || `Gol de ${scorer.name}`;
       room.sendAnnouncement(
         `⚽ [${clock}] ${phrase}${assistText} ${side}`,
         null,
@@ -427,6 +444,10 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
         "bold",
         2
       );
+    }
+
+    if (assistLine) {
+      room.sendAnnouncement(assistLine, null, 0xf1c40f, "bold", 2);
     }
 
     clearPlaySequence();
@@ -717,6 +738,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       if (worst.length) {
         room.sendAnnouncement(formatWorstAnnounce(withPlayStats(worst[0], playMap)), null, 0xe67e22, "bold", 2);
       }
+      announceCleanSheets(players);
 
       try {
         onCompletedMatch?.({ goals: scoreRed + scoreBlue });
@@ -747,8 +769,9 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
   }
 
   async function persistMatch(payload) {
-    if (!payload) return { titleUnlocks: [] };
+    if (!payload) return { titleUnlocks: [], hallClaims: [] };
     let titleUnlocks = [];
+    let hallClaims = [];
     try {
       const saved = await saveMatch({
         scoreRed: payload.scoreRed,
@@ -759,6 +782,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
         goals: payload.goals,
       });
       titleUnlocks = saved?.titleUnlocks || [];
+      hallClaims = saved?.hallClaims || [];
     } catch (e) {
       console.error("[match] save", e.message);
     }
@@ -771,7 +795,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       });
       postMatchInsights.onOfficialMatch();
     }
-    return { titleUnlocks };
+    return { titleUnlocks, hallClaims };
   }
 
   function markVictory() {

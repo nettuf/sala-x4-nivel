@@ -59,6 +59,82 @@ function storeGoalPhrase(scorerName, goalTemplate) {
   return formatStoreTemplate(goalTemplate, scorerName);
 }
 
+const JOIN_HIGHLIGHT_MS = 60 * 1000;
+
+const VIP_JOIN_LINES = [
+  "⭐ {nick} entrou no campo... e o clima esquentou!",
+  "🔥 Olha o {nick} aí, torcida brasileira!",
+  "✨ Que momento! {nick} acaba de pisar no gramado.",
+  "⭐ Chama que ela vem! {nick} tá na área.",
+  "🔥 Abre a cortina do espetáculo, {nick} chegou!",
+  "✨ Segura o homem! {nick} já tá no gramado.",
+  "⭐ Silêncio na arena, {nick} acabou de entrar.",
+  "🔥 Parem as máquinas! {nick} está na sala.",
+  "✨ {nick} chegou para dar aula de futebol.",
+  "⭐ Atenção, zaga adversária: {nick} entrou no jogo!",
+  "🔥 O homem, a fera, a máquina: {nick} tá na área!",
+];
+
+const VIP_GOAL_LINES = [
+  "⭐ É MAAASSA! É gol do {nick}!",
+  "🔥 NO FUNDO DO MAAASCO! Golço de {nick}!",
+  "✨ SAAAABE DE QUEM? Do {nick}, o nome dele!",
+  "⭐ QUE AINDA LÁ DENTRO! {nick} guardou mais um!",
+  "🔥 PODE ENTRAR QUE A CASA É SUA! Gol de {nick}!",
+  "✨ ACORDA O CORUJÃO! {nick} mandou no gaveteiro!",
+  "⭐ Apenas {nick}, o terror dos goleiros!",
+  "🔥 {nick} guardou com categoria!",
+  "✨ Que pintura de {nick}! Aceita que dói menos.",
+  "⭐ Chuta de lá que {nick} resolve de cá!",
+  "🔥 {nick} colocou a bola onde a coruja dorme!",
+  "✨ Pode carimbar que o gol foi do {nick}!",
+];
+
+const VIP_ASSIST_LINES = [
+  "⭐ Que visão! Passe açucarado de {nick}.",
+  "🔥 {nick} serviu em bandeja de ouro!",
+  "✨ Garçom! {nick} deixou na cara do gol.",
+  "⭐ {nick} achou um passe onde não passava nem vento!",
+  "🔥 Toca no {nick} que ele resolve o passe!",
+  "✨ Que assistência de {nick}! Só teve o trabalho de empurrar.",
+  "⭐ {nick} colocou a bola com a mão!",
+];
+
+const VIP_CS_LINES = [
+  "⭐ FECHOU A FIRMA! {nick} terminou sem levar gol!",
+  "🔥 Passa nada! {nick} trancou a baliza hoje.",
+  "✨ Muro de concreto! {nick} deixou a zaga inviolável.",
+  "⭐ Hoje não! {nick} colocou o cadeado no gol.",
+  "🔥 {nick} operou milagres e saiu de campo zerado!",
+  "✨ Podem tentar, mas o gol de {nick} tá blindado!",
+];
+
+function pickVipLine(lines, nick) {
+  const line = lines[Math.floor(Math.random() * lines.length)] || "";
+  return formatStoreTemplate(line, nick);
+}
+
+function vipStatusPhrase(lines, name, status) {
+  if (!status?.vip && !status?.booster) return null;
+  return pickVipLine(lines, name);
+}
+
+function pickVipJoinPhrase(nick) {
+  return pickVipLine(VIP_JOIN_LINES, nick);
+}
+
+function vipGoalPhrase(name, status) {
+  return vipStatusPhrase(VIP_GOAL_LINES, name, status);
+}
+
+function vipAssistPhrase(name, status) {
+  return vipStatusPhrase(VIP_ASSIST_LINES, name, status);
+}
+
+function vipCleanSheetPhrase(name, status) {
+  return vipStatusPhrase(VIP_CS_LINES, name, status);
+}
+
 async function redeemStoreCode({
   statsUrl,
   apiKey,
@@ -155,6 +231,11 @@ module.exports = {
   parseStoreColor,
   formatStoreTemplate,
   storeGoalPhrase,
+  JOIN_HIGHLIGHT_MS,
+  pickVipJoinPhrase,
+  vipGoalPhrase,
+  vipAssistPhrase,
+  vipCleanSheetPhrase,
   redeemStoreCode,
   storeConsumeGifUrl,
   consumeStoreGif,

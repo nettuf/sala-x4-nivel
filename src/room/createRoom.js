@@ -27,6 +27,7 @@ const { applyJoinGuards } = require("./joinGuards");
 const { createUniformManager, findKit } = require("./uniforms");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays, pruneStreakIfTooFewHolders } = require("./streak");
 const { createCommandHandler } = require("../commands");
+const { scheduleHallBackfill, setHallAnnounce, hallAnnounceText } = require("../db/hall");
 const { createGifClip } = require("./gifClip");
 const { postGifReplay } = require("../haxbook/gifClipWebhook");
 const { consumeStoreGif } = require("../haxbook/store");
@@ -133,6 +134,7 @@ function createRoom(HBInit) {
   const match = createMatchController(room, {
     getStreak: () => streak.get(),
     storeEffectsForAuth: (auth) => (auth ? ctx.siteStatus?.get(auth)?.store : null),
+    siteStatusForAuth: (auth) => (auth ? ctx.siteStatus?.get(auth) : null),
     identify: (player) =>
       withIdentity(player, {
         auths: ctx.auths,
@@ -1133,6 +1135,7 @@ function createRoom(HBInit) {
 
   room.onRoomLink = (link) => {
     console.log("[sala-x4] link:", link);
+    scheduleHallBackfill();
   };
 
   room.onPlayerJoin = async (player) => {
@@ -1180,9 +1183,7 @@ function createRoom(HBInit) {
       }
       await upsertPlayer({ auth, nick: player.name, conn, ip });
       const bound = await bindIdentity(player);
-      if (!gameIsLive(room, match)) {
-        await commands.syncSiteStatus([bound]);
-      }
+      await commands.syncSiteStatus([bound]);
       const title = ctx.titles.get(player.id) || { emblem: "🌱", color: 0xbdc3c7 };
       const site = commands.siteTitleFor(bound);
       room.sendAnnouncement(
@@ -1870,12 +1871,20 @@ function createRoom(HBInit) {
     }
   }
 
+  function announceHallClaims(entries) {
+    for (const entry of entries || []) {
+      room.sendAnnouncement(hallAnnounceText(entry.nick, entry.mark), null, 0xf1c40f, "bold", 2);
+    }
+  }
+  setHallAnnounce(announceHallClaims);
+
   function persistMatchInBackground(result) {
     if (!result?.persistPayload) return;
     match
       .persistMatch(result.persistPayload)
       .then(async (saved) => {
         await announceTitleUnlocks(saved?.titleUnlocks);
+        announceHallClaims(saved?.hallClaims);
         // Recarrega mesmo sem desbloqueio novo (ex.: perdeu o cargo Negativo).
         for (const p of room.getPlayerList()) {
           if (!p.id) continue;

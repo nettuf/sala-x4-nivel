@@ -154,6 +154,7 @@ alter table room_meta add column if not exists bets int not null default 0;
 alter table room_meta add column if not exists viados int not null default 0;
 alter table room_meta add column if not exists games int not null default 0;
 alter table room_meta add column if not exists goals int not null default 0;
+alter table room_meta add column if not exists hall jsonb not null default '{}'::jsonb;
 
 insert into room_meta (id)
 values ('x4')
