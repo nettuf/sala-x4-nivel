@@ -36,6 +36,7 @@ const { rememberIdentity, withIdentity } = require("./playerAuth");
 const { guardRoomApi } = require("./safeApi");
 const { scheduleMidgameDisc } = require("./disc");
 const { gameIsLive, fetchRankedTop } = require("../haxbook/playerStatus");
+const { createRoomLinkSync } = require("../haxbook/roomLink");
 const { createRankedAnnouncer } = require("./rankedWindows");
 const { setRoomControl } = require("../server/tokenServer");
 const { createLobbyRoomAdmin } = require("../server/roomAdmin");
@@ -64,6 +65,10 @@ function createRoom(HBInit) {
   if (!token) {
     throw new Error("HAXBALL_TOKEN ausente. Envie via POST /token ou .env");
   }
+  const roomLinkSync = createRoomLinkSync({
+    statsUrl: config.haxbookStatsUrl,
+    apiKey: config.haxbookApiKey,
+  });
 
   const room = HBInit({
     roomName: config.roomName,
@@ -1135,6 +1140,7 @@ function createRoom(HBInit) {
 
   room.onRoomLink = (link) => {
     ctx.roomLink = typeof link === "string" ? link : null;
+    roomLinkSync.send(ctx.roomLink, "room-link");
     console.log("[sala-x4] link:", link);
     scheduleHallBackfill();
   };
@@ -1715,6 +1721,7 @@ function createRoom(HBInit) {
   };
 
   room.onGameStop = async (byPlayer) => {
+    roomLinkSync.send(ctx.roomLink, "game-stop");
     try {
       await handleGameStop(byPlayer);
     } catch (err) {
