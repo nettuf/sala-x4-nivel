@@ -169,6 +169,7 @@ function createLobbyRoomAdmin(room, ctx) {
         ok: true,
         players: people.length,
         max: config.maxPlayers,
+        link: /^https:\/\/\S+$/.test(String(ctx.roomLink || "").trim()) ? String(ctx.roomLink).trim() : null,
         list: people.map((p) => ({
           id: p.id,
           name: p.name,

@@ -1134,6 +1134,7 @@ function createRoom(HBInit) {
   });
 
   room.onRoomLink = (link) => {
+    ctx.roomLink = typeof link === "string" ? link : null;
     console.log("[sala-x4] link:", link);
     scheduleHallBackfill();
   };
