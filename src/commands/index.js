@@ -23,6 +23,7 @@ const { formatCurrentStreak, formatBestStreak, formatTopStreaks } = require("../
 const { formatBetLine, formatViadoLine, pickTeaseLine, pickPraiseLine, resolveTeaseTarget } = require("../room/bet");
 const { normalizeLinkCode, linkHaxballAuth } = require("../haxbook/authLink");
 const { fetchPlayerSiteStatus } = require("../haxbook/playerStatus");
+const { rankedChatHead } = require("../room/rankedWindows");
 const {
   redeemStoreCode,
   liveStoreEffects,
@@ -403,6 +404,8 @@ function createCommandHandler(room, ctx) {
         elo: row.elo || null,
         rating: Number.isFinite(rating) && rating >= 1 ? rating : null,
         store: row.store || null,
+        linked: row.linked === true,
+        rankTier: row.rankTier || null,
       });
     }
   }
@@ -653,7 +656,19 @@ function createCommandHandler(room, ctx) {
   function chatSpeaker(player, title) {
     const live = room.getPlayerList().find((p) => p.id === player.id);
     const name = live?.name ?? player.name;
-    let head = formatChatHead(title, siteTitleFor(player), eloTitleFor(player), storeEffectsFor(player)?.emoji);
+    let head = "";
+    if (typeof ctx.rankedLive === "function" && ctx.rankedLive()) {
+      const auth = resolveAuth(player);
+      const row = auth ? ensureSiteStatusMap().get(auth) : null;
+      head = rankedChatHead({
+        linked: row?.linked === true,
+        rankTier: row?.rankTier,
+        siteEmblem: row?.linked === true ? siteTitleFor(player)?.emblem : "",
+        storeEmoji: storeEffectsFor(player)?.emoji,
+      });
+    } else {
+      head = formatChatHead(title, siteTitleFor(player), eloTitleFor(player), storeEffectsFor(player)?.emoji);
+    }
     if (ctx.afk?.isAfk?.(player.id)) head += "[AFK]";
     return head ? `${head} ${name}` : name;
   }

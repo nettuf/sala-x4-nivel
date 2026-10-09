@@ -49,6 +49,42 @@ async function fetchPlayerSiteStatus({
   }
 }
 
+function rankedTopUrl(statsUrl) {
+  const url = new URL(String(statsUrl || ""));
+  url.pathname = url.pathname.replace(/\/stats\/?$/, "") + "/ranked-top";
+  url.search = "";
+  return url.toString();
+}
+
+async function fetchRankedTop({ statsUrl, apiKey, fetchImpl = globalThis.fetch } = {}) {
+  if (!statsUrl || !apiKey) return null;
+  let url;
+  try {
+    url = rankedTopUrl(statsUrl);
+  } catch {
+    return null;
+  }
+  try {
+    const response = await fetchImpl(url, {
+      method: "GET",
+      headers: { "X-API-Key": apiKey },
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(body.players)) return null;
+    return body.players
+      .map((player) => ({
+        nick: String(player?.nick || "").replace(/\s+/g, " ").trim(),
+        rankTier: player?.rankTier || "CHALLENGER",
+        elo: Number(player?.elo),
+      }))
+      .filter((player) => player.nick)
+      .slice(0, 5);
+  } catch {
+    return null;
+  }
+}
+
 function gameIsLive(room, match) {
   try {
     if (room?.getScores?.()) return true;
@@ -62,5 +98,6 @@ module.exports = {
   playerStatusUrl,
   uniqueAuths,
   fetchPlayerSiteStatus,
+  fetchRankedTop,
   gameIsLive,
 };

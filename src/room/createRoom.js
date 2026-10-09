@@ -35,7 +35,7 @@ const { detectRageQuit, isChooseToken, rageQuitMessages, targetTeamSize } = requ
 const { rememberIdentity, withIdentity } = require("./playerAuth");
 const { guardRoomApi } = require("./safeApi");
 const { scheduleMidgameDisc } = require("./disc");
-const { gameIsLive } = require("../haxbook/playerStatus");
+const { gameIsLive, fetchRankedTop } = require("../haxbook/playerStatus");
 const { createRankedAnnouncer } = require("./rankedWindows");
 const { setRoomControl } = require("../server/tokenServer");
 const { createLobbyRoomAdmin } = require("../server/roomAdmin");
@@ -1195,10 +1195,7 @@ function createRoom(HBInit) {
         1
       );
       commands.announceStoreJoin(bound);
-      const rankedJoin = rankedAnnouncer.joinLine();
-      if (rankedJoin) {
-        room.sendAnnouncement(rankedJoin, player.id, 0xf1c40f, "bold", 1);
-      }
+      void rankedAnnouncer.greet(player.id);
       notifyJoin({
         playerId: player.id,
         nick: player.name,
@@ -2037,7 +2034,11 @@ function createRoom(HBInit) {
   const rankedAnnouncer = createRankedAnnouncer({
     formatLabel: "4v4",
     announce: (text) => room.sendAnnouncement(text, null, 0xf1c40f, "bold", 2),
+    players: () => room.getPlayerList().filter((p) => p && p.id),
+    tell: (playerId, text) => room.sendAnnouncement(text, playerId, 0xf1c40f, "bold", 1),
+    fetchTop: () => fetchRankedTop({ statsUrl: config.haxbookStatsUrl, apiKey: config.haxbookApiKey }),
   });
+  ctx.rankedLive = () => rankedAnnouncer.isLive();
   const rankedHandle = rankedAnnouncer.start();
 
   applyStadium(room, 0);

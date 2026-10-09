@@ -5,6 +5,8 @@ const {
   upcomingWindow,
   upcomingMessage,
   startedMessage,
+  rankedChatHead,
+  formatTop5,
   createRankedAnnouncer,
 } = require("../src/room/rankedWindows");
 
@@ -43,5 +45,45 @@ describe("janelas ranqueadas", () => {
   it("textos citam o formato da sala", () => {
     assert.match(upcomingMessage({ startHour: 15, startMinute: 0, endHour: 16, endMinute: 0 }, "4v4"), /4v4/);
     assert.match(startedMessage({ startHour: 19, startMinute: 0, endHour: 20, endMinute: 0 }, "3v3"), /3v3/);
+  });
+
+  it("patente no chat e top 5 com elo", () => {
+    assert.equal(rankedChatHead({ linked: true, rankTier: "SILVER_2", siteEmblem: "💫" }), "[⬜PRATA II][💫]");
+    assert.equal(rankedChatHead({ linked: true, rankTier: "CHALLENGER", siteEmblem: "💫", storeEmoji: "🍔" }), "[🟥DESAFIANTE][🍔][💫]");
+    assert.equal(rankedChatHead({ linked: true, rankTier: "UNRANKED" }), "[🟧UNRANKED]");
+    assert.equal(rankedChatHead({ linked: false, siteEmblem: "💫" }), "[🔳DESVINCULADO]");
+    assert.equal(
+      formatTop5([{ nick: "rato", rankTier: "CHALLENGER", elo: 3240 }]),
+      "Top 5\n[🟥DESAFIANTE] rato · 3240"
+    );
+  });
+
+  it("quem já está recebe o top 5 uma vez e quem entra recebe numa mensagem só", async () => {
+    const publicLines = [];
+    const privateLines = [];
+    const present = [{ id: 2 }];
+    const announcer = createRankedAnnouncer({
+      formatLabel: "4v4",
+      now: () => new Date("2026-09-15T18:00:00.000Z"),
+      announce: (text) => publicLines.push(text),
+      players: () => present,
+      tell: (id, text) => privateLines.push({ id, text }),
+      fetchTop: async () => [{ nick: "rato", rankTier: "CHALLENGER", elo: 3240 }],
+    });
+    announcer.tick();
+    announcer.tick();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(publicLines.length, 1);
+    assert.equal(privateLines.length, 1);
+    assert.equal(privateLines[0].id, 2);
+    assert.match(privateLines[0].text, /^Top 5/);
+    assert.doesNotMatch(privateLines[0].text, /Ranqueada rolando/);
+    await announcer.greet(2);
+    assert.equal(privateLines.length, 1);
+    await announcer.greet(3);
+    assert.equal(privateLines.length, 2);
+    assert.match(privateLines[1].text, /Ranqueada rolando/);
+    assert.match(privateLines[1].text, /Top 5/);
+    assert.equal(privateLines[1].text.split("Top 5").length, 2);
   });
 });
