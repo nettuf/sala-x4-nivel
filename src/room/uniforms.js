@@ -54,6 +54,7 @@ const COMMUNITY_KITS = [
   { id: "pedro", name: "Amigos do Pedro", angle: 32, text: 0xffffff, colors: [0x221930, 0x32294f], emoji: "🥀" },
   { id: "tulio", name: "Amigos do Tulio", angle: 601, text: 0x851575, colors: [0xc420ae, 0xff29e2], emoji: "💅" },
   { id: "marconhados", name: "Marconhados", angle: 33, text: 0x1be329, colors: [0x108518, 0x14a81e], emoji: "☘️" },
+  { id: "cachaca", name: "Cachaçados", angle: 60, text: 0x000000, colors: [0xfff70f, 0xfffaf7], emoji: "🍺" },
   {
     id: "olympusguardians",
     name: "Olympus Guardians",
