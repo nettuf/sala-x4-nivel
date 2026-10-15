@@ -243,6 +243,14 @@ const COMMUNITY_KITS = [
     text: 0xd81818,
     colors: [0x000000],
   },
+  {
+    id: "jonas",
+    name: "JONAS",
+    angle: 310,
+    text: 0xffffff,
+    colors: [0x000000, 0xc38c00, 0xd39700],
+    emoji: "\u{1F473}\u{1F3FF}\u200D\u2642\uFE0F",
+  },
 ];
 
 const KITS = [...COLOR_KITS, ...COMMUNITY_KITS];

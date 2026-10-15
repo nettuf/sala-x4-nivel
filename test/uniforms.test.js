@@ -79,6 +79,10 @@ describe("uniformes: catálogo e regras puras", () => {
     assert.equal(findKit("magic").text, 0xd81818);
     assert.deepEqual(findKit("magic").colors, [0x000000]);
     assert.equal(findKit("magic").emoji, undefined);
+    assert.equal(findKit("jonas").name, "JONAS");
+    assert.equal(findKit("jonas").angle, 310);
+    assert.equal(findKit("jonas").text, 0xffffff);
+    assert.deepEqual(findKit("jonas").colors, [0x000000, 0xc38c00, 0xd39700]);
     assert.equal(findKit("naoexiste"), null);
   });
 
@@ -353,11 +357,13 @@ describe("uniformes: emoji do kit", () => {
       "amigosvasco",
       "baleio",
       "cacadores",
+      "cachaca",
       "copas",
       "gh",
       "gigachads",
       "gordo",
       "jalin",
+      "jonas",
       "jota",
       "leao",
       "lionsa",
