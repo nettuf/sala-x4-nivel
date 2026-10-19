@@ -7,7 +7,10 @@ const {
   PARTICIPANT_KEYS,
   lastFourOnTeam,
   fieldEightAtWhistle,
+  fieldEightFromLineup,
+  resolveFieldEightForSite,
   shouldSendHaxbookStats,
+  siteStatsSkipReason,
   winnerLabel,
   makeMatchId,
   participantRow,
@@ -65,7 +68,7 @@ describe("payload haxbook", () => {
     assert.equal(eight.blue.length, 4);
   });
 
-  it("só envia se começou 4v4, não quebrou o formato e terminou 8 em campo", () => {
+  it("só envia se começou 4v4, não quebrou o formato e tem 8 jogadores", () => {
     const fieldEight = fieldEightAtWhistle(eightOnField());
     assert.equal(
       shouldSendHaxbookStats({
@@ -103,6 +106,33 @@ describe("payload haxbook", () => {
       }),
       false
     );
+    assert.equal(
+      siteStatsSkipReason({
+        valid: true,
+        startedFourOnFour: true,
+        formatBroken: true,
+        fieldEight,
+      }),
+      "format-broken"
+    );
+  });
+
+  it("decided usa lineup; sem decided apito cheio prefere o campo", () => {
+    const red = [1, 2, 3, 4].map((id) => ({ id, name: `R${id}`, team: 1 }));
+    const blue = [5, 6, 7, 8].map((id) => ({ id, name: `B${id}`, team: 2 }));
+    assert.equal(fieldEightFromLineup(red, blue).red.length, 4);
+    const liveShort = eightOnField().map((p) =>
+      p.id === 8 ? { ...p, team: 0 } : p
+    );
+    const viaLineup = resolveFieldEightForSite(liveShort, red, blue);
+    assert.equal(viaLineup.source, "lineup");
+    assert.equal(viaLineup.fieldEight.blue.map((p) => p.name).join(), "B5,B6,B7,B8");
+    const viaLive = resolveFieldEightForSite(eightOnField(), red, blue);
+    assert.equal(viaLive.source, "apito");
+    const decidedFreeze = resolveFieldEightForSite(eightOnField(), red, blue, {
+      decided: true,
+    });
+    assert.equal(decidedFreeze.source, "lineup");
   });
 
   it("winner e playTime 0; sem ranked; chaves do contrato", () => {
@@ -183,7 +213,17 @@ describe("payload haxbook", () => {
   it("manda play-stats, tempo e flags de MVP/WoM", () => {
     const { red, blue } = fieldEightAtWhistle(eightOnField());
     const playMap = new Map([
-      [2, { id: 2, auth: "auth-r2", passes: 6, misplaced: 2, tackles: 3, possTicks: 40 }],
+      [2, {
+        id: 2,
+        auth: "auth-r2",
+        passes: 6,
+        misplaced: 2,
+        tackles: 3,
+        possTicks: 40,
+        clearances: 2,
+        errors: 1,
+        shotSaved: 3,
+      }],
     ]);
     const rows = buildParticipants({
       red,
@@ -203,10 +243,16 @@ describe("payload haxbook", () => {
     assert.equal(passer.misplaced, 2);
     assert.equal(passer.tackles, 3);
     assert.equal(passer.possTicks, 40);
+    assert.equal(passer.clearances, 2);
+    assert.equal(passer.errors, 1);
+    assert.equal(passer.shotSaved, 3);
     assert.equal(passer.mvp, true);
     assert.equal(passer.playTime, 187);
     assert.equal(worst.worst, true);
     assert.equal(worst.passes, 0);
+    assert.equal(worst.clearances, 0);
+    assert.equal(worst.errors, 0);
+    assert.equal(worst.shotSaved, 0);
   });
 });
 
@@ -322,20 +368,41 @@ describe("finish 4v4 → payload do site", () => {
     );
   });
 
-  it("troca no meio: manda quem está em campo no apito, não o que saiu", async () => {
+  it("troca no meio: lineup oficial (sub entra, quem saiu cai fora do site)", async () => {
     const players = eightOnField();
-    const scores = finishScores();
+    let scores = { red: 1, blue: 0, time: 60, scoreLimit: 3, timeLimit: 240 };
     const { room } = roomWith(players, scores);
+    room.getScores = () => scores;
     const match = createMatchController(room);
     match.start({ competitive: true });
     players[0].team = TEAM.SPEC;
-    players.push({ id: 99, name: "Sub", auth: "auth-sub", team: TEAM.RED });
+    const sub = { id: 99, name: "Sub", auth: "auth-sub", team: TEAM.RED };
+    players.push(sub);
+    assert.equal(match.addToLineup(sub, TEAM.RED), true);
+    scores = finishScores();
     match.markVictory();
     const result = await match.finish(scores, { persist: false });
     const nicks = result.persistPayload.haxbook.participants.map((p) => p.nickname);
     assert.ok(nicks.includes("Sub"));
     assert.equal(nicks.includes("R1"), false);
     assert.equal(nicks.length, 8);
+  });
+
+  it("vitória e alguém sai na celebração: ainda manda o 4v4 do lineup", async () => {
+    const players = eightOnField();
+    const scores = finishScores();
+    const { room } = roomWith(players, scores);
+    const match = createMatchController(room);
+    match.start({ competitive: true });
+    match.markVictory();
+    players[0].team = TEAM.SPEC;
+    players[4].team = TEAM.SPEC;
+    const result = await match.finish(scores, { persist: false });
+    assert.ok(result.persistPayload.haxbook);
+    assert.equal(result.persistPayload.haxbook.participants.length, 8);
+    const nicks = result.persistPayload.haxbook.participants.map((p) => p.nickname);
+    assert.ok(nicks.includes("R1"));
+    assert.ok(nicks.includes("B5"));
   });
 
   it("começou 1v1 competitivo não manda pro site", async () => {
@@ -353,7 +420,7 @@ describe("finish 4v4 → payload do site", () => {
     assert.equal(result.persistPayload.haxbook, null);
   });
 
-  it("4v4 que virou 3v3 no meio não manda mesmo se voltar a 4", async () => {
+  it("4v4 que quebrou e voltou a 4v4 volta a mandar pro site", async () => {
     const players = eightOnField();
     const scores = finishScores();
     const { room } = roomWith(players, scores);
@@ -361,6 +428,22 @@ describe("finish 4v4 → payload do site", () => {
     match.start({ competitive: true });
     match.setCompetitive(false, { breakFormat: true });
     match.setCompetitive(true);
+    match.markVictory();
+    const result = await match.finish(scores, { persist: false });
+    assert.equal(result.valid, true);
+    assert.ok(result.persistPayload.haxbook, "reposição 4v4 deve contar no site");
+    assert.equal(result.persistPayload.haxbook.participants.length, 8);
+  });
+
+  it("4v4 que quebrou e terminou 3v3 (sem restaurar) não manda", async () => {
+    const players = eightOnField();
+    const scores = finishScores();
+    const { room } = roomWith(players, scores);
+    const match = createMatchController(room);
+    match.start({ competitive: true });
+    match.setCompetitive(false, { breakFormat: true });
+    players[3].team = TEAM.SPEC;
+    players[7].team = TEAM.SPEC;
     match.markVictory();
     const result = await match.finish(scores, { persist: false });
     assert.equal(result.valid, true);
@@ -442,7 +525,7 @@ describe("finish 4v4 → payload do site", () => {
     assert.equal(marketFinished.body.participants.find((p) => p.auth === "auth-b5").goals, 0);
   });
 
-  it("terminou 4v3 no apito não manda", async () => {
+  it("terminou 4v3 no apito (celebração/ragequit) ainda manda via lineup", async () => {
     const players = eightOnField();
     const scores = finishScores();
     const { room } = roomWith(players, scores);
@@ -451,7 +534,11 @@ describe("finish 4v4 → payload do site", () => {
     players[7].team = TEAM.SPEC;
     match.markVictory();
     const result = await match.finish(scores, { persist: false });
-    assert.equal(result.persistPayload.haxbook, null);
+    assert.ok(result.persistPayload.haxbook, "lineup do 4v4 cobre saída pós-apito");
+    assert.equal(result.persistPayload.haxbook.participants.length, 8);
+    assert.ok(
+      result.persistPayload.haxbook.participants.some((p) => p.nickname === "B8")
+    );
   });
 
   it("marca o goleiro pela posição X nesta partida", async () => {

@@ -1276,6 +1276,13 @@ function createRoom(HBInit) {
         setTimeout(() => room.stopGame(), 100);
         return;
       }
+      // Placar já decidiu (celebração): saída pós-vitória não repor / não formatBroken.
+      // O finish congela lineup e manda pro site; o lobby só depois do stop.
+      if (match.isDecided()) {
+        if (choose.isActive()) choose.deactivate();
+        stopDecidedLiveMatch();
+        return;
+      }
     }
 
     if (choose.isActive()) {
@@ -2001,9 +2008,29 @@ function createRoom(HBInit) {
       console.warn(`[health] ${action}: ${reason}`);
       if (action === "stop-game") {
         choose.deactivate();
-        match.setCompetitive(false, { breakFormat: true });
         lobbyRevision += 1;
         forceResume();
+        // Partida já decidida: para no fluxo normal (finish → site/Discord).
+        // lobbyTransition + cancelRecordingOnly apagava 4v4 válido sem POST.
+        if (match.isDecided() && room.getScores()) {
+          match.markVictory();
+          try {
+            room.stopGame();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        match.setCompetitive(false, { breakFormat: true });
+        if (room.getScores()) {
+          try {
+            room.stopGame();
+          } catch {
+            /* ignore */
+          }
+          laterForCurrentLobby(refreshLobby, 600);
+          return;
+        }
         stopCurrentGame({ lobbyTransition: true });
         laterForCurrentLobby(refreshLobby, 600);
         return;

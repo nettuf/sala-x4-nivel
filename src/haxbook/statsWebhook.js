@@ -22,6 +22,9 @@ const PARTICIPANT_KEYS = [
   "recoveries",
   "lost",
   "possTicks",
+  "clearances",
+  "errors",
+  "shotSaved",
 ];
 
 function lastFourOnTeam(players, team) {
@@ -37,6 +40,28 @@ function fieldEightAtWhistle(players) {
   return { red, blue };
 }
 
+/** Últimos 4 de cada lado no lineup oficial (reposições entram; saída pós-apito não apaga). */
+function fieldEightFromLineup(lineupRed, lineupBlue) {
+  const red = (lineupRed || []).filter((p) => p && p.id !== 0).slice(-4);
+  const blue = (lineupBlue || []).filter((p) => p && p.id !== 0).slice(-4);
+  if (red.length < 4 || blue.length < 4) return null;
+  return { red, blue };
+}
+
+/**
+ * Partida decidida: lineup oficial primeiro (ragequit / saída na celebração
+ * não mudam quem conta). Senão: campo ao vivo (reposição ainda no apito),
+ * com fallback no lineup.
+ */
+function resolveFieldEightForSite(livePlayers, lineupRed, lineupBlue, { decided = false } = {}) {
+  const lineup = fieldEightFromLineup(lineupRed, lineupBlue);
+  const live = fieldEightAtWhistle(livePlayers);
+  if (decided && lineup) return { fieldEight: lineup, source: "lineup" };
+  if (live) return { fieldEight: live, source: "apito" };
+  if (lineup) return { fieldEight: lineup, source: "lineup" };
+  return { fieldEight: null, source: null };
+}
+
 function shouldSendHaxbookStats({ valid, startedFourOnFour, formatBroken, fieldEight } = {}) {
   return !!(
     valid &&
@@ -45,6 +70,16 @@ function shouldSendHaxbookStats({ valid, startedFourOnFour, formatBroken, fieldE
     fieldEight?.red?.length === 4 &&
     fieldEight?.blue?.length === 4
   );
+}
+
+function siteStatsSkipReason({ valid, startedFourOnFour, formatBroken, fieldEight } = {}) {
+  if (!valid) return "invalida";
+  if (!startedFourOnFour) return "nao-comecou-4v4";
+  if (formatBroken) return "format-broken";
+  if (!fieldEight || fieldEight.red?.length !== 4 || fieldEight.blue?.length !== 4) {
+    return "sem-8-jogadores";
+  }
+  return null;
 }
 
 function winnerLabel(winner) {
@@ -108,6 +143,9 @@ function participantRow({
     recoveries: intStat(play?.recoveries),
     lost: intStat(play?.lost),
     possTicks: intStat(play?.possTicks),
+    clearances: intStat(play?.clearances),
+    errors: intStat(play?.errors),
+    shotSaved: intStat(play?.shotSaved),
   };
 }
 
@@ -197,7 +235,13 @@ async function postMatchStats(url, apiKey, body, opts = {}) {
   const fetchImpl = opts.fetch || globalThis.fetch;
   const retryDelayMs = opts.retryDelayMs ?? 500;
   const timeoutMs = opts.timeoutMs ?? 8000;
-  if (!url || !apiKey || !body) return { ok: false, attempts: 0 };
+  if (!url || !apiKey || !body) {
+    console.warn(
+      `[haxbook] stats skip: ${!url ? "url" : !apiKey ? "apiKey" : "body"} ausente` +
+        (body?.matchId ? ` matchId=${body.matchId}` : "")
+    );
+    return { ok: false, attempts: 0 };
+  }
 
   async function once() {
     const res = await fetchImpl(url, {
@@ -219,6 +263,9 @@ async function postMatchStats(url, apiKey, body, opts = {}) {
   try {
     attempts += 1;
     await once();
+    console.log(
+      `[haxbook] stats ok matchId=${body.matchId || "?"} ${body.redScore ?? "?"}x${body.blueScore ?? "?"} attempts=${attempts}`
+    );
     return { ok: true, attempts };
   } catch (err) {
     console.warn("[haxbook] stats", err.message);
@@ -227,6 +274,9 @@ async function postMatchStats(url, apiKey, body, opts = {}) {
     if (retryDelayMs > 0) await delay(retryDelayMs);
     attempts += 1;
     await once();
+    console.log(
+      `[haxbook] stats ok matchId=${body.matchId || "?"} ${body.redScore ?? "?"}x${body.blueScore ?? "?"} attempts=${attempts}`
+    );
     return { ok: true, attempts };
   } catch (err) {
     console.warn("[haxbook] stats retry failed — partida perdida no site", err.message);
@@ -238,7 +288,10 @@ module.exports = {
   PARTICIPANT_KEYS,
   lastFourOnTeam,
   fieldEightAtWhistle,
+  fieldEightFromLineup,
+  resolveFieldEightForSite,
   shouldSendHaxbookStats,
+  siteStatsSkipReason,
   winnerLabel,
   makeMatchId,
   participantRow,

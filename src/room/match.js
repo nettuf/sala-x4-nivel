@@ -22,8 +22,9 @@ const {
 } = require("../gameLogic");
 const { pickMatchMvps, pickMatchWorst, filterPlayersAtWhistle, withPlayStats, formatMvpAnnounce, formatWorstAnnounce } = require("../titles");
 const {
-  fieldEightAtWhistle,
+  resolveFieldEightForSite,
   shouldSendHaxbookStats,
+  siteStatsSkipReason,
   makeMatchId,
   buildParticipants,
   buildStatsBody,
@@ -651,8 +652,11 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
         .filter(Boolean)
     );
     const playersForTitles = filterPlayersAtWhistle(players, finishedAuths);
-    const fieldEight = fieldEightAtWhistle(
-      room.getPlayerList().map((p) => who(p))
+    const { fieldEight, source: fieldEightSource } = resolveFieldEightForSite(
+      room.getPlayerList().map((p) => who(p)),
+      lineupRed,
+      lineupBlue,
+      { decided }
     );
     const siteEligible = shouldSendHaxbookStats({
       valid,
@@ -687,6 +691,24 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
           }),
         })
       : null;
+    if (valid && match.startedFourOnFour) {
+      if (siteEligible) {
+        console.log(
+          `[match] site send ${scoreRed}x${scoreBlue} matchId=${match.matchId || "?"} via=${fieldEightSource || "?"}`
+        );
+      } else {
+        const reason = siteStatsSkipReason({
+          valid,
+          startedFourOnFour: !!match.startedFourOnFour,
+          formatBroken: !!match.formatBroken,
+          fieldEight,
+        });
+        console.log(
+          `[match] site skip ${scoreRed}x${scoreBlue} reason=${reason}` +
+            ` broken=${!!match.formatBroken} field=${fieldEightSource || "none"}`
+        );
+      }
+    }
     const marketFinalists = marketParticipants(room.getPlayerList().map((p) => {
       const player = who(p);
       return { ...player, goals: tallyForPlayer(player).goals };
@@ -940,16 +962,21 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     cancelRecordingOnly,
     captureState,
     adoptLiveGame,
-  /** breakFormat: true só quando o formato oficial quebrou (ex. 4v4→3v3). Lobby não marca. */
+  /** breakFormat: true só quando o formato oficial quebrou (ex. 4v4→3v3). Lobby não marca.
+   * Voltar a 4v4 cheio limpa a flag — reposição / recover ainda conta no site. */
     setCompetitive(value, { breakFormat = false } = {}) {
       if (!match) return;
       match.competitive = !!value;
       if (value) {
         match.everCompetitive = true;
-        if (!match.matchId && !match.formatBroken) {
-          const redN = playersOf(1).length;
-          const blueN = playersOf(2).length;
-          if (redN >= 4 && blueN >= 4) {
+        const redN = playersOf(1).length;
+        const blueN = playersOf(2).length;
+        if (redN >= 4 && blueN >= 4) {
+          if (match.formatBroken) {
+            match.formatBroken = false;
+            console.log("[match] format restored 4v4 — site elegível de novo");
+          }
+          if (!match.matchId) {
             match.startedFourOnFour = true;
             match.startedAt = Date.now();
             match.matchId = makeMatchId(match.startedAt);
