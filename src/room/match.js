@@ -12,7 +12,6 @@ const {
   goalAreaFromStadium,
   shouldIgnoreClusteredReceive,
   applyPlayEvents,
-  formatPlayChatLines,
   formatPlaySummaryLines,
   canJoinMatchStats,
   isDecidedLosingScore,
@@ -20,7 +19,7 @@ const {
   sameTouchPlayer,
   dedupeMatchPlayers,
 } = require("../gameLogic");
-const { pickMatchMvps, pickMatchWorst, filterPlayersAtWhistle, withPlayStats, formatMvpAnnounce, formatWorstAnnounce } = require("../titles");
+const { filterPlayersAtWhistle } = require("../titles");
 const {
   resolveFieldEightForSite,
   shouldSendHaxbookStats,
@@ -34,6 +33,7 @@ const { createHaxbooket, marketParticipants } = require("../haxbook/haxbooket");
 const { liveStoreEffects, storeGoalPhrase, vipGoalPhrase, vipAssistPhrase, vipCleanSheetPhrase } = require("../haxbook/store");
 const { createPostMatchInsights } = require("../haxbook/insight");
 const maps = require("./maps");
+const report = require("./matchReport");
 
 /**
  * Controle de partida: recording, toques (gol/assist), stats e replay.
@@ -66,6 +66,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
   let redPoss = 0;
   let bluePoss = 0;
   let tickN = 0;
+  let partialMinute = 0;
   /** @type {Map<number, { xSum: number, n: number, team: number }>} */
   let gkSamples = new Map();
   const TOUCH_RADIUS = 27;
@@ -135,6 +136,11 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
 
     if (!match || !s) return;
     const timeLimit = s.timeLimit || 0;
+    const minute = report.minuteOf(s.time);
+    if (minute > partialMinute) {
+      partialMinute = minute;
+      if (!(timeLimit > 0 && minute * 60 >= timeLimit - 1)) announcePartial(minute, s);
+    }
     if (timeLimit > 0 && Math.abs((s.time || 0) - timeLimit) <= 0.08) {
       if (s.red !== s.blue) {
         if (!timeExpiryHandled) {
@@ -169,6 +175,69 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     }
   }
 
+  function fieldPlayers() {
+    return room
+      .getPlayerList()
+      .filter((p) => p && p.id !== 0 && (p.team === 1 || p.team === 2))
+      .map((p) => who(p));
+  }
+
+  function reportRows(players, scores, winner) {
+    return report.buildRows({
+      players,
+      playMap: match.playStats,
+      tally: tallyForPlayer,
+      gk: gkFromSamples(),
+      shots: report.countShots(match.kicks, match.goals),
+      redScore: scores?.red ?? 0,
+      blueScore: scores?.blue ?? 0,
+      winner,
+    });
+  }
+
+  function tell(text, playerId, color) {
+    try {
+      room.sendAnnouncement(text, playerId, color, playerId == null ? "bold" : "normal", playerId == null ? 1 : 0);
+    } catch {
+      /* jogador saiu */
+    }
+  }
+
+  function announcePartial(minute, scores) {
+    if (!match.competitive) return;
+    try {
+      const players = fieldPlayers();
+      if (!players.some((p) => p.team === 1) || !players.some((p) => p.team === 2)) return;
+      const red = scores.red || 0;
+      const blue = scores.blue || 0;
+      const leader = red > blue ? 1 : blue > red ? 2 : 0;
+      const shots = report.countShots(match.kicks, match.goals);
+      const totals = report.teamTotals(match.playStats, shots, possessionPercents(redPoss, bluePoss));
+      for (const line of report.formatPartialTeams({ minute, redScore: red, blueScore: blue, totals })) {
+        tell(line, null, 0x5dade2);
+      }
+      for (const row of reportRows(players, scores, leader)) {
+        tell(report.formatPartialPlayer(row, minute), row.id, 0xa9dfbf);
+      }
+    } catch (err) {
+      console.warn("[match] parcial", err.message);
+    }
+  }
+
+  function announceReport({ scoreRed, scoreBlue, winner, poss, titles, rows }) {
+    const shots = report.countShots(match?.kicks, match?.goals);
+    const totals = report.teamTotals(match?.playStats, shots, poss);
+    for (const line of report.formatFinalTeams({ redScore: scoreRed, blueScore: scoreBlue, totals })) {
+      tell(line, null, 0xecf0f1);
+    }
+    if (titles.mvp) tell(report.formatTitleLine("mvp", titles.mvp), null, 0xf1c40f);
+    if (titles.worst) tell(report.formatTitleLine("worst", titles.worst), null, 0xe67e22);
+    const ranked = report.rankRows(rows);
+    ranked.forEach((row, index) => {
+      if (row.id != null) tell(report.formatFinalPlayer(row, index + 1, ranked.length), row.id, 0xa9dfbf);
+    });
+  }
+
   function start({ competitive = false } = {}) {
     endByVictory = false;
     forcedWinner = 0;
@@ -179,6 +248,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     redPoss = 0;
     bluePoss = 0;
     tickN = 0;
+    partialMinute = 0;
     gkSamples = new Map();
     const redN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 1).length;
     const blueN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 2).length;
@@ -667,8 +737,11 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     const fieldIds = siteEligible
       ? new Set([...fieldEight.red, ...fieldEight.blue].map((p) => p.id))
       : null;
-    const mvps = valid ? pickMatchMvps(playersForTitles) : [];
-    const worst = valid ? pickMatchWorst(playersForTitles) : [];
+    const whistleRows = valid ? reportRows(fieldPlayers(), { red: scoreRed, blue: scoreBlue }, winner) : [];
+    const titles = report.pickSiteTitles(whistleRows.filter((row) => row.auth && finishedAuths.has(row.auth)));
+    const byAuth = (row) => (row ? playersForTitles.filter((p) => p.auth === row.auth).slice(0, 1) : []);
+    const mvps = byAuth(titles.mvp);
+    const worst = byAuth(titles.worst);
     const haxbook = siteEligible
       ? buildStatsBody({
           matchId: match.matchId,
@@ -719,8 +792,14 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     }
     const poss = possessionPercents(redPoss, bluePoss);
     const playMap = match.playStats;
-    const chatLines = formatPlayChatLines(playMap, poss);
     const playLines = formatPlaySummaryLines(playMap);
+    if (valid) {
+      try {
+        announceReport({ scoreRed, scoreBlue, winner, poss, titles, rows: whistleRows });
+      } catch (err) {
+        console.warn("[match] relatorio", err.message);
+      }
+    }
 
     const snapshot = {
       scoreRed,
@@ -747,19 +826,20 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
 
     let titleUnlocks = [];
     const persistPayload = valid
-      ? { scoreRed, scoreBlue, winner, players, goals, snapshot, haxbook }
+      ? {
+          scoreRed,
+          scoreBlue,
+          winner,
+          players,
+          goals,
+          snapshot,
+          haxbook,
+          mvpAuths: mvps.map((p) => p.auth),
+          worstAuths: worst.map((p) => p.auth),
+        }
       : null;
 
     if (valid) {
-      for (const line of chatLines) {
-        room.sendAnnouncement(line, null, 0xecf0f1, "bold", 1);
-      }
-      if (mvps.length) {
-        room.sendAnnouncement(formatMvpAnnounce(withPlayStats(mvps[0], playMap)), null, 0xf1c40f, "bold", 2);
-      }
-      if (worst.length) {
-        room.sendAnnouncement(formatWorstAnnounce(withPlayStats(worst[0], playMap)), null, 0xe67e22, "bold", 2);
-      }
       announceCleanSheets(players);
 
       try {
@@ -802,6 +882,8 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
         valid: true,
         players: payload.players,
         goals: payload.goals,
+        mvpAuths: payload.mvpAuths,
+        worstAuths: payload.worstAuths,
       });
       titleUnlocks = saved?.titleUnlocks || [];
       hallClaims = saved?.hallClaims || [];
@@ -907,6 +989,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
   /** Admin startGame no painel: o motor já rodou, só sincroniza o controller. */
   function adoptLiveGame(state = {}) {
     if (match) return;
+    partialMinute = report.minuteOf(room.getScores()?.time);
     const redN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 1).length;
     const blueN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 2).length;
     const startedFourOnFour = !!state.startedFourOnFour || (!!state.competitive && redN >= 4 && blueN >= 4);

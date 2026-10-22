@@ -10,7 +10,7 @@ function displayUrl(url) {
 }
 
 /**
- * Um texto a cada intervalo, em ordem: Discord → site → clips → gols → partidas.
+ * Um texto a cada intervalo, em ordem: Discord → site → Dream Team → clips → Haxtape → Cartola → gols → partidas.
  */
 function buildCarouselSlides({ discordUrl, siteUrl, clipsUrl, goals = 0, games = 0 } = {}) {
   const slides = [];
@@ -31,6 +31,11 @@ function buildCarouselSlides({ discordUrl, siteUrl, clipsUrl, goals = 0, games =
       color: 0x1abc9c,
     });
   }
+  slides.push({
+    key: "dream",
+    text: "⭐ Arma o Dream Team e disputa com a sala: www.haxbook.com.br/dream-team",
+    color: 0x9b59b6,
+  });
   if (clips) {
     slides.push({
       key: "clips",
@@ -38,6 +43,16 @@ function buildCarouselSlides({ discordUrl, siteUrl, clipsUrl, goals = 0, games =
       color: 0xe74c3c,
     });
   }
+  slides.push({
+    key: "haxtape",
+    text: "✂️ Fez golaço? Corte o clipe com a ferramenta do Haxbook: www.haxbook.com.br/ferramentas/haxtape",
+    color: 0xff6b1a,
+  });
+  slides.push({
+    key: "cartola",
+    text: "🏆 Monte o seu time no Cartola e dispute o topo da semana: www.haxbook.com.br/cartola",
+    color: 0x27ae60,
+  });
   slides.push({
     key: "goals",
     text: `⚽ Nesta sala já foram ${formatRoomCount(goals)} gols`,

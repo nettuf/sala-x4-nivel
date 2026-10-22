@@ -663,7 +663,6 @@ function withPlayStats(player, playMap) {
     interceptions: row.interceptions,
     tackles: row.tackles,
     saves: row.saves,
-    recoveries: row.recoveries,
     lost: row.lost,
   };
 }

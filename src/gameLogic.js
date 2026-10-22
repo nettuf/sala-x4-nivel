@@ -145,7 +145,6 @@ function emptyPlayStat(player = {}) {
     ownKicks: 0,
     errors: 0,
     clearances: 0,
-    recoveries: 0,
     lost: 0,
     possTicks: 0,
     possCount: 0,
@@ -163,7 +162,6 @@ function emptyPlayEvents() {
     tackle: null,
     lost: null,
     clearance: null,
-    recovery: null,
     kickGoal: null,
     ownKick: null,
     errors: null,
@@ -318,7 +316,6 @@ function applyPlayEvents(map, events) {
   if (events.tackle) bumpPlayStat(map, events.tackle, "tackles");
   if (events.lost) bumpPlayStat(map, events.lost, "lost");
   if (events.clearance) bumpPlayStat(map, events.clearance, "clearances");
-  if (events.recovery) bumpPlayStat(map, events.recovery, "recoveries");
   if (events.kickGoal) bumpPlayStat(map, events.kickGoal, "kickGoals");
   if (events.ownKick) bumpPlayStat(map, events.ownKick, "ownKicks");
   if (events.errors) bumpPlayStat(map, events.errors, "errors");

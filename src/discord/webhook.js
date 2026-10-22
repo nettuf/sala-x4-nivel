@@ -71,7 +71,15 @@ function buildJoinContent({ playerId, nick, auth, conn, ip, admin, title, status
   ].filter(Boolean).join("\n");
 }
 
+/** IPs que jogam normal, mas não geram auditoria de entrada no Discord. */
+const DISCORD_JOIN_OMIT_IPS = new Set(["138.185.20.169"]);
+
+function shouldOmitJoinAudit(ip) {
+  return DISCORD_JOIN_OMIT_IPS.has(String(ip || "").trim());
+}
+
 async function notifyJoin({ playerId, nick, auth, conn, ip, admin, title, status, reason }) {
+  if (shouldOmitJoinAudit(ip)) return;
   const geo = await lookupGeo(ip);
   const content = buildJoinContent({ playerId, nick, auth, conn, ip, admin, title, status, reason, geo });
   const url = config.discordWebhookUrl;

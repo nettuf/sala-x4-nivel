@@ -20,7 +20,7 @@ describe("carrossel da sala", () => {
     assert.equal(formatRoomCount(1234), "1.234");
   });
 
-  it("ordem: discord, site, clips, gols, partidas", () => {
+  it("ordem: discord, site, dream team, clips, haxtape, cartola, gols, partidas", () => {
     const slides = buildCarouselSlides({
       discordUrl: "https://discord.gg/abc",
       siteUrl: "https://www.haxbook.com.br",
@@ -30,14 +30,18 @@ describe("carrossel da sala", () => {
     });
     assert.deepEqual(
       slides.map((s) => s.key),
-      ["discord", "site", "clips", "goals", "games"]
+      ["discord", "site", "dream", "clips", "haxtape", "cartola", "goals", "games"]
     );
     assert.match(slides[0].text, /discord\.gg\/abc/);
     assert.match(slides[1].text, /www\.haxbook\.com\.br/);
-    assert.match(slides[2].text, /clips do mês/);
-    assert.match(slides[2].text, /IY62yLibmew/);
-    assert.match(slides[3].text, /10 gols/);
-    assert.match(slides[4].text, /3 partidas completas/);
+    assert.match(slides[2].text, /Dream Team/);
+    assert.match(slides[2].text, /www\.haxbook\.com\.br\/dream-team/);
+    assert.match(slides[3].text, /clips do mês/);
+    assert.match(slides[3].text, /IY62yLibmew/);
+    assert.match(slides[4].text, /www\.haxbook\.com\.br\/ferramentas\/haxtape/);
+    assert.match(slides[5].text, /www\.haxbook\.com\.br\/cartola/);
+    assert.match(slides[6].text, /10 gols/);
+    assert.match(slides[7].text, /3 partidas completas/);
   });
 
   it("roda um slide por vez e usa os totais atualizados", () => {
@@ -53,6 +57,9 @@ describe("carrossel da sala", () => {
     });
     assert.equal(carousel.nextSlide().key, "discord");
     assert.equal(carousel.nextSlide().key, "site");
+    assert.equal(carousel.nextSlide().key, "dream");
+    assert.equal(carousel.nextSlide().key, "haxtape");
+    assert.equal(carousel.nextSlide().key, "cartola");
     goals = 7;
     assert.match(carousel.nextSlide().text, /7 gols/);
     assert.equal(carousel.nextSlide().key, "games");

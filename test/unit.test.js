@@ -302,7 +302,6 @@ describe("gameLogic", () => {
     assert.equal(steal.kickType, "steal");
     assert.equal(steal.misplaced, a);
     assert.equal(steal.interception, c);
-    assert.equal(steal.recovery, null);
     assert.equal(steal.pass, null);
 
     const saved = classifyTouchChange(a, c, {
@@ -362,7 +361,6 @@ describe("gameLogic", () => {
     const loose = classifyTouchChange(a, c, { pendingKick: null });
     assert.equal(loose.lost, a);
     assert.equal(loose.tackle, c);
-    assert.equal(loose.recovery, null);
     assert.equal(loose.misplaced, null);
 
     const stats = new Map();

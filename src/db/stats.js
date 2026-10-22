@@ -159,15 +159,15 @@ async function cleanupOldMatches() {
   else if (count) console.log(`[stats] cleanup matches: ${count} partidas >${MATCH_RETENTION_DAYS}d`);
 }
 
-async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals }) {
+async function saveMatch({ scoreRed, scoreBlue, winner, valid, players, goals, mvpAuths: mvpGiven, worstAuths: worstGiven }) {
   const sb = getSupabase();
   if (!sb) return null;
 
   const roster = dedupeMatchPlayers(players);
-  const mvpList = valid ? pickMatchMvps(roster) : [];
-  const mvpAuths = new Set(mvpList.map((p) => p.auth).filter(Boolean));
-  const worstList = valid ? pickMatchWorst(roster) : [];
-  const womAuths = new Set(worstList.map((p) => p.auth).filter(Boolean));
+  const mvpList = !valid ? [] : Array.isArray(mvpGiven) ? mvpGiven : pickMatchMvps(roster).map((p) => p.auth);
+  const mvpAuths = new Set(mvpList.filter(Boolean));
+  const worstList = !valid ? [] : Array.isArray(worstGiven) ? worstGiven : pickMatchWorst(roster).map((p) => p.auth);
+  const womAuths = new Set(worstList.filter(Boolean));
 
   const { data: match, error } = await sb
     .from("matches")

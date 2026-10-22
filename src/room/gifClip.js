@@ -4,6 +4,8 @@ const ROOM_CD_MS = 3 * 60 * 1000;
 const STAFF_GIF_LEVEL = 4;
 const CLIP_SEC = 15;
 const MIN_LIVE_SEC = 2;
+/** Janela após o apito em que ainda dá pra marcar !gif (mensagem do comando). */
+const HOLD_AFTER_MS = 20 * 1000;
 
 function round1(n) {
   return Math.round(Number(n) * 10) / 10;
@@ -34,6 +36,7 @@ function createGifClip({
   let recording = null;
   let matchEndTime = 0;
   let held = false;
+  let holdTimer = null;
 
   function playerKey(player, auth) {
     if (auth) return `a:${auth}`;
@@ -45,11 +48,54 @@ function createGifClip({
   }
 
   function clipTime() {
+    // Depois do apito o corte é o fim da partida, não o relógio ao vivo (pode sumir/zerar).
+    if (held && matchEndTime > 0) return round1(matchEndTime);
     const scores = typeof room?.getScores === "function" ? room.getScores() : null;
     const t = Number(scores?.time);
     if (Number.isFinite(t) && t > 0) return round1(t);
     if (matchEndTime > 0) return round1(matchEndTime);
     return 0;
+  }
+
+  function clearHoldTimer() {
+    if (holdTimer != null) {
+      clearSchedule(holdTimer);
+      holdTimer = null;
+    }
+  }
+
+  function clearHoldState() {
+    clearHoldTimer();
+    held = false;
+    recording = null;
+    matchEndTime = 0;
+  }
+
+  function armHoldTimer() {
+    clearHoldTimer();
+    holdTimer = schedule(() => {
+      holdTimer = null;
+      endHold();
+    }, HOLD_AFTER_MS);
+  }
+
+  /** Fecha a janela pós-apito: envia o que sobrou e solta o replay. */
+  function endHold() {
+    if (flushing) {
+      holdTimer = schedule(() => {
+        holdTimer = null;
+        endHold();
+      }, 50);
+      return;
+    }
+    held = false;
+    clearHoldTimer();
+    if (pending.length) {
+      flushSoon();
+      return;
+    }
+    recording = null;
+    matchEndTime = 0;
   }
 
   function markClip(player, auth, paid) {
@@ -76,22 +122,24 @@ function createGifClip({
     const run = () => {
       if (flushing) return;
       if (!pending.length) {
-        held = false;
-        recording = null;
+        if (!held) {
+          recording = null;
+          matchEndTime = 0;
+        }
         return;
       }
       if (!recording || !recording.length) {
         pending.length = 0;
-        held = false;
-        recording = null;
+        if (!held) clearHoldState();
         announce("Não deu pra gerar o GIF agora.", null, 0xe74c3c);
         return;
       }
       flushing = true;
       const windows = pending.splice(0, pending.length);
       const file = recording;
-      recording = null;
-      held = false;
+      if (!held) {
+        recording = null;
+      }
       console.log("[gif] enviando", windows.length, "corte(s)", file.length, "bytes");
       Promise.resolve()
         .then(() => postClip({ recording: file, roomLabel, windows }))
@@ -120,6 +168,14 @@ function createGifClip({
         })
         .finally(() => {
           flushing = false;
+          if (pending.length) {
+            flushSoon();
+            return;
+          }
+          if (!held) {
+            recording = null;
+            matchEndTime = 0;
+          }
         });
     };
     if (typeof setImmediate === "function") setImmediate(run);
@@ -128,6 +184,7 @@ function createGifClip({
 
   function resetPending() {
     if (flushing || held) return;
+    clearHoldTimer();
     pending.length = 0;
     recording = null;
     matchEndTime = 0;
@@ -139,7 +196,8 @@ function createGifClip({
     const end = Number(opts.endTime);
     matchEndTime = Number.isFinite(end) && end > 0 ? round1(end) : clipTime();
     held = true;
-    flushSoon();
+    armHoldTimer();
+    if (pending.length) flushSoon();
   }
 
   function request(player, { auth = null, staffLevel = 0, paidCredit = false } = {}) {
@@ -196,4 +254,5 @@ module.exports = {
   STAFF_GIF_LEVEL,
   CLIP_SEC,
   MIN_LIVE_SEC,
+  HOLD_AFTER_MS,
 };

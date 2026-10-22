@@ -7,6 +7,7 @@ const {
   MAX_WINDOWS,
   PLAYER_CD_MS,
   ROOM_CD_MS,
+  HOLD_AFTER_MS,
 } = require("../src/room/gifClip");
 const {
   gifClipUrlFromStats,
@@ -126,12 +127,68 @@ describe("gifClip", () => {
       },
     });
     clip.holdReplay(FILE, { endTime: 42 });
+    await waitFlush();
+    assert.equal(posts.length, 0, "sem !gif ainda, só segura o replay");
     assert.equal(clip.request({ id: 1, name: "A" }, { auth: "a1" }).reason, "staff-only");
     const staff = clip.request({ id: 2, name: "Chefe" }, { auth: "c1", staffLevel: 4 });
     assert.equal(staff.queued, true);
     await waitFlush();
     assert.equal(posts.length, 1);
     assert.equal(posts[0].windows[0].endTime, 42);
+  });
+
+  it("segura o replay 20s após o apito e depois barra !gif", async () => {
+    const posts = [];
+    /** @type {{ fn: Function, ms: number }[]} */
+    const timers = [];
+    const clip = createGifClip({
+      room: mockRoom(),
+      canClip: () => false,
+      announce: () => {},
+      schedule: (fn, ms) => {
+        const id = timers.length;
+        timers.push({ fn, ms });
+        return id;
+      },
+      clearSchedule: (id) => {
+        timers[id] = null;
+      },
+      postClip: async (payload) => {
+        posts.push(payload);
+        return { ok: true };
+      },
+    });
+    clip.holdReplay(FILE, { endTime: 55 });
+    await waitFlush();
+    assert.equal(posts.length, 0, "apito sem !gif não dispara upload");
+    assert.equal(timers.some((t) => t && t.ms === HOLD_AFTER_MS), true);
+
+    assert.equal(markChief(clip).queued, true);
+    await waitFlush();
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].windows[0].endTime, 55);
+
+    const timers2 = [];
+    const late = createGifClip({
+      room: mockRoom(),
+      canClip: () => false,
+      announce: () => {},
+      schedule: (fn, ms) => {
+        const id = timers2.length;
+        timers2.push({ fn, ms });
+        return id;
+      },
+      clearSchedule: (id) => {
+        timers2[id] = null;
+      },
+      postClip: async () => ({ ok: true }),
+    });
+    late.holdReplay(FILE, { endTime: 60 });
+    await waitFlush();
+    const hold = timers2.find((t) => t && t.ms === HOLD_AFTER_MS);
+    hold.fn();
+    await waitFlush();
+    assert.equal(markChief(late).reason, "not-live");
   });
 
   it("reset do winner stays depois do apito não apaga o GIF marcado", async () => {

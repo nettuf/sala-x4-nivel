@@ -461,7 +461,7 @@ describe("x4 completo: jornada integrada", () => {
     assert.ok(result.persistPayload?.haxbook, "payload pro site");
     assert.equal(result.persistPayload.haxbook.participants.length, 8);
     assert.ok(
-      host.announcements.some((a) => /MVP:/i.test(a.msg)),
+      host.announcements.some((a) => /^⭐ MVP · .+ · nota \d+,\d/.test(a.msg)),
       "anuncia MVP no chat"
     );
     host.cleanup();
