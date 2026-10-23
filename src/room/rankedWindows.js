@@ -67,6 +67,16 @@ function upcomingWindow(date = new Date()) {
   return window ? { window, parts, key: `upcoming-${windowKey(parts, window)}` } : null;
 }
 
+function fiveMinuteWindow(date = new Date()) {
+  const parts = saoPauloParts(date);
+  const now = minutesOfDay(parts);
+  const window = WINDOWS.find((item) => {
+    const start = windowStartMinutes(item);
+    return now >= start - 5 && now < start - 4;
+  });
+  return window ? { window, parts, key: `prefetch5-${windowKey(parts, window)}` } : null;
+}
+
 function upcomingMessage(window, formatLabel) {
   return `Ranqueada em 15 min (${formatClock(window.startHour, window.startMinute)}–${formatClock(window.endHour, window.endMinute)}, Brasília). Formato oficial desta sala: ${formatLabel}.`;
 }
@@ -118,10 +128,6 @@ function formatTop5(players) {
   return lines.length > 1 ? lines.join("\n") : "";
 }
 
-function dayKey(parts) {
-  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
-}
-
 function createRankedAnnouncer({
   announce,
   formatLabel,
@@ -133,15 +139,8 @@ function createRankedAnnouncer({
 } = {}) {
   const seen = new Set();
   const told = new Map();
-  let topPlayers = [];
-  let booted = false;
-  let refreshedDay = null;
+  let cache = { slot: null, players: [] };
   let loading = null;
-  let nextTryAt = 0;
-
-  function topText() {
-    return formatTop5(topPlayers);
-  }
 
   function claim(playerId, key) {
     if (!playerId || !key) return false;
@@ -152,23 +151,20 @@ function createRankedAnnouncer({
     return true;
   }
 
-  async function ensureTop(date = now()) {
-    if (typeof fetchTop !== "function") return;
-    const parts = saoPauloParts(date);
-    const day = dayKey(parts);
-    const afterJob = parts.hour >= 6;
-    if (afterJob && refreshedDay === day) return;
-    if (!afterJob && booted) return;
+  function listFor(slot) {
+    if (cache.slot !== slot || !cache.players.length) return "";
+    return formatTop5(cache.players);
+  }
+
+  function ensureCached(slot) {
+    if (cache.slot === slot && cache.players.length) return null;
+    if (typeof fetchTop !== "function") return null;
     if (loading) return loading;
-    if (Date.now() < nextTryAt) return;
-    nextTryAt = Date.now() + 60000;
     loading = Promise.resolve()
       .then(() => fetchTop())
       .then((rows) => {
-        if (!Array.isArray(rows)) return;
-        topPlayers = rows;
-        booted = true;
-        if (afterJob) refreshedDay = day;
+        if (!Array.isArray(rows) || !rows.length) return;
+        cache = { slot, players: rows };
       })
       .finally(() => {
         loading = null;
@@ -176,35 +172,47 @@ function createRankedAnnouncer({
     return loading;
   }
 
-  async function tellRoom(live) {
-    if (typeof tell !== "function" || typeof players !== "function") return;
-    await ensureTop(now());
-    const still = activeWindow(now());
-    if (!still || still.key !== live.key) return;
-    const list = topText();
-    if (!list) return;
+  function rememberPresent(key) {
+    if (typeof players !== "function") return;
     for (const player of players() || []) {
-      if (!player?.id || !claim(player.id, live.key)) continue;
-      tell(player.id, list);
+      if (player?.id) claim(player.id, key);
     }
   }
 
+  async function openWindow(live, date) {
+    if (seen.has(live.key)) return;
+    seen.add(live.key);
+    const slot = windowKey(live.parts, live.window);
+    const pending = ensureCached(slot);
+    if (pending) await pending;
+    const still = activeWindow(date);
+    if (!still || still.key !== live.key) return;
+    rememberPresent(live.key);
+    if (typeof announce !== "function") return;
+    const head = startedMessage(live.window, formatLabel);
+    const list = listFor(slot);
+    announce(list ? `${head}\n${list}` : head);
+  }
+
   function tick(date = now()) {
-    void ensureTop(date);
     const live = activeWindow(date);
     if (live) {
-      if (!seen.has(live.key)) {
-        seen.add(live.key);
-        if (typeof announce === "function") announce(startedMessage(live.window, formatLabel));
-      }
-      void tellRoom(live);
+      if (!seen.has(live.key)) void openWindow(live, date);
       return live;
     }
     const upcoming = upcomingWindow(date);
     if (upcoming && !seen.has(upcoming.key)) {
       seen.add(upcoming.key);
       if (typeof announce === "function") announce(upcomingMessage(upcoming.window, formatLabel));
+      void ensureCached(windowKey(upcoming.parts, upcoming.window));
       return upcoming;
+    }
+    const soon = fiveMinuteWindow(date);
+    if (soon && !seen.has(soon.key)) {
+      seen.add(soon.key);
+      const slot = windowKey(soon.parts, soon.window);
+      if (!(cache.slot === slot && cache.players.length)) void ensureCached(slot);
+      return soon;
     }
     return null;
   }
@@ -212,19 +220,21 @@ function createRankedAnnouncer({
   async function greet(playerId, date = now()) {
     const live = activeWindow(date);
     if (!live || !playerId || typeof tell !== "function") return;
-    await ensureTop(date);
-    const still = activeWindow(now());
-    if (!still || still.key !== live.key) return;
     if (!claim(playerId, live.key)) return;
-    const list = topText();
-    const text = list ? `${joinMessage(live.window, formatLabel)}\n${list}` : joinMessage(live.window, formatLabel);
-    tell(playerId, text);
+    const slot = windowKey(live.parts, live.window);
+    const pending = ensureCached(slot);
+    if (pending) await pending;
+    const still = activeWindow(date);
+    if (!still || still.key !== live.key) return;
+    const list = listFor(slot);
+    const head = joinMessage(live.window, formatLabel);
+    tell(playerId, list ? `${head}\n${list}` : head);
   }
 
   function start() {
-    void ensureTop(now());
     const timer = setInterval(() => tick(), intervalMs);
     if (typeof timer.unref === "function") timer.unref();
+    tick();
     return {
       stop() {
         clearInterval(timer);

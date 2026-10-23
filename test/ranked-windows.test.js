@@ -58,32 +58,70 @@ describe("janelas ranqueadas", () => {
     );
   });
 
-  it("quem já está recebe o top 5 uma vez e quem entra recebe numa mensagem só", async () => {
+  it("busca o top 15 min antes e anuncia junto quando abre", async () => {
     const publicLines = [];
     const privateLines = [];
+    let fetches = 0;
     const present = [{ id: 2 }];
     const announcer = createRankedAnnouncer({
       formatLabel: "4v4",
-      now: () => new Date("2026-09-15T18:00:00.000Z"),
+      now: () => new Date("2026-09-15T17:45:00.000Z"),
       announce: (text) => publicLines.push(text),
       players: () => present,
       tell: (id, text) => privateLines.push({ id, text }),
-      fetchTop: async () => [{ nick: "rato", rankTier: "CHALLENGER", elo: 3240 }],
+      fetchTop: async () => {
+        fetches += 1;
+        return [{ nick: "rato", rankTier: "CHALLENGER", elo: 3240 }];
+      },
     });
     announcer.tick();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fetches, 1);
+    assert.equal(publicLines.length, 1);
+    assert.match(publicLines[0], /15 min/);
+    assert.doesNotMatch(publicLines[0], /Top 5/);
+
+    announcer.tick(new Date("2026-09-15T17:55:00.000Z"));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fetches, 1);
+
+    announcer.tick(new Date("2026-09-15T18:00:00.000Z"));
+    announcer.tick(new Date("2026-09-15T18:01:00.000Z"));
+    assert.equal(publicLines.length, 2);
+    assert.match(publicLines[1], /aberta até 16:00/);
+    assert.match(publicLines[1], /Top 5/);
+    assert.match(publicLines[1], /rato · 3240/);
+    assert.equal(privateLines.length, 0);
+    assert.equal(fetches, 1);
+
+    const during = new Date("2026-09-15T18:00:00.000Z");
+    await announcer.greet(2, during);
+    assert.equal(privateLines.length, 0);
+    await announcer.greet(3, during);
+    assert.equal(privateLines.length, 1);
+    assert.match(privateLines[0].text, /Ranqueada rolando/);
+    assert.match(privateLines[0].text, /Top 5/);
+    assert.equal(fetches, 1);
+  });
+
+  it("resposta vazia não trava e tenta de novo 5 min antes", async () => {
+    let fetches = 0;
+    let rows = [];
+    const announcer = createRankedAnnouncer({
+      formatLabel: "3v3",
+      now: () => new Date("2026-09-15T17:45:00.000Z"),
+      announce: () => {},
+      fetchTop: async () => {
+        fetches += 1;
+        return rows;
+      },
+    });
     announcer.tick();
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(publicLines.length, 1);
-    assert.equal(privateLines.length, 1);
-    assert.equal(privateLines[0].id, 2);
-    assert.match(privateLines[0].text, /^Top 5/);
-    assert.doesNotMatch(privateLines[0].text, /Ranqueada rolando/);
-    await announcer.greet(2);
-    assert.equal(privateLines.length, 1);
-    await announcer.greet(3);
-    assert.equal(privateLines.length, 2);
-    assert.match(privateLines[1].text, /Ranqueada rolando/);
-    assert.match(privateLines[1].text, /Top 5/);
-    assert.equal(privateLines[1].text.split("Top 5").length, 2);
+    assert.equal(fetches, 1);
+    rows = [{ nick: "rato", rankTier: "CHALLENGER", elo: 10 }];
+    announcer.tick(new Date("2026-09-15T17:55:00.000Z"));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(fetches, 2);
   });
 });
