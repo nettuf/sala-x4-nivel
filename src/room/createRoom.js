@@ -573,11 +573,11 @@ function createRoom(HBInit) {
     const redN = players.filter((p) => p.team === TEAM.RED && !afk.isAfk(p.id)).length;
     const blueN = players.filter((p) => p.team === TEAM.BLUE && !afk.isAfk(p.id)).length;
     const live = !!(match.isRunning() && room.getScores());
-    const fourOnField = redN >= config.teamSize && blueN >= config.teamSize;
+    const exactFour = redN === config.teamSize && blueN === config.teamSize;
 
-    // 4v4 ao vivo completo: nunca warmup, nunca RR, nunca choose, nunca pausa presa.
-    // Cobre admin puxando no x3/treino e o mapa x4 oficial.
-    if (live && fourOnField) {
+    // 4v4 ao vivo completo (4 e 4): nunca warmup, nunca RR, nunca choose, nunca pausa presa.
+    // 5v4 não entra aqui — o extra desce. Senão a sala trata o time torto como jogo pronto e não inicia.
+    if (live && exactFour) {
       if (choose.isReplacement()) choose.deactivate();
       releaseReplacementPause();
       if (!match.isCompetitive()) match.setCompetitive(true);
@@ -631,11 +631,14 @@ function createRoom(HBInit) {
       const fieldRed = players.filter((p) => p.team === TEAM.RED && !afk.isAfk(p.id)).length;
       const fieldBlue = players.filter((p) => p.team === TEAM.BLUE && !afk.isAfk(p.id)).length;
       // Admin (ou o par do 3v3) já fechou o 4v4: inicia. Não abre choose nem segura pausa.
+      // Os dois lados com 4 ou mais e um deles passando de 4: desce o extra e aí sim apita.
+      // Sem isso o início recusa o 5v4 e chama o lobby de novo, para sempre.
       if (fieldRed >= config.teamSize && fieldBlue >= config.teamSize) {
+        if (fieldRed > config.teamSize || fieldBlue > config.teamSize) shedOverflow(players);
         choose.deactivate();
         releaseReplacementPause();
         if (live) {
-          match.setCompetitive(true);
+          if (!match.isCompetitive()) match.setCompetitive(true);
           return;
         }
         setLobbyStadium(config.teamSize * 2);
@@ -748,6 +751,16 @@ function createRoom(HBInit) {
     startFromCurrentField();
   }
 
+  /** Passou de 4 num lado: o excedente vai ao spec. 5v4 parado não pode ficar sem apito. */
+  function shedOverflow(list) {
+    for (const team of [TEAM.RED, TEAM.BLUE]) {
+      const side = list.filter((p) => p.team === team && !afk.isAfk(p.id));
+      for (const extra of side.slice(config.teamSize)) {
+        room.setPlayerTeam(extra.id, TEAM.SPEC);
+      }
+    }
+  }
+
   /** AFK nunca entra em campo: fora da partida o tick do AFK não corrige isso. */
   function parkAfkOnField() {
     for (const p of room.getPlayerList()) {
@@ -761,6 +774,7 @@ function createRoom(HBInit) {
     winnerStaysPending = null;
     if (match.isRunning()) return;
     parkAfkOnField();
+    shedOverflow(room.getPlayerList().filter((p) => p.id !== 0));
     const eligible = room
       .getPlayerList()
       .filter((p) => p.id !== 0 && !afk.isAfk(p.id));
@@ -768,7 +782,8 @@ function createRoom(HBInit) {
     const red = eligible.filter((p) => p.team === TEAM.RED);
     const blue = eligible.filter((p) => p.team === TEAM.BLUE);
     // Times desiguais nunca iniciam: era assim que saía um 4v1 rodando.
-    if (red.length !== blue.length || red.length < size || blue.length < size) {
+    // Excedente já foi para o spec. Se ainda não fechou iguais, o lobby equilibra — uma vez.
+    if (red.length !== blue.length || red.length < size || blue.length < size || red.length > config.teamSize) {
       laterForCurrentLobby(refreshLobby);
       return;
     }
