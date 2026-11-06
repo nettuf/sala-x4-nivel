@@ -251,6 +251,21 @@ const COMMUNITY_KITS = [
     colors: [0x000000, 0xc38c00, 0xd39700],
     emoji: "\u{1F473}\u{1F3FF}\u200D\u2642\uFE0F",
   },
+  {
+    id: "bruce",
+    name: "BRUCETA FC",
+    angle: 60,
+    text: 0x808080,
+    colors: [0x590000],
+  },
+  {
+    id: "stf",
+    name: "STF do ABEL",
+    angle: 30,
+    text: 0xffffff,
+    colors: [0x000000, 0x991b08, 0x000000],
+    emoji: "👴",
+  },
 ];
 
 const KITS = [...COLOR_KITS, ...COMMUNITY_KITS];

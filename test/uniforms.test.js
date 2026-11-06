@@ -379,6 +379,7 @@ describe("uniformes: emoji do kit", () => {
       "rafaela",
       "rato",
       "skdreams",
+      "stf",
       "tigre",
       "tulio",
       "whales",
