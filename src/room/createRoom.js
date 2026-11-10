@@ -1096,16 +1096,14 @@ function createRoom(HBInit) {
 
     const leftField = previousTeam === TEAM.RED || previousTeam === TEAM.BLUE;
 
-    // Começo da partida (nunca teclou/chutou): RR sem stats em 1v1–4v4.
-    // Placar já decidido (ex. 2x0): ragequit conta vitória, não RR.
+    // Começo da partida (nunca teclou/chutou): só RR pra recomeçar.
+    // Nunca ragequit / vitória / derrota / stats — mesmo com placar sujo da partida anterior.
     if (
       leftField &&
       player &&
       isKickoffIdleAfk(type, player.id, movedThisMatch, kickoffFieldIds) &&
       room.getScores()
     ) {
-      const scores = match.snapshotScores() || room.getScores();
-      if (tryEndAsRageQuit(player, scores, { fieldTeam: previousTeam })) return;
       restartAfterKickoffAfk(player);
       return;
     }

@@ -974,6 +974,11 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     }
     releaseRecordingForGif(recording, Number(snapshotScores()?.time) || 0);
     match = null;
+    // RR / desmontagem: não deixa placar antigo virar ragequit no próximo 0x0.
+    lastScores = null;
+    forcedWinner = 0;
+    endByVictory = false;
+    timeExpiryHandled = false;
   }
 
   function captureState() {
@@ -989,6 +994,11 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
   /** Admin startGame no painel: o motor já rodou, só sincroniza o controller. */
   function adoptLiveGame(state = {}) {
     if (match) return;
+    endByVictory = false;
+    forcedWinner = 0;
+    lastScores = null;
+    goldenGoal = false;
+    timeExpiryHandled = false;
     partialMinute = report.minuteOf(room.getScores()?.time);
     const redN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 1).length;
     const blueN = room.getPlayerList().filter((p) => p && p.id !== 0 && p.team === 2).length;

@@ -164,8 +164,8 @@ function applyPartialFill(room, specs, { redNeed = 0, blueNeed = 0 } = {}) {
 
 /**
  * Auto-AFK de quem nunca teclou nesta partida (relógio zerado no onGameStart).
- * Vale para treino 1v1–3v3 e 4v4: RR sem stats, depois o capitão escolhe.
- * Empurrão e chute mexem o disco e zeram; tecla no lugar e chat não.
+ * Vale para treino 1v1–3v3 e 4v4: só RR pra recomeçar (sem ragequit/stats),
+ * depois o capitão escolhe. Empurrão e chute mexem o disco e zeram; tecla no lugar e chat não.
  */
 function isKickoffIdleAfk(type, playerId, movedIds, kickoffFieldIds) {
   if (type !== "auto-afk" || playerId == null || movedIds.has(playerId)) return false;
