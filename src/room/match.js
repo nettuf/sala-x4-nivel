@@ -1,6 +1,7 @@
 const config = require("../config");
 const { saveMatch } = require("../db/stats");
 const { sendReplayAndSummary } = require("../discord/replay");
+const { postMatchReplay } = require("../haxbook/matchReplayWebhook");
 const {
   attributeGoal,
   isValidMatchScores,
@@ -809,6 +810,7 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
       bluePlayers: lineupBlue.map((p) => ({ name: p.name })),
       recording,
       playLines,
+      matchId: match.matchId || null,
     };
     releaseRecordingForGif(recording, Number(finalScores?.time) || 0);
 
@@ -892,6 +894,15 @@ function createMatchController(room, { identify, onCompletedMatch, getStreak, on
     }
     setTimeout(() => {
       sendReplayAndSummary(payload.snapshot).catch(() => {});
+      const matchId = payload.haxbook?.matchId || payload.snapshot?.matchId;
+      if (matchId && payload.snapshot?.recording?.length) {
+        postMatchReplay(config.haxbookStatsUrl, config.haxbookApiKey, {
+          matchId,
+          recording: payload.snapshot.recording,
+        }).catch((err) => {
+          console.warn("[haxbook] replay-upload", err?.message || err);
+        });
+      }
     }, 400);
     if (payload.haxbook) {
       postMatchStats(config.haxbookStatsUrl, config.haxbookApiKey, payload.haxbook).catch((err) => {
