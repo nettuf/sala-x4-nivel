@@ -356,7 +356,7 @@ describe("finish 4v4 → payload do site", () => {
     assert.equal(body.winner, "RED");
     assert.equal(body.redScore, 3);
     assert.equal(body.blueScore, 1);
-    assert.equal(body.roomName, "Comunismo x4");
+    assert.equal(body.roomName, "Haxbook X4 Nível");
     assert.equal(body.participants.length, 8);
     assert.equal(body.participants.every((p) => p.playTime === 200), true);
     assert.equal("ranked" in body, false);

@@ -129,10 +129,10 @@ describe("webhook de ban", () => {
     assert.equal(ok, true);
     assert.equal(posts.length, 2);
     assert.equal(posts[0].url, "https://discord.example/hook");
-    assert.equal(posts[0].body.content.includes("[X4] [BAN]"), false);
+    assert.equal(posts[0].body.content.includes("[X4NIVEL] [BAN]"), false);
     assert.equal(posts[1].url, "https://discord.example/central");
     assert.equal(posts[1].body.username, "HAXBOOK log");
-    assert.match(posts[1].body.content, /^\[X4\] \[BAN\]\n/);
+    assert.match(posts[1].body.content, /^\[X4NIVEL\] \[BAN\]\n/);
     assert.match(posts[1].body.content, /Trollzao/);
   });
 
@@ -155,7 +155,7 @@ describe("webhook de ban", () => {
 
     assert.equal(posts.length, 1);
     assert.equal(posts[0].url, "https://discord.example/central");
-    assert.match(posts[0].body.content, /^\[X4\] \[MUTE\]\n/);
+    assert.match(posts[0].body.content, /^\[X4NIVEL\] \[MUTE\]\n/);
     assert.match(posts[0].body.content, /Falador/);
   });
 });

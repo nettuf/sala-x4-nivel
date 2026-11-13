@@ -1,15 +1,15 @@
 {
-  "name": "sala-x4",
+  "name": "sala-x4-nivel",
   "version": "1.0.0",
   "private": true,
-  "description": "Sala Haxball futsal x4 + Supabase + Discord webhook",
+  "description": "Haxbook X4 Nível — futsal x4 com gate de rating (75+)",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "start:token": "node src/server/tokenServer.js",
     "test": "node --test test/**/*.test.js",
     "pm2:start": "pm2 start ecosystem.config.cjs",
-    "pm2:restart": "pm2 restart sala-x4"
+    "pm2:restart": "pm2 restart sala-x4-nivel"
   },
   "engines": {
     "node": ">=22.18.0"

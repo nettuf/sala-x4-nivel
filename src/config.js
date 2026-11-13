@@ -47,10 +47,12 @@ const config = {
   tokenOverridePath: TOKEN_OVERRIDE,
   readToken,
   writeToken,
-  roomName: process.env.ROOM_NAME || "☭🚩 FUTZERA | X4 RETURN 🚩☭",
+  roomName: process.env.ROOM_NAME || "⬆ HAXBOOK | X4 NÍVEL 75+ ⬆",
   public: bool(process.env.ROOM_PUBLIC, true),
   maxPlayers: Number(process.env.ROOM_MAX_PLAYERS || 30),
   password: process.env.ROOM_PASSWORD || null,
+  // Entrada: rating do site > minRating. Site fora = deixa entrar (fail-open).
+  minRating: Number(process.env.MIN_RATING || 75),
   // Bandeira chinesa; lat/lon ~163km de Pouso Alegre (faixa Futsalzito/Xupiscarena)
   geo: process.env.GEO || "CN",
   geoLat: Number(process.env.GEO_LAT || -23.0295),
@@ -61,7 +63,7 @@ const config = {
   scoreLimit: Number(process.env.SCORE_LIMIT || 3),
   timeLimit: Number(process.env.TIME_LIMIT || 4),
   teamSize: Number(process.env.TEAM_SIZE || 4),
-  chooseTimeSec: Number(process.env.CHOOSE_TIME_SEC || 20),
+  chooseTimeSec: Number(process.env.CHOOSE_TIME_SEC || 15),
   // AFK em campo: 11s aviso, 15s spec. No spec: kick aos 20 min. Sala 28+: o excesso sai aos 5 min.
   afkWarnMs: 11000,
   afkActionMs: 15000,
@@ -94,23 +96,23 @@ const config = {
   discordChatWebhookUrl: process.env.DISCORD_CHAT_WEBHOOK_URL || DEFAULT_CHAT_WEBHOOK,
   discordCallAdmWebhookUrl: process.env.DISCORD_CALL_ADM_WEBHOOK_URL || DEFAULT_CALL_ADM_WEBHOOK,
   discordCentralWebhookUrl: process.env.DISCORD_CENTRAL_WEBHOOK_URL || DEFAULT_CENTRAL_WEBHOOK,
-  discordRoomTag: process.env.DISCORD_ROOM_TAG || "X4",
+  discordRoomTag: process.env.DISCORD_ROOM_TAG || "X4NIVEL",
   callAdmCooldownMs: Number(process.env.CALL_ADM_COOLDOWN_MS || 3 * 60 * 1000),
   discordChatFlushMs: Number(process.env.DISCORD_CHAT_FLUSH_MS || 4000),
-  tokenApiPort: Number(process.env.TOKEN_API_PORT || 3847),
+  tokenApiPort: Number(process.env.TOKEN_API_PORT || 3852),
   tokenApiHost: process.env.TOKEN_API_HOST || "0.0.0.0",
   tokenApiSecret: process.env.TOKEN_API_SECRET || "",
-  pm2ProcessName: process.env.PM2_PROCESS_NAME || "sala-x4",
+  pm2ProcessName: process.env.PM2_PROCESS_NAME || "sala-x4-nivel",
   discordInviteUrl: process.env.DISCORD_INVITE_URL || "https://discord.gg/ZTu7zwgvhm",
   siteUrl: process.env.SITE_URL || "https://www.haxbook.com.br",
   clipsVideoUrl:
     process.env.CLIPS_VIDEO_URL || "https://www.youtube.com/watch?v=IY62yLibmew",
-  // Stats 4v4 do site (além do Discord/Supabase). Sem API key não envia.
+  // Stats 4v4 do site (sala própria no back). Sem API key não envia.
   haxbookStatsUrl:
     process.env.HAXBOOK_STATS_URL ||
-    "https://api.haxbook.com.br/api/webhooks/servers/COMUNISMO/rooms/comunax4/stats",
+    "https://api.haxbook.com.br/api/webhooks/servers/COMUNISMO/rooms/comunax4nivel/stats",
   haxbookApiKey: process.env.HAXBOOK_API_KEY || "",
-  haxbookRoomName: process.env.HAXBOOK_ROOM_NAME || "Comunismo x4",
+  haxbookRoomName: process.env.HAXBOOK_ROOM_NAME || "Haxbook X4 Nível",
   // Carrossel na sala: Discord, site, gols, partidas (um a cada 10 min)
   carouselMs: Number(process.env.CAROUSEL_MS || process.env.DISCORD_AD_MS || 10 * 60 * 1000),
   discordAdMs: Number(process.env.DISCORD_AD_MS || process.env.CAROUSEL_MS || 10 * 60 * 1000),

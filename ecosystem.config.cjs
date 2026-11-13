@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "sala-x4",
+      name: "sala-x4-nivel",
       script: "src/index.js",
       cwd: __dirname,
       instances: 1,

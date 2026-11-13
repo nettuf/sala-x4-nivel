@@ -377,10 +377,10 @@ function createCommandHandler(room, ctx) {
 
   async function syncSiteStatus(players) {
     const auths = [...new Set((players || []).map((p) => resolveAuth(p)).filter(Boolean))];
-    if (!auths.length) return;
+    if (!auths.length) return { ok: false, reason: "no-auth" };
     if (!config.haxbookStatsUrl || !config.haxbookApiKey) {
       console.warn("[site-status] sem HAXBOOK_STATS_URL ou HAXBOOK_API_KEY");
-      return;
+      return { ok: false, reason: "no-config" };
     }
     const result = await fetchPlayerSiteStatus({
       statsUrl: config.haxbookStatsUrl,
@@ -392,7 +392,7 @@ function createCommandHandler(room, ctx) {
         "[site-status]",
         result.status ? `HTTP ${result.status}` : result.message || "falhou"
       );
-      return;
+      return { ok: false, reason: "fetch-failed", status: result.status || null };
     }
     const map = ensureSiteStatusMap();
     for (const auth of auths) {
@@ -408,6 +408,7 @@ function createCommandHandler(room, ctx) {
         rankTier: row.rankTier || null,
       });
     }
+    return { ok: true };
   }
 
   function jokeSubjectKey(player) {

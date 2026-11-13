@@ -24,6 +24,7 @@ const { createMatchController } = require("./match");
 const { createRoomStats } = require("./roomStats");
 const { createCarousel, buildCarouselSlides } = require("./carousel");
 const { applyJoinGuards } = require("./joinGuards");
+const { evaluateRatingGate } = require("./ratingGate");
 const { createUniformManager, findKit } = require("./uniforms");
 const { createStreakTracker, applyWinnerStays, shouldUseWinnerStays, pruneStreakIfTooFewHolders } = require("./streak");
 const { createCommandHandler } = require("../commands");
@@ -1154,7 +1155,7 @@ function createRoom(HBInit) {
   room.onRoomLink = (link) => {
     ctx.roomLink = typeof link === "string" ? link : null;
     roomLinkSync.send(ctx.roomLink, "room-link");
-    console.log("[sala-x4] link:", link);
+    console.log("[sala-x4-nivel] link:", link);
     scheduleHallBackfill();
   };
 
@@ -1203,11 +1204,27 @@ function createRoom(HBInit) {
       }
       await upsertPlayer({ auth, nick: player.name, conn, ip });
       const bound = await bindIdentity(player);
-      await commands.syncSiteStatus([bound]);
+      const sync = await commands.syncSiteStatus([bound]);
+      const liveAuth = bound?.auth || auth || null;
+      const status = liveAuth ? ctx.siteStatus?.get(liveAuth) : null;
+      const gate = evaluateRatingGate(status, {
+        minRating: config.minRating,
+        syncOk: !!sync?.ok,
+        hasAuth: !!liveAuth,
+      });
+      if (gate.action === "kick") {
+        logRejectedEntry(player, gate.reason);
+        try {
+          room.kickPlayer(player.id, kickReason(gate.reason), false);
+        } catch {
+          /* já saiu */
+        }
+        return;
+      }
       const title = ctx.titles.get(player.id) || { emblem: "🌱", color: 0xbdc3c7 };
       const site = commands.siteTitleFor(bound);
       room.sendAnnouncement(
-        `Bem-vindo, ${player.name}! Para ter seu rating, ranking, Cartola, Dream Team e muito mais, crie sua conta na Haxbook. !ajuda · !site`,
+        `Bem-vindo, ${player.name}! Sala Nível (rating > ${config.minRating}). !ajuda · !site`,
         player.id,
         site?.color || title.color,
         "normal",

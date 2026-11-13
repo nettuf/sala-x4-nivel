@@ -216,7 +216,7 @@ function createChooseController(room, {
   }
 
   function scheduleCaptainTimeouts(cap) {
-    const chooseTime = Number(config.chooseTimeSec) || 24;
+    const chooseTime = Number(config.chooseTimeSec) || 15;
     const capId = cap.id;
     capTimeoutUntil = Date.now() + chooseTime * 1000;
     const halfMs = (chooseTime / 2) * 1000;

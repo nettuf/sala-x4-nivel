@@ -7,11 +7,11 @@ const { installWebRtcSendGuard } = require("./room/webrtcSend");
 
 // Um erro solto (Supabase/Discord fora do ar) não pode reiniciar a sala no meio da partida.
 process.on("unhandledRejection", (reason) => {
-  console.error("[sala-x4] unhandledRejection:", reason?.message || reason);
+  console.error("[sala-x4-nivel] unhandledRejection:", reason?.message || reason);
 });
 
 process.on("uncaughtException", (err) => {
-  console.error("[sala-x4] uncaughtException:", err?.stack || err);
+  console.error("[sala-x4-nivel] uncaughtException:", err?.stack || err);
 });
 
 async function main() {
@@ -19,7 +19,7 @@ async function main() {
   startTokenServer();
 
   if (!config.readToken()) {
-    console.warn("[sala-x4] sem token — API /token no ar. Envie o token para subir a sala (reinicie após POST).");
+    console.warn("[sala-x4-nivel] sem token — API /token no ar. Envie o token para subir a sala (reinicie após POST).");
     return;
   }
 
@@ -29,13 +29,13 @@ async function main() {
   try {
     const HBInit = await HaxballJS();
     createRoom(HBInit);
-    console.log("[sala-x4] room host iniciado:", config.roomName);
+    console.log("[sala-x4-nivel] room host iniciado:", config.roomName);
   } catch (err) {
-    console.error("[sala-x4] falha ao abrir sala (token API segue ativa):", err.message || err);
+    console.error("[sala-x4-nivel] falha ao abrir sala (token API segue ativa):", err.message || err);
   }
 }
 
 main().catch((err) => {
-  console.error("[sala-x4] fatal:", err);
+  console.error("[sala-x4-nivel] fatal:", err);
   process.exit(1);
 });
